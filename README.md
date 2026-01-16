@@ -178,7 +178,7 @@ fed_AI replaces this with:
 
 ## What are “nodes” in fed_AI?
 
-Nodes are specialised service providers that orchestrate external runners (which can include small LLMs, diffusion backends, or other compute modules).
+Nodes are specialised service providers that orchestrate external runners (which can include small or large GPU-backed LLMs, diffusion backends, or other compute modules).
 
 A node might:
 
