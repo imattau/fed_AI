@@ -9,6 +9,7 @@ import { profileSystem } from '@fed-ai/profiler';
 import { runBench } from '@fed-ai/bench';
 import { recommend } from '@fed-ai/recommender';
 import { signManifest } from '@fed-ai/manifest';
+import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import type {
   Envelope,
   InferenceRequest,
@@ -33,6 +34,51 @@ const loadJson = async <T>(path: string): Promise<T> => {
   const raw = await readFile(path, 'utf8');
   return JSON.parse(raw) as T;
 };
+
+/** Split comma-separated values into normalized arrays for discovery overrides. */
+const parseListArg = (value?: string): string[] | undefined => {
+  return value
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+};
+
+/** Convert trust-score overrides (`url=score`) into a map. */
+const parseTrustScoresArg = (value?: string): Record<string, number> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const result: Record<string, number> = {};
+  for (const piece of value.split(',')) {
+    const [rawUrl, rawScore] = piece.split('=').map((item) => item.trim());
+    if (!rawUrl || !rawScore) {
+      continue;
+    }
+    const score = Number.parseFloat(rawScore);
+    if (Number.isFinite(score)) {
+      result[rawUrl] = score;
+    }
+  }
+  return Object.keys(result).length ? result : undefined;
+};
+
+/** Parse integer or floating-point arguments. */
+const parseNumberArg = (value?: string, float = false): number | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = float ? Number.parseFloat(value) : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+/** Build discovery options from CLI arguments. */
+const buildDiscoveryOptionsFromArgs = (args: Record<string, string>) => ({
+  bootstrapRelays: parseListArg(args.bootstrap),
+  aggregatorUrls: parseListArg(args.aggregators),
+  trustScores: parseTrustScoresArg(args['trust-scores']),
+  minScore: parseNumberArg(args['min-score'], true),
+  maxResults: parseNumberArg(args['max-results']),
+});
 
 const run = async (): Promise<void> => {
   const command = process.argv[2];
@@ -293,6 +339,12 @@ const run = async (): Promise<void> => {
       console.log('Router accepted payment receipt');
     }
 
+    return;
+  }
+
+  if (command === 'relays') {
+    const relays = await discoverRelays(buildDiscoveryOptionsFromArgs(args));
+    console.log(JSON.stringify(relays, null, 2));
     return;
   }
 

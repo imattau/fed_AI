@@ -17,6 +17,7 @@ Compute plane
 - Control-plane messages are signed and can be relayed over Nostr without payload leakage.
 - Discovery and reputation can be relay-backed while keeping prompts and outputs off relays.
 - Nostr relays are used for discovery and trust signaling; operational traffic is peer-to-peer between client, router, and node (direct HTTP).
+- Relay discovery uses the `@fed-ai/nostr-relay-discovery` package to fetch, normalise, score, and deduplicate aggregator directories, so routers and installers always have a fresh candidate set while keeping discovery logic decoupled from core services.
 
 ## Federation model
 

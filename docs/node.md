@@ -50,3 +50,9 @@ Metering
 Prohibitions
 - No direct inference logic in Node.js.
 - No prompt or output logging.
+
+## Relay discovery
+
+- Nodes also use `@fed-ai/nostr-relay-discovery` to gather relays for publishing capabilities or manifest updates.
+- Support the same overrides: `NODE_RELAY_BOOTSTRAP`, `NODE_RELAY_AGGREGATORS`, `NODE_RELAY_TRUST`, `NODE_RELAY_MIN_SCORE`, and `NODE_RELAY_MAX_RESULTS`.
+- Logs snapshot the top few relays at startup so operators can validate the choices before connecting to routers or relays.

@@ -50,3 +50,10 @@ Selection inputs
 Scheduling guarantees
 - Scheduling is policy-driven and expressed as pure functions.
 - Simulator uses the same scheduling logic to ensure economic modeling matches production behavior.
+
+## Relay discovery
+
+- Routers call `@fed-ai/nostr-relay-discovery` at startup to expand beyond the hard-coded bootstrap relays.
+- Override sources with `ROUTER_RELAY_BOOTSTRAP` (comma-separated relay URLs) and `ROUTER_RELAY_AGGREGATORS` (directory endpoints).
+- Adjust scoring with `ROUTER_RELAY_TRUST` entries such as `wss://relay.example=5`.
+- Tune filtering with `ROUTER_RELAY_MIN_SCORE` and `ROUTER_RELAY_MAX_RESULTS` as needed for conservative admission.

@@ -14,6 +14,7 @@
   "dependencies": {
     "@fed-ai/bench": "workspace:*",
     "@fed-ai/manifest": "workspace:*",
+    "@fed-ai/nostr-relay-discovery": "workspace:*",
     "@fed-ai/profiler": "workspace:*",
     "@fed-ai/protocol": "workspace:*",
     "@fed-ai/recommender": "workspace:*"

@@ -1,4 +1,10 @@
-import { formatMarkdownSummary, formatPricingSummary, runPricingSensitivity, runSimulation } from './lib';
+import {
+  formatMarkdownSummary,
+  formatPricingSummary,
+  runPaymentFlowScenario,
+  runPricingSensitivity,
+  runSimulation,
+} from './lib';
 
 const args = process.argv.slice(2);
 const nodes = Number(args[0] ?? 50);

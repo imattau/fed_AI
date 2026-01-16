@@ -56,6 +56,7 @@ Phase 7 - Optional extensions
 ## Active tasks
 
 - [x] First real runner adapter (HTTP-backed).
+- [ ] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 
 ## Upcoming tasks
 
@@ -113,6 +114,9 @@ Phase 7 - Optional extensions
 - [x] Simulator payment flow scenario added (pay-before vs pay-after with receipt counts).
 - [x] P2P Lightning payment documentation updated across core docs.
 - [x] Observability hooks (metrics + tracing) added for router and node.
+- [x] Router/node startup logs the `discoverRelays` candidate set and respects discovery env overrides.
+- [x] CLI exposes `fedai relays` plus docs for aggregator/trust overrides.
+- [x] Automated Nostr relay discovery package added with normalization, trust scoring, and directory fetching utilities.
 
 ## Scratchpad
 

@@ -55,4 +55,10 @@ pnpm --filter @fed-ai/cli dev -- receipt \
   --private-key <private-key-hex> \
   --router http://localhost:8080 \
   --write node-receipt.json
+
+# Discover candidate relays
+pnpm --filter @fed-ai/cli dev -- relays \
+  --aggregators https://relays.nostr.info/relays.json \
+  --trust-scores wss://relay.nostr.info=5,wss://relay.snort.social=4 \
+  --max-results 10
 ```

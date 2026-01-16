@@ -12,6 +12,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@fed-ai/nostr-relay-discovery": "workspace:*",
     "@fed-ai/protocol": "workspace:*",
     "@opentelemetry/api": "^1.8.0",
     "prom-client": "^15.1.3"

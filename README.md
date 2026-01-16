@@ -9,6 +9,12 @@ Core intent
 - Enforce trust and verification cryptographically with signed envelopes and metering records.
 - Support Nostr-compatible identity and peer-to-peer Lightning payments for settlement.
 
+## Automated relay discovery
+
+Beyond the bootstrap relays documented in the protocol, we ship a dedicated `@fed-ai/nostr-relay-discovery` utility. It gathers and scores relays from published directories, trust-scored operators, and configurable aggregators, keeping discovery logic reusable by routers, CLI installers, and nodes that need to advertise themselves.
+
+The CLI exposes the same logic via `fedai relays` so operators can inspect the generated list, apply trust-score overrides, and dump curated candidates before the router or node starts serving traffic.
+
 ![fed_AI Logo](fed_Ai_logo.png)
 
 # fed_AI – FAQ

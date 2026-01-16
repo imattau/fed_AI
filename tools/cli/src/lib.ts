@@ -14,6 +14,7 @@ Commands:
   infer --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --prompt <text> --max-tokens <n>
     [--receipts receipt1.json,receipt2.json] [--payment-request-out invoice.json]
   receipt --payment-request <file> --key-id <pub> --private-key <hex|pem> [--amount <sats>] [--router <url>] [--write receipt.json]
+  relays [--aggregators <url,...>] [--bootstrap <url,...>] [--trust-scores <url=score,...>] [--min-score <n>] [--max-results <n>]
 `;
 };
 

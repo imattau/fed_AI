@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { buildEnvelope, parsePrivateKey, parsePublicKey, signEnvelope } from '@fed-ai/protocol';
 import type { Capability, NodeDescriptor } from '@fed-ai/protocol';
+import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createNodeService } from './server';
 import { defaultNodeConfig, NodeConfig } from './config';
 import { HttpRunner } from './runners/http';
@@ -10,6 +11,70 @@ import type { Runner } from './runners/types';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
+};
+
+/** Parse comma-separated inputs so operators can override discovery sources. */
+const parseList = (value?: string): string[] | undefined => {
+  return value
+    ?.split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+};
+
+/** Convert optional trust-score overrides into the expected map shape. */
+const parseTrustScores = (value?: string): Record<string, number> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const result: Record<string, number> = {};
+  for (const piece of value.split(',')) {
+    const [rawUrl, rawScore] = piece.split('=').map((item) => item.trim());
+    if (!rawUrl || !rawScore) {
+      continue;
+    }
+    const score = Number.parseFloat(rawScore);
+    if (Number.isFinite(score)) {
+      result[rawUrl] = score;
+    }
+  }
+
+  return Object.keys(result).length ? result : undefined;
+};
+
+/** Helper to parse integers or floats for discovery arguments. */
+const parseNumber = (value?: string, float = false): number | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = float ? Number.parseFloat(value) : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+/** Build discovery configuration for the node using `NODE_*` env overrides. */
+const buildDiscoveryOptions = () => ({
+  bootstrapRelays: parseList(getEnv('NODE_RELAY_BOOTSTRAP')),
+  aggregatorUrls: parseList(getEnv('NODE_RELAY_AGGREGATORS')),
+  trustScores: parseTrustScores(getEnv('NODE_RELAY_TRUST')),
+  minScore: parseNumber(getEnv('NODE_RELAY_MIN_SCORE'), true),
+  maxResults: parseNumber(getEnv('NODE_RELAY_MAX_RESULTS')),
+});
+
+/** Log the discovery summary so operators can verify the runtime choices. */
+const logRelayCandidates = async (
+  role: string,
+  options: Parameters<typeof discoverRelays>[0],
+): Promise<void> => {
+  try {
+    const relays = await discoverRelays(options);
+    const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
+    console.log(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
+  } catch (error) {
+    console.warn(
+      `[${role}] relay discovery failed`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };
 
 const buildConfig = (): NodeConfig => {
@@ -55,6 +120,7 @@ const start = (): void => {
   const server = createNodeHttpServer(service, config);
 
   server.listen(config.port);
+  void logRelayCandidates('node', buildDiscoveryOptions());
 
   if (config.privateKey) {
     void startHeartbeat(service, config).catch((error) => {
