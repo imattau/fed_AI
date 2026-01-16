@@ -256,6 +256,12 @@ export const validateInferenceRequest: Validator<InferenceRequest> = (value: unk
   if (record.metadata !== undefined && !isRecord(record.metadata)) {
     errors.push('metadata must be an object');
   }
+  if (record.paymentReceipt !== undefined) {
+    const receiptValidation = validateEnvelope(record.paymentReceipt, validatePaymentReceipt);
+    if (!receiptValidation.ok) {
+      receiptValidation.errors.forEach((error) => errors.push(`paymentReceipt: ${error}`));
+    }
+  }
 
   return validateErrors(errors);
 };

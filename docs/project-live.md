@@ -55,7 +55,7 @@ Phase 7 - Optional extensions
 ## Active tasks
 
 - [ ] First real runner adapter.
-- [ ] Define payment flow enforcement in node service.
+- [ ] Add simulator scenarios for pricing sensitivity.
 
 ## Upcoming tasks
 
@@ -104,6 +104,7 @@ Phase 7 - Optional extensions
 - [x] Protocol docs include payment lifecycle guidance.
 - [x] Router payment enforcement added with receipt endpoint and tests.
 - [x] Simulator uses router scheduler and emits JSON + Markdown summary.
+- [x] Node payment enforcement added with receipt verification.
 
 ## Scratchpad
 

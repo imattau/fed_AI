@@ -91,6 +91,7 @@ export type InferenceRequest = {
   temperature?: number;
   topP?: number;
   metadata?: Record<string, string>;
+  paymentReceipt?: Envelope<PaymentReceipt>;
 };
 
 export type InferenceResponse = {

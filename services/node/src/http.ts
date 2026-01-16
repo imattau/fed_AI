@@ -4,12 +4,20 @@ import {
   buildEnvelope,
   checkReplay,
   InMemoryNonceStore,
+  parsePublicKey,
   signEnvelope,
   validateEnvelope,
   validateInferenceRequest,
+  validatePaymentReceipt,
   verifyEnvelope,
 } from '@fed-ai/protocol';
-import type { Envelope, InferenceRequest, InferenceResponse, MeteringRecord } from '@fed-ai/protocol';
+import type {
+  Envelope,
+  InferenceRequest,
+  InferenceResponse,
+  MeteringRecord,
+  PaymentReceipt,
+} from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
 
@@ -75,6 +83,25 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         const replay = checkReplay(envelope, nonceStore);
         if (!replay.ok) {
           return sendJson(res, 400, { error: replay.error });
+        }
+
+        if (config.requirePayment) {
+          const receiptEnvelope = envelope.payload.paymentReceipt;
+          if (!receiptEnvelope) {
+            return sendJson(res, 402, { error: 'payment-required' });
+          }
+
+          const receiptValidation = validateEnvelope(receiptEnvelope, validatePaymentReceipt);
+          if (!receiptValidation.ok) {
+            return sendJson(res, 400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
+          }
+
+          const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
+          const clientKey = parsePublicKey(receipt.keyId);
+          // Verify the client-signed receipt envelope before allowing inference.
+          if (!verifyEnvelope(receipt, clientKey)) {
+            return sendJson(res, 401, { error: 'invalid-payment-receipt-signature' });
+          }
         }
 
         if (!config.privateKey) {

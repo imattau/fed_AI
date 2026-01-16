@@ -15,6 +15,10 @@ Responsibilities
 Heartbeat
 - Nodes periodically sign and send `NodeDescriptor` updates to the router.
 
+Payments
+- When configured to require payment, `/infer` requires a client-signed `PaymentReceipt` envelope.
+- The receipt is forwarded by the router inside the inference payload.
+
 Runner interface
 - `listModels()`
 - `infer(request)`

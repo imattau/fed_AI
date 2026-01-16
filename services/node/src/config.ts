@@ -8,6 +8,7 @@ export type NodeConfig = {
   port: number;
   capacityMaxConcurrent: number;
   capacityCurrentLoad: number;
+  requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
 };
@@ -22,4 +23,5 @@ export const defaultNodeConfig: NodeConfig = {
   port: 8081,
   capacityMaxConcurrent: 4,
   capacityCurrentLoad: 0,
+  requirePayment: false,
 };

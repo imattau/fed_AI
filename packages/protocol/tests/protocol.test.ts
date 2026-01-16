@@ -14,7 +14,7 @@ import {
   validateProtocolError,
   verifyEnvelope,
 } from '../src/index';
-import type { InferenceRequest } from '../src/types';
+import type { Envelope, InferenceRequest, PaymentReceipt } from '../src/types';
 
 test('signEnvelope and verifyEnvelope round-trip', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -67,6 +67,32 @@ test('validateEnvelope validates payloads', () => {
   const invalidEnvelope = buildEnvelope({ bad: true }, 'nonce-5', Date.now(), 'key-3');
   const invalidResult = validateEnvelope(invalidEnvelope, validateInferenceRequest);
   assert.equal(invalidResult.ok, false);
+});
+
+test('validateInferenceRequest accepts paymentReceipt envelope', () => {
+  const receipt: Envelope<PaymentReceipt> = {
+    payload: {
+      requestId: 'req-pay',
+      nodeId: 'node-1',
+      amountSats: 100,
+      paidAtMs: Date.now(),
+    },
+    nonce: 'nonce-pay',
+    ts: Date.now(),
+    keyId: 'client-key-1',
+    sig: 'sig',
+  };
+
+  const payload: InferenceRequest = {
+    requestId: 'req-3',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+    paymentReceipt: receipt,
+  };
+
+  const result = validateInferenceRequest(payload);
+  assert.equal(result.ok, true);
 });
 
 test('validatePaymentRequest and validatePaymentReceipt enforce shape', () => {

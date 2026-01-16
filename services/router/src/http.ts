@@ -288,8 +288,14 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           }
         }
 
+        const receiptKeyId = receiptKey(envelope.payload.requestId, node.nodeId);
+        const storedReceipt = service.paymentReceipts.get(receiptKeyId);
+        const requestPayload = storedReceipt
+          ? { ...envelope.payload, paymentReceipt: storedReceipt }
+          : envelope.payload;
+
         const forwardEnvelope = signEnvelope(
-          buildEnvelope(envelope.payload, envelope.nonce, Date.now(), config.keyId),
+          buildEnvelope(requestPayload, envelope.nonce, Date.now(), config.keyId),
           config.privateKey,
         );
 

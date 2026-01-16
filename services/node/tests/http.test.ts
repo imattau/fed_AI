@@ -13,7 +13,13 @@ import {
 import { createNodeService } from '../src/server';
 import { createNodeHttpServer } from '../src/http';
 import { MockRunner } from '../src/runners/mock';
-import type { Envelope, InferenceRequest, InferenceResponse, MeteringRecord } from '@fed-ai/protocol';
+import type {
+  Envelope,
+  InferenceRequest,
+  InferenceResponse,
+  MeteringRecord,
+  PaymentReceipt,
+} from '@fed-ai/protocol';
 import type { NodeConfig } from '../src/config';
 
 const startServer = async (config: NodeConfig) => {
@@ -36,6 +42,7 @@ test('node /infer rejects when router public key missing', async () => {
     port: 0,
     capacityMaxConcurrent: 4,
     capacityCurrentLoad: 0,
+    requirePayment: false,
     privateKey,
   };
 
@@ -72,6 +79,7 @@ test('node /infer validates signatures and returns signed response', async () =>
     port: 0,
     capacityMaxConcurrent: 4,
     capacityCurrentLoad: 0,
+    requirePayment: false,
     privateKey: nodeKeys.privateKey,
     routerPublicKey: routerKeys.publicKey,
   };
@@ -112,6 +120,83 @@ test('node /infer validates signatures and returns signed response', async () =>
   assert.equal(responseEnvelope.keyId, config.keyId);
   assert.equal(verifyEnvelope(responseEnvelope, nodeKeys.publicKey), true);
   assert.equal(verifyEnvelope(meteringEnvelope, nodeKeys.publicKey), true);
+
+  server.close();
+});
+
+test('node /infer requires payment when configured', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: 'node-key-1',
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    requirePayment: true,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: routerKeys.publicKey,
+  };
+
+  const { server, baseUrl } = await startServer(config);
+  const payload: InferenceRequest = {
+    requestId: 'req-pay',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(payload, 'nonce-pay', Date.now(), 'router-key-1'),
+    routerKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 402);
+
+  const receipt: Envelope<PaymentReceipt> = signEnvelope(
+    buildEnvelope(
+      {
+        requestId: payload.requestId,
+        nodeId: config.nodeId,
+        amountSats: 100,
+        paidAtMs: Date.now(),
+      },
+      'nonce-receipt',
+      Date.now(),
+      'client-key-1',
+    ),
+    clientKeys.privateKey,
+  );
+
+  const paidPayload: InferenceRequest = {
+    ...payload,
+    paymentReceipt: receipt,
+  };
+
+  const paidEnvelope = signEnvelope(
+    buildEnvelope(paidPayload, 'nonce-paid', Date.now(), 'router-key-1'),
+    routerKeys.privateKey,
+  );
+
+  const paidResponse = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(paidEnvelope),
+  });
+
+  assert.equal(paidResponse.status, 200);
 
   server.close();
 });

@@ -52,7 +52,8 @@ Envelope<T> {
 Payment lifecycle
 - Router issues a `PaymentRequest` envelope after quote acceptance or before inference dispatch.
 - Client pays the Lightning invoice and returns a signed `PaymentReceipt` envelope.
-- Router verifies receipt and records settlement; node can validate receipt before or after executing inference depending on policy.
+- Router verifies receipt and records settlement; node validates the receipt before executing inference when required.
+- The receipt is forwarded as `InferenceRequest.paymentReceipt`.
 
 ## Replay protection
 

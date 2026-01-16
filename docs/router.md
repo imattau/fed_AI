@@ -18,6 +18,7 @@ Health tracking
 Payments
 - When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope.
 - Clients submit a signed `PaymentReceipt` to `/payment-receipt` before retrying.
+- Router attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
 
 Scheduling
 - Pure functions under `services/router/src/scheduler`.
