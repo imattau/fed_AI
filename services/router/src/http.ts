@@ -41,14 +41,44 @@ import {
   paymentRequests,
   routerRegistry,
   routerTracer,
+  nodeFailureEvents,
 } from './observability';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
+const NODE_FAILURE_THRESHOLD = 3;
+const NODE_FAILURE_COOLDOWN_MS = 30_000;
 
-const filterActiveNodes = (nodes: NodeDescriptor[]): NodeDescriptor[] => {
+const markNodeFailure = (service: RouterService, nodeId: string): void => {
+  const entry = service.nodeFailures.get(nodeId) ?? { count: 0, lastFailureMs: 0 };
+  entry.count += 1;
+  entry.lastFailureMs = Date.now();
+  service.nodeFailures.set(nodeId, entry);
+  nodeFailureEvents.inc({ nodeId });
+  if (entry.count >= NODE_FAILURE_THRESHOLD) {
+    service.nodeCooldown.set(nodeId, Date.now() + NODE_FAILURE_COOLDOWN_MS);
+  }
+};
+
+const resetNodeFailures = (service: RouterService, nodeId: string): void => {
+  service.nodeFailures.delete(nodeId);
+  service.nodeCooldown.delete(nodeId);
+};
+
+const failurePenalty = (service: RouterService, nodeId: string): number => {
+  const entry = service.nodeFailures.get(nodeId);
+  return entry ? Math.min(20, entry.count * 5) : 0;
+};
+
+const filterActiveNodes = (service: RouterService, nodes: NodeDescriptor[]): NodeDescriptor[] => {
   const cutoff = Date.now() - NODE_HEARTBEAT_WINDOW_MS;
-  return nodes.filter((node) => !node.lastHeartbeatMs || node.lastHeartbeatMs >= cutoff);
+  return nodes.filter((node) => {
+    if (node.lastHeartbeatMs && node.lastHeartbeatMs < cutoff) {
+      return false;
+    }
+    const cooldown = service.nodeCooldown.get(node.nodeId);
+    return !cooldown || cooldown <= Date.now();
+  });
 };
 
 const paymentKey = (requestId: string, payeeType: PayeeType, payeeId: string): string =>
@@ -118,9 +148,13 @@ const applyManifestWeights = (service: RouterService): NodeDescriptor[] => {
     const baseTrust = node.trustScore ?? 0;
     const manifestTrust = manifestScore(manifest);
     const stakeTrust = stakeScore(service, node.nodeId);
+    const penalty = failurePenalty(service, node.nodeId);
     return {
       ...node,
-      trustScore: Math.min(100, baseTrust + manifestTrust + stakeTrust),
+      trustScore: Math.max(
+        0,
+        Math.min(100, baseTrust + manifestTrust + stakeTrust - penalty),
+      ),
     };
   });
 };
@@ -321,7 +355,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         const selection = selectNode({
-          nodes: filterActiveNodes(applyManifestWeights(service)),
+          nodes: filterActiveNodes(service, applyManifestWeights(service)),
           request: envelope.payload,
         });
 
@@ -463,7 +497,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         const selection = selectNode({
-          nodes: filterActiveNodes(applyManifestWeights(service)),
+          nodes: filterActiveNodes(service, applyManifestWeights(service)),
           request: {
             requestId: envelope.payload.requestId,
             modelId: envelope.payload.modelId,
@@ -491,8 +525,13 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
             body: JSON.stringify(forwardEnvelope),
           });
 
+          const failNode = (status: number, body: unknown) => {
+            markNodeFailure(service, node.nodeId);
+            return respond(status, body);
+          };
+
           if (!nodeResponse.ok) {
-            return respond(502, { error: 'node-error' });
+            return failNode(502, { error: 'node-error' });
           }
 
           const nodeBody = (await nodeResponse.json()) as {
@@ -502,21 +541,22 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
 
           const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
           if (!responseValidation.ok) {
-            return respond(502, { error: 'invalid-node-response', details: responseValidation.errors });
+            return failNode(502, { error: 'invalid-node-response', details: responseValidation.errors });
           }
 
           const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
           if (!meteringValidation.ok) {
-            return respond(502, { error: 'invalid-metering', details: meteringValidation.errors });
+            return failNode(502, { error: 'invalid-metering', details: meteringValidation.errors });
           }
 
           const nodeKey = parsePublicKey(node.keyId);
           if (nodeBody.response.keyId !== node.keyId || !verifyEnvelope(nodeBody.response, nodeKey)) {
-            return respond(502, { error: 'node-response-signature-invalid' });
+            return failNode(502, { error: 'node-response-signature-invalid' });
           }
           if (nodeBody.metering.keyId !== node.keyId || !verifyEnvelope(nodeBody.metering, nodeKey)) {
-            return respond(502, { error: 'node-metering-signature-invalid' });
+            return failNode(502, { error: 'node-metering-signature-invalid' });
           }
+          resetNodeFailures(service, node.nodeId);
 
           respond(200, { response: nodeBody.response, metering: nodeBody.metering });
         };
@@ -584,7 +624,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
     }
 
     if (req.method === 'GET' && req.url === '/nodes') {
-      return sendJson(res, 200, { nodes: service.nodes, active: filterActiveNodes(service.nodes) });
+      return sendJson(res, 200, { nodes: service.nodes, active: filterActiveNodes(service, service.nodes) });
     }
 
     return sendJson(res, 404, { error: 'not-found' });

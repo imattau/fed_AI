@@ -212,8 +212,10 @@ test('router /infer forwards to node and verifies signatures', async () => {
   const meteringValidation = validateEnvelope(body.metering, validateMeteringRecord);
   assert.equal(meteringValidation.ok, true);
 
-  routerServer.close();
-  nodeServer.close();
+  await Promise.all([
+    new Promise<void>((resolve) => routerServer.close(() => resolve())),
+    new Promise<void>((resolve) => nodeServer.close(() => resolve())),
+  ]);
 });
 
 test('router /infer enforces payment when required', async () => {
@@ -642,4 +644,131 @@ test('router /metrics exposes Prometheus metrics', async () => {
   const body = await metricsResponse.text();
   assert.ok(body.includes('router_inference_requests_total'));
   server.close();
+});
+
+test('router cools down nodes after repeated failures', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  let calls = 0;
+  const failureThreshold = 3;
+  const nodeServer = http.createServer(async (req, res) => {
+    calls += 1;
+    const status = calls <= failureThreshold ? 500 : 200;
+    res.writeHead(status, { 'content-type': 'application/json' });
+    if (status === 500) {
+      res.end(JSON.stringify({ error: 'boom' }));
+      return;
+    }
+    const nodeResponse = {
+      response: {
+        payload: { requestId: 'req', modelId: 'mock', output: 'ok', usage: { inputTokens: 1, outputTokens: 1 }, latencyMs: 5 },
+        nonce: 'nonce',
+        ts: Date.now(),
+        keyId: nodeKeyId,
+        sig: 'sig',
+      },
+      metering: {
+        payload: {
+          requestId: 'req',
+          nodeId: 'node-1',
+          modelId: 'mock',
+          promptHash: 'hash',
+          inputTokens: 1,
+          outputTokens: 1,
+          wallTimeMs: 5,
+          bytesIn: 1,
+          bytesOut: 1,
+          ts: Date.now(),
+        },
+        nonce: 'nonce-meter',
+        ts: Date.now(),
+        keyId: nodeKeyId,
+        sig: 'sig',
+      },
+    };
+    res.end(JSON.stringify(nodeResponse));
+  });
+  await new Promise<void>((resolve) => nodeServer.listen(0, resolve));
+  const nodeAddress = nodeServer.address() as AddressInfo;
+  const nodeUrl = `http://127.0.0.1:${nodeAddress.port}`;
+
+  const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
+
+  const nodeDescriptor: NodeDescriptor = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: nodeUrl,
+    capacity: { maxConcurrent: 1, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 1, outputRate: 1, currency: 'SAT' },
+      },
+    ],
+  };
+
+  const registerEnvelope = signEnvelope(
+    buildEnvelope(nodeDescriptor, 'nonce-node', Date.now(), nodeKeyId),
+    nodeKeys.privateKey,
+  );
+
+  await fetch(`${routerUrl}/register-node`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(registerEnvelope),
+  });
+
+  const request: InferenceRequest = {
+    requestId: 'req1',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const envelope = signEnvelope(buildEnvelope(request, 'nonce-client', Date.now(), clientKeyId), clientKeys.privateKey);
+  for (let i = 0; i < failureThreshold; i += 1) {
+    const failureRequest = signEnvelope(
+      buildEnvelope({ ...request, requestId: `req${i}` }, `nonce-client-${i}`, Date.now(), clientKeyId),
+      clientKeys.privateKey,
+    );
+    const response = await fetch(`${routerUrl}/infer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(failureRequest),
+    });
+    assert.equal(response.status, 502);
+  }
+
+  const cooldownEnvelope = signEnvelope(
+    buildEnvelope({ ...request, requestId: 'req-final' }, 'nonce-client-final', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+  const cooldownResponse = await fetch(`${routerUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(cooldownEnvelope),
+  });
+  assert.equal(cooldownResponse.status, 503);
+  const bodyText = await cooldownResponse.text();
+  const body = JSON.parse(bodyText);
+  assert.ok(body.error === 'no-nodes' || body.error === 'no-nodes-available');
+
+  routerServer.close();
+  nodeServer.close();
 });

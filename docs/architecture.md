@@ -301,6 +301,12 @@ Add config entries for:
 - Deterministic, short benchmarks over complex, flaky ones.
 - Conservative defaults that prioritise stability and predictability over peak performance.
 
+## Trust & Resilience
+
+- The router tracks repeated node failures and reduces their trust score, ensuring poor-performing operators are deprioritized automatically.
+- Nodes that return invalid responses or fail to sign telemetry are temporarily quarantined for a cooldown window before being reconsidered.
+- Metrics capture node failure counts and cooldowns so operators can audit and improve stability over time.
+
 ## Staking and Bonding Model
 
 ### Purpose

@@ -31,3 +31,10 @@ export const paymentReceiptFailures = new Counter({
 });
 
 export const routerTracer = trace.getTracer('router');
+
+export const nodeFailureEvents = new Counter({
+  name: 'router_node_failures_total',
+  help: 'Node failure events counted by the router',
+  labelNames: ['nodeId'],
+  registers: [routerRegistry],
+});

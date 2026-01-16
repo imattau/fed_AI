@@ -13,6 +13,8 @@ export type RouterService = {
   paymentRequests: Map<string, import('@fed-ai/protocol').PaymentRequest>;
   manifests: Map<string, import('@fed-ai/manifest').NodeManifest>;
   stakeStore: StakeStore;
+  nodeFailures: Map<string, { count: number; lastFailureMs: number }>;
+  nodeCooldown: Map<string, number>;
 };
 
 export const createRouterService = (config: RouterConfig): RouterService => {
@@ -23,6 +25,8 @@ export const createRouterService = (config: RouterConfig): RouterService => {
     paymentRequests: new Map(),
     manifests: new Map(),
     stakeStore: createStakeStore(),
+    nodeFailures: new Map(),
+    nodeCooldown: new Map(),
   };
 };
 
