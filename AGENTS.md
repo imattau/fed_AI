@@ -72,6 +72,7 @@ Documentation updates
 - Add brief runbook notes for new operational steps or config flags.
 - Maintain `docs/project-live.md` as the live implementation tracker: update active tasks, notes, and decisions as work progresses.
 - Make frequent, logical commits to track progress; include clear, scoped commit messages.
+- Prefer established, well-maintained libraries over custom implementations when feasible (validation, crypto, logging, HTTP).
 
 ---
 
