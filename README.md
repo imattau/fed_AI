@@ -178,7 +178,7 @@ fed_AI replaces this with:
 
 ## What are “nodes” in fed_AI?
 
-Nodes are specialised service providers.
+Nodes are specialised service providers that orchestrate external runners (which can include small LLMs, diffusion backends, or other compute modules).
 
 A node might:
 
@@ -186,10 +186,10 @@ A node might:
 - sanitise or chunk input
 - enforce policy
 - cache results
-- perform small-model inference
+- perform lightweight inference (e.g., small LLMs, scoring, ranking)
 - handle post-processing
 
-Nodes are intentionally narrow in scope.
+Nodes are intentionally scoped to a few tasks so that each runner can be matched precisely to request intent.
 
 ---
 
