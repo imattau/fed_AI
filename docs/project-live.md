@@ -54,7 +54,6 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Wire docker-compose for end-to-end local run.
 - [ ] Add protocol docs for payment lifecycle (when to emit PaymentRequest/Receipt).
 
 ## Upcoming tasks
@@ -102,6 +101,7 @@ Phase 7 - Optional extensions
 - [x] CLI docs and usage examples added.
 - [x] CLI unit tests added.
 - [x] Protocol payment and error types added with validators and tests.
+- [x] Docker compose wired for end-to-end local run.
 
 ## Scratchpad
 

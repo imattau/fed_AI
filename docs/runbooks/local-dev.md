@@ -22,6 +22,12 @@ Audience: coding agents and contributors.
    pnpm -w build
    ```
 
+3. Generate local dev keys (writes `.env` at repo root):
+
+   ```
+   tools/scripts/gen-keys.sh
+   ```
+
 ## Running services
 
 - Start router + node via compose:
