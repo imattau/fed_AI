@@ -8,6 +8,7 @@ import type {
   MeteringRecord,
   ModelInfo,
   NodeDescriptor,
+  PayeeType,
   PaymentReceipt,
   PaymentRequest,
   ProtocolError,
@@ -100,9 +101,12 @@ const quoteResponseSchema: z.ZodType<QuoteResponse> = z.object({
   expiresAtMs: z.number(),
 });
 
+const payeeTypeSchema: z.ZodType<PayeeType> = z.union([z.literal('node'), z.literal('router')]);
+
 const paymentRequestSchema: z.ZodType<PaymentRequest> = z.object({
   requestId: z.string(),
-  nodeId: z.string(),
+  payeeType: payeeTypeSchema,
+  payeeId: z.string(),
   amountSats: z.number(),
   invoice: z.string(),
   expiresAtMs: z.number(),
@@ -112,11 +116,13 @@ const paymentRequestSchema: z.ZodType<PaymentRequest> = z.object({
 
 const paymentReceiptSchema: z.ZodType<PaymentReceipt> = z.object({
   requestId: z.string(),
-  nodeId: z.string(),
+  payeeType: payeeTypeSchema,
+  payeeId: z.string(),
   amountSats: z.number(),
   paidAtMs: z.number(),
   paymentHash: z.string().optional(),
   preimage: z.string().optional(),
+  invoice: z.string().optional(),
 });
 
 const inferenceResponseSchema: z.ZodType<InferenceResponse> = z.object({
@@ -196,7 +202,7 @@ const inferenceRequestSchema: z.ZodType<InferenceRequest> = z.object({
   temperature: z.number().optional(),
   topP: z.number().optional(),
   metadata: z.record(z.string()).optional(),
-  paymentReceipt: envelopeSchema(paymentReceiptSchema).optional(),
+  paymentReceipts: z.array(envelopeSchema(paymentReceiptSchema)).optional(),
 });
 
 export const validateCapability: Validator<Capability> = (value) =>

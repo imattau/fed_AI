@@ -16,7 +16,7 @@ import {
   validateStakeSlash,
   verifyEnvelope,
 } from '../src/index';
-import type { Envelope, InferenceRequest, PaymentReceipt } from '../src/types';
+import type { Envelope, InferenceRequest, PaymentReceipt, PayeeType } from '../src/types';
 
 test('signEnvelope and verifyEnvelope round-trip', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -71,11 +71,12 @@ test('validateEnvelope validates payloads', () => {
   assert.equal(invalidResult.ok, false);
 });
 
-test('validateInferenceRequest accepts paymentReceipt envelope', () => {
+test('validateInferenceRequest accepts paymentReceipt envelopes', () => {
   const receipt: Envelope<PaymentReceipt> = {
     payload: {
       requestId: 'req-pay',
-      nodeId: 'node-1',
+      payeeType: 'node',
+      payeeId: 'node-1',
       amountSats: 100,
       paidAtMs: Date.now(),
     },
@@ -90,7 +91,7 @@ test('validateInferenceRequest accepts paymentReceipt envelope', () => {
     modelId: 'mock-model',
     prompt: 'hello',
     maxTokens: 8,
-    paymentReceipt: receipt,
+    paymentReceipts: [receipt],
   };
 
   const result = validateInferenceRequest(payload);
@@ -100,14 +101,16 @@ test('validateInferenceRequest accepts paymentReceipt envelope', () => {
 test('validatePaymentRequest and validatePaymentReceipt enforce shape', () => {
   const request = {
     requestId: 'req-pay',
-    nodeId: 'node-1',
+    payeeType: 'node' as PayeeType,
+    payeeId: 'node-1',
     amountSats: 1000,
     invoice: 'lnbc1...',
     expiresAtMs: Date.now() + 60_000,
   };
   const receipt = {
     requestId: 'req-pay',
-    nodeId: 'node-1',
+    payeeType: 'node' as PayeeType,
+    payeeId: 'node-1',
     amountSats: 1000,
     paidAtMs: Date.now(),
   };

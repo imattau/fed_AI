@@ -6,6 +6,8 @@ export type Envelope<T> = {
   sig: string;
 };
 
+export type PayeeType = 'node' | 'router';
+
 export type Capability = {
   modelId: string;
   contextWindow: number;
@@ -66,7 +68,8 @@ export type QuoteResponse = {
 
 export type PaymentRequest = {
   requestId: string;
-  nodeId: string;
+  payeeType: PayeeType;
+  payeeId: string;
   amountSats: number;
   invoice: string;
   expiresAtMs: number;
@@ -76,11 +79,13 @@ export type PaymentRequest = {
 
 export type PaymentReceipt = {
   requestId: string;
-  nodeId: string;
+  payeeType: PayeeType;
+  payeeId: string;
   amountSats: number;
   paidAtMs: number;
   paymentHash?: string;
   preimage?: string;
+  invoice?: string;
 };
 
 export type InferenceRequest = {
@@ -91,7 +96,7 @@ export type InferenceRequest = {
   temperature?: number;
   topP?: number;
   metadata?: Record<string, string>;
-  paymentReceipt?: Envelope<PaymentReceipt>;
+  paymentReceipts?: Envelope<PaymentReceipt>[];
 };
 
 export type InferenceResponse = {
