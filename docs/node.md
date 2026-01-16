@@ -17,6 +17,8 @@ Heartbeat
 
 Payments
 - When configured to require payment, `/infer` requires a client-signed `PaymentReceipt` envelope.
+- Routers include the verified receipts inside the `paymentReceipts` array so downstream nodes can pick the one targeting them.
+- Clients can issue receipts via `fedai receipt` and supply them on subsequent calls (e.g., `fedai infer ... --receipts node-receipt.json`).
 - The receipt is forwarded by the router inside the inference payload.
 
 Runner interface

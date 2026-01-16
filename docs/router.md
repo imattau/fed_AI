@@ -17,9 +17,11 @@ Health tracking
 
 Payments
 - When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope that includes invoice details for the payee.
-- Clients pay payees directly over Lightning and submit a signed `PaymentReceipt` to `/payment-receipt` before retrying.
+- Router keeps the issued `PaymentRequest` per payee so receipts can be validated against amount, invoice, and request ID.
+- Clients pay payees directly over Lightning, then either POST a `PaymentReceipt` to `/payment-receipt` or include signed receipts in the next inference attempt via `paymentReceipts`.
+- CLI `fedai receipt` can turn a saved `PaymentRequest` into a signed receipt and optionally post it to `/payment-receipt`.
 - Router verifies proofs and attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
-- Router never holds or forwards funds; it only coordinates payment requirements and verification.
+- Router never holds or forwards funds; it only orchestrates requirements and verification.
 
 Manifests
 - `/manifest` accepts signed node manifests for initial admission and weighting.

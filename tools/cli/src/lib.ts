@@ -12,6 +12,8 @@ Commands:
   manifest --role node|router --id <id> --key-id <pub> --private-key <hex|pem> --profile profile.json --bench bench.json --write out.json
   quote --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --input <n> --output <n> --max-tokens <n>
   infer --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --prompt <text> --max-tokens <n>
+    [--receipts receipt1.json,receipt2.json] [--payment-request-out invoice.json]
+  receipt --payment-request <file> --key-id <pub> --private-key <hex|pem> [--amount <sats>] [--router <url>] [--write receipt.json]
 `;
 };
 

@@ -37,12 +37,22 @@ pnpm --filter @fed-ai/cli dev -- quote \
   --output 5 \
   --max-tokens 32
 
-# Send a signed inference request
+# Send a signed inference request (optionally attach previously saved receipts)
 pnpm --filter @fed-ai/cli dev -- infer \
   --router http://localhost:8080 \
   --key-id <public-key-hex> \
   --private-key <private-key-hex> \
   --model mock-model \
   --prompt "hello" \
-  --max-tokens 16
+  --max-tokens 16 \
+  --receipts node-receipt.json \
+  --payment-request-out invoice.json
+
+# Convert a saved payment request into a signed receipt
+pnpm --filter @fed-ai/cli dev -- receipt \
+  --payment-request invoice.json \
+  --key-id <public-key-hex> \
+  --private-key <private-key-hex> \
+  --router http://localhost:8080 \
+  --write node-receipt.json
 ```

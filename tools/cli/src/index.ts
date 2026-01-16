@@ -9,7 +9,13 @@ import { profileSystem } from '@fed-ai/profiler';
 import { runBench } from '@fed-ai/bench';
 import { recommend } from '@fed-ai/recommender';
 import { signManifest } from '@fed-ai/manifest';
-import type { QuoteRequest, InferenceRequest } from '@fed-ai/protocol';
+import type {
+  Envelope,
+  InferenceRequest,
+  PaymentReceipt,
+  PaymentRequest,
+  QuoteRequest,
+} from '@fed-ai/protocol';
 import type { BenchOptions, BenchResult } from '@fed-ai/bench';
 import type { ProfileReport } from '@fed-ai/profiler';
 import type { NodeManifest, RouterManifest } from '@fed-ai/manifest';
@@ -203,14 +209,90 @@ const run = async (): Promise<void> => {
       maxTokens,
     };
 
-    const envelope = signEnvelope(buildEnvelope(request, randomUUID(), Date.now(), keyId), privateKey);
+    const receipts: Envelope<PaymentReceipt>[] = [];
+    const receiptPaths = (args.receipts ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+    if (receiptPaths.length > 0) {
+      await Promise.all(
+        receiptPaths.map(async (path) => {
+          const envelope = await loadJson<Envelope<PaymentReceipt>>(path);
+          receipts.push(envelope);
+        }),
+      );
+    }
+
+    const payload: InferenceRequest = {
+      ...request,
+      paymentReceipts: receipts.length ? receipts : undefined,
+    };
+
+    const envelope = signEnvelope(buildEnvelope(payload, randomUUID(), Date.now(), keyId), privateKey);
     const response = await postJson(`${router}/infer`, envelope);
     const body = await response.text();
     if (!response.ok) {
+      if (response.status === 402) {
+        try {
+          const parsed = JSON.parse(body) as { payment: unknown };
+          const paymentEnvelope = parsed.payment as Envelope<PaymentRequest>;
+          console.log('Payment required:', JSON.stringify(paymentEnvelope.payload, null, 2));
+          if (args['payment-request-out']) {
+            await writeFile(args['payment-request-out'], JSON.stringify(paymentEnvelope, null, 2));
+            console.log(`Saved payment request to ${args['payment-request-out']}`);
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
       console.error(body || response.statusText);
       process.exit(1);
     }
     console.log(body);
+    return;
+  }
+
+  if (command === 'receipt') {
+    const requestPath = args['payment-request'];
+    const keyId = args['key-id'];
+    const privateKeyInput = args['private-key'];
+    if (!requestPath || !keyId || !privateKeyInput) {
+      console.error('Missing required receipt args');
+      process.exit(1);
+    }
+
+    const privateKey = parsePrivateKey(privateKeyInput);
+    const paymentEnvelope = await loadJson<Envelope<PaymentRequest>>(requestPath);
+    const receiptPayload: PaymentReceipt = {
+      requestId: paymentEnvelope.payload.requestId,
+      payeeType: paymentEnvelope.payload.payeeType,
+      payeeId: paymentEnvelope.payload.payeeId,
+      amountSats: Number(args.amount ?? paymentEnvelope.payload.amountSats),
+      paidAtMs: Number(args['paid-at-ms'] ?? Date.now()),
+      invoice: args.invoice ?? paymentEnvelope.payload.invoice,
+      paymentHash: args['payment-hash'],
+      preimage: args.preimage,
+    };
+
+    const receiptEnvelope = signEnvelope(
+      buildEnvelope(receiptPayload, randomUUID(), Date.now(), keyId),
+      privateKey,
+    );
+
+    if (args.write) {
+      await writeFile(args.write, JSON.stringify(receiptEnvelope, null, 2));
+      console.log(`Wrote receipt to ${args.write}`);
+    } else {
+      console.log(JSON.stringify(receiptEnvelope, null, 2));
+    }
+
+    if (args.router) {
+      const response = await postJson(`${args.router}/payment-receipt`, receiptEnvelope);
+      const text = await response.text();
+      if (!response.ok) {
+        console.error(text || response.statusText);
+        process.exit(1);
+      }
+      console.log('Router accepted payment receipt');
+    }
+
     return;
   }
 
