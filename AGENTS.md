@@ -423,9 +423,10 @@ On every PR:
 2. services/node with mock runner
 3. services/router registry and scheduler
 4. tools/cli
-5. infra/docker-compose.yml
-6. tools/simulator
-7. First real runner adapter
+5. packages/profiler, bench, recommender, manifest
+6. infra/docker-compose.yml
+7. tools/simulator
+8. First real runner adapter
 
 ---
 

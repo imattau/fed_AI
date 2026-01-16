@@ -15,9 +15,10 @@ Planning principles
 2. services/node with mock runner
 3. services/router registry and scheduler
 4. tools/cli
-5. infra/docker-compose.yml
-6. tools/simulator
-7. First real runner adapter
+5. packages/profiler, bench, recommender, manifest
+6. infra/docker-compose.yml
+7. tools/simulator
+8. First real runner adapter
 
 ## Phased roadmap
 
@@ -54,10 +55,9 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] First real runner adapter.
-- [ ] Add simulator scenarios for pricing sensitivity.
-- [ ] Implement profiler/bench data collection details.
 - [ ] Add manifest ingestion in router for initial weighting.
+- [ ] Add simulator scenarios for pricing sensitivity.
+- [ ] First real runner adapter.
 
 ## Upcoming tasks
 
@@ -108,8 +108,8 @@ Phase 7 - Optional extensions
 - [x] Router payment enforcement added with receipt endpoint and tests.
 - [x] Simulator uses router scheduler and emits JSON + Markdown summary.
 - [x] Node payment enforcement added with receipt verification.
-- [x] Profiler, bench, recommender, and manifest packages scaffolded.
 - [x] CLI supports profile/bench/recommend/manifest commands.
+- [x] Profiler, bench, recommender, and manifest packages implemented.
 
 ## Scratchpad
 
