@@ -55,7 +55,7 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] First real runner adapter.
+- [x] First real runner adapter (HTTP-backed).
 
 ## Upcoming tasks
 

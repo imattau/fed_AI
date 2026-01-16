@@ -27,6 +27,12 @@ Runner interface
 - `estimate(request)`
 - `health()`
 
+Runner selection
+- Nodes default to the `mock` runner for fast local testing.
+- Set `NODE_RUNNER=http` plus `NODE_RUNNER_URL` to point at an HTTP-capable inference backend (for example a llama.cpp REST adapter).
+- The HTTP runner expects `/models`, `/infer`, `/estimate`, and `/health` endpoints that accept JSON payloads and respond with `InferenceResponse`-shaped objects.
+- Use `NODE_MODEL_ID` to override the default reported model ID for capability advertisements.
+
 Rules
 - Runners communicate via process spawn, IPC, or HTTP.
 - Runners may be written in any language.

@@ -3,6 +3,7 @@ import { buildEnvelope, parsePrivateKey, parsePublicKey, signEnvelope } from '@f
 import type { Capability, NodeDescriptor } from '@fed-ai/protocol';
 import { createNodeService } from './server';
 import { defaultNodeConfig, NodeConfig } from './config';
+import { HttpRunner } from './runners/http';
 import { MockRunner } from './runners/mock';
 import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
@@ -36,9 +37,20 @@ const buildConfig = (): NodeConfig => {
   };
 };
 
+const buildRunner = (config: NodeConfig): Runner => {
+  if (config.runnerName === 'http') {
+    const runnerUrl = getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
+    return new HttpRunner({
+      baseUrl: runnerUrl,
+      defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName,
+    });
+  }
+  return new MockRunner();
+};
+
 const start = (): void => {
   const config = buildConfig();
-  const runner = new MockRunner();
+  const runner = buildRunner(config);
   const service = createNodeService(config, runner);
   const server = createNodeHttpServer(service, config);
 
