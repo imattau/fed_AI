@@ -171,24 +171,22 @@ test('node /infer requires payment when configured', async () => {
 
   assert.equal(response.status, 402);
 
+  const receiptPayload = {
+    requestId: payload.requestId,
+    payeeType: 'node',
+    payeeId: config.nodeId,
+    amountSats: 100,
+    paidAtMs: Date.now(),
+  };
+
   const receipt: Envelope<PaymentReceipt> = signEnvelope(
-    buildEnvelope(
-      {
-        requestId: payload.requestId,
-        nodeId: config.nodeId,
-        amountSats: 100,
-        paidAtMs: Date.now(),
-      },
-      'nonce-receipt',
-      Date.now(),
-      clientKeyId,
-    ),
+    buildEnvelope(receiptPayload, 'nonce-receipt', Date.now(), clientKeyId),
     clientKeys.privateKey,
   );
 
   const paidPayload: InferenceRequest = {
     ...payload,
-    paymentReceipt: receipt,
+    paymentReceipts: [receipt],
   };
 
   const paidEnvelope = signEnvelope(

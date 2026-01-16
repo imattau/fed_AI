@@ -86,7 +86,12 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         }
 
         if (config.requirePayment) {
-          const receiptEnvelope = envelope.payload.paymentReceipt;
+          const receipts = envelope.payload.paymentReceipts ?? [];
+          const receiptEnvelope = receipts.find(
+            (item) =>
+              item.payload.payeeType === 'node' && item.payload.payeeId === config.nodeId,
+          );
+
           if (!receiptEnvelope) {
             return sendJson(res, 402, { error: 'payment-required' });
           }
@@ -97,8 +102,11 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
           }
 
           const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
+          if (receipt.payload.amountSats < 1) {
+            return sendJson(res, 400, { error: 'payment-amount-invalid' });
+          }
+
           const clientKey = parsePublicKey(receipt.keyId);
-          // Verify the client-signed receipt envelope before allowing inference.
           if (!verifyEnvelope(receipt, clientKey)) {
             return sendJson(res, 401, { error: 'invalid-payment-receipt-signature' });
           }
