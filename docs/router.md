@@ -16,9 +16,10 @@ Health tracking
 - Router tracks `lastHeartbeatMs` and filters stale nodes during selection.
 
 Payments
-- When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope.
-- Clients submit a signed `PaymentReceipt` to `/payment-receipt` before retrying.
-- Router attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
+- When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope that includes invoice details for the payee.
+- Clients pay payees directly over Lightning and submit a signed `PaymentReceipt` to `/payment-receipt` before retrying.
+- Router verifies proofs and attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
+- Router never holds or forwards funds; it only coordinates payment requirements and verification.
 
 Manifests
 - `/manifest` accepts signed node manifests for initial admission and weighting.

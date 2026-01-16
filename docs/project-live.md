@@ -68,7 +68,7 @@ Phase 7 - Optional extensions
 - No prompt/output logging; hash prompts for metering.
 - All inbound/outbound payloads must be signed envelopes.
 - Nostr-compatible identities and signing are required across the control plane.
-- Settlement is intended to be Lightning-compatible.
+- Settlement is peer-to-peer over Lightning; routers coordinate requirements but never custody funds.
 - Discovery uses Nostr relays; operational inference traffic is peer-to-peer between client, router, and node.
 - Project summary aligned in `README.md`, `docs/overview.md`, and `docs/architecture.md`.
 
@@ -111,6 +111,7 @@ Phase 7 - Optional extensions
 - [x] Router manifest ingestion and weighting added.
 - [x] Staking components added (stake commits, slashing, routing weights).
 - [x] Simulator pricing sensitivity scenario added.
+- [x] P2P Lightning payment documentation updated across core docs.
 
 ## Scratchpad
 

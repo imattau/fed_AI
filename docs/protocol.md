@@ -48,14 +48,14 @@ Envelope<T> {
 
 ## Payments
 
-- `PaymentRequest` carries Lightning invoice details for settlement.
-- `PaymentReceipt` confirms settlement for a request and node.
+- `PaymentRequest` carries Lightning invoice details for peer-to-peer settlement.
+- `PaymentReceipt` confirms settlement for a request and payee.
 
 Payment lifecycle
-- Router issues a `PaymentRequest` envelope after quote acceptance or before inference dispatch.
-- Client pays the Lightning invoice and returns a signed `PaymentReceipt` envelope.
-- Router verifies receipt and records settlement; node validates the receipt before executing inference when required.
-- The receipt is forwarded as `InferenceRequest.paymentReceipt`.
+- Router coordinates payment requirements and returns invoice details (from nodes and optionally routers).
+- Client pays Lightning invoices directly to the payees and returns a signed `PaymentReceipt` envelope.
+- Router verifies payment proofs without custody and records settlement; node validates the receipt before executing inference when required.
+- The receipt is forwarded as `InferenceRequest.paymentReceipt` for pay-before-work flows.
 
 ## Replay protection
 

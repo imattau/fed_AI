@@ -14,5 +14,5 @@ Metering requirements
 - Metering records are verifiable and auditable without trusting a single operator.
 
 Lightning alignment
-- Metering records are designed to support Lightning settlement for pay-as-you-go usage.
-- `PaymentRequest` and `PaymentReceipt` formalize settlement messages.
+- Metering records support peer-to-peer Lightning settlement for pay-as-you-go usage.
+- `PaymentRequest` and `PaymentReceipt` formalize settlement messages without router custody.

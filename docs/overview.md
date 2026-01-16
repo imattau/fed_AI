@@ -28,7 +28,7 @@ Nostr alignment
 - Nostr relays are for discovery and trust; inference operations are peer-to-peer between client, router, and node.
 
 Payments
-- Settlement is designed to be Lightning-compatible for pay-as-you-go inference.
+- Settlement is peer-to-peer over Lightning from day one; routers coordinate requirements but never custody funds.
 
 Control plane
 - Routing, scheduling, metering, trust, protocol enforcement.

@@ -7,7 +7,7 @@ Core intent
 - Separate decision-making from computation: a stable control plane coordinates routing, pricing, trust, and metering, while external runners execute models.
 - Build a federated market where operators supply capacity and users pay only for what they consume.
 - Enforce trust and verification cryptographically with signed envelopes and metering records.
-- Support Nostr-compatible identity and Lightning-aligned payments for settlement.
+- Support Nostr-compatible identity and peer-to-peer Lightning payments for settlement.
 
 ![fed_AI Logo](fed_Ai_logo.png)
 
@@ -17,6 +17,7 @@ Core intent
 
 fed_AI is an experimental, decentralised AI infrastructure project.
 It breaks AI systems into composable services run by independent operators and connected through routing logic rather than a single provider.
+fed_AI is model-agnostic and is designed to support text, image, audio, and video workloads through composable services, even if not all are implemented initially.
 
 The focus is resilience, cost control, locality, and operator choice.
 
@@ -27,7 +28,131 @@ The focus is resilience, cost control, locality, and operator choice.
 No.
 
 fed_AI does not require a blockchain, token, or on-chain execution to function.
-It may optionally integrate with systems like Lightning later, but the core architecture is off-chain and protocol-driven.
+Lightning payments are first-class and strictly peer-to-peer, but the core architecture remains off-chain and protocol-driven.
+
+---
+
+## Are payments peer-to-peer?
+
+Yes. All payments in fed_AI are peer-to-peer over Lightning.
+
+Payments flow directly:
+
+- from client to node
+- and optionally client to router for routing fees
+
+There is no pooled balance, clearing house, or intermediary wallet.
+
+---
+
+## Do routers hold or relay funds?
+
+No.
+
+Routers never custody funds, even temporarily.
+
+Routers:
+
+- do not receive client funds on behalf of nodes
+- do not forward payments
+- do not maintain balances
+- do not act as escrow agents
+
+Routers should be treated as payment-orchestration aware, not payment participants.
+
+---
+
+## What role do routers play in payments?
+
+Routers coordinate payment requirements, not payment flows.
+
+They may:
+
+- advertise required pricing for nodes
+- advertise their own routing fee
+- specify payment timing rules (before-work or after-work)
+- verify that required payments have occurred
+- refuse to route work if payment conditions are not met
+
+They do not touch funds.
+
+---
+
+## How does a typical peer-to-peer Lightning flow work?
+
+Example flow:
+
+1. Client submits a request with cost constraints
+2. Router selects candidate nodes and returns:
+
+   - node Lightning invoice requests or invoice endpoints
+   - router fee invoice request if applicable
+3. Client pays:
+
+   - node(s) directly via Lightning
+   - router directly via Lightning (if a routing fee applies)
+4. Client provides payment proof (eg invoice preimage or verification reference)
+5. Router verifies payment proofs
+6. Work is executed
+
+At no point does the router intermediate the payment itself.
+
+---
+
+## Can payment be pay-before-work or pay-after-work?
+
+Yes, but still peer-to-peer.
+
+Supported patterns:
+
+- Pay-before-work
+  Client pays node invoice first, then submits proof to router.
+- Pay-after-work
+  Node issues invoice after successful completion, client pays directly.
+
+Routers only verify that the correct payment occurred under the agreed terms.
+
+---
+
+## How are partial failures handled?
+
+Failure handling is explicit and protocol-driven.
+
+Examples:
+
+- If a node fails before completion, no invoice is issued or payment is required.
+- If partial work is allowed, partial invoices may be issued directly by nodes.
+- Routers never refund funds, because they never received them.
+
+Dispute resolution is limited by design and favours determinism over subjectivity.
+
+---
+
+## How does this interact with staking?
+
+Staking remains a bond, not a payment rail.
+
+If Lightning-backed staking is used later:
+
+- funds are locked peer-to-peer
+- time-bound and revocable by protocol rules
+- never pooled or rehypothecated
+
+Again, routers do not custody stake.
+
+---
+
+## Why enforce strict P2P payments?
+
+This design:
+
+- removes custodial risk
+- avoids regulatory complexity
+- reduces attack surface
+- prevents routers becoming banks
+- keeps incentives aligned and visible
+
+It also fits Lightning’s strengths naturally.
 
 ---
 
@@ -154,6 +279,95 @@ The profiler:
 - requires explicit opt-in for verbose reporting
 
 Privacy is a design constraint.
+
+---
+
+## Does fed_AI support image generation?
+
+Yes, in principle.
+
+Image generation fits naturally into fed_AI’s model because it can be decomposed into specialised services, for example:
+
+- prompt normalisation and safety filtering
+- image generation nodes (diffusion or other models)
+- upscaling or refinement nodes
+- format conversion and optimisation
+- metadata and provenance tagging
+
+These can run as separate nodes, potentially on different hardware, rather than a single monolithic service.
+
+---
+
+## Does fed_AI support video generation?
+
+Potentially, yes, but with important constraints.
+
+Video workloads are heavier and are expected to be handled as multi-stage pipelines, such as:
+
+- script or storyboard generation
+- keyframe or scene generation
+- frame interpolation
+- video assembly and encoding
+- post-processing and compression
+
+Not all nodes would handle full video generation. Many roles are CPU or I/O bound and suitable for modest hardware.
+
+---
+
+## Do I need a GPU to use fed_AI for images or video?
+
+Not necessarily.
+
+- Some nodes require GPUs, especially image or video generation models.
+- Many supporting roles do not, including:
+
+  - prompt preparation
+  - safety and policy checks
+  - frame selection and scoring
+  - upscaling orchestration
+  - encoding and packaging
+
+fed_AI is designed so GPU-heavy nodes are optional and replaceable, not mandatory for participation.
+
+---
+
+## Is fed_AI trying to compete with dedicated image or video platforms?
+
+No.
+
+fed_AI does not aim to be a single “image generator” or “video app”.
+
+Instead, it provides:
+
+- infrastructure for composing creative pipelines
+- routing across different providers and models
+- transparency about where work is done
+- flexibility to mix local, open, and proprietary services
+
+Dedicated platforms can exist on top of fed_AI rather than being replaced by it.
+
+---
+
+## Are image and video features production-ready?
+
+No.
+
+Image and video creation are considered future-facing workloads:
+
+- supported by the architecture
+- not guaranteed in early releases
+- dependent on available nodes and operators
+
+Early focus remains on correctness, routing, profiling, and trust mechanics.
+
+---
+
+## Why mention image and video at all, then?
+
+Because the architecture is intentionally model-agnostic.
+
+If fed_AI only worked for text, it would be a partial solution.
+Designing for image and video from the start avoids architectural dead ends later.
 
 ---
 
