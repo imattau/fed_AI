@@ -30,9 +30,12 @@ test('node /infer rejects when router public key missing', async () => {
     nodeId: 'node-1',
     keyId: 'node-key-1',
     endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
     runnerName: 'mock',
     port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
     privateKey,
   };
 
@@ -63,9 +66,12 @@ test('node /infer validates signatures and returns signed response', async () =>
     nodeId: 'node-1',
     keyId: 'node-key-1',
     endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
     runnerName: 'mock',
     port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
     privateKey: nodeKeys.privateKey,
     routerPublicKey: routerKeys.publicKey,
   };

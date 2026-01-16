@@ -7,6 +7,7 @@
 Notes
 - Prices are per-token or per-second, defined per model.
 - Router may apply policies or caps per tenant.
+ - Quote responses are derived from node capability pricing and request estimates.
 
 Metering requirements
 - Every inference produces a signed metering record.

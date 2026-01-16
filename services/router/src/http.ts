@@ -10,6 +10,7 @@ import {
   validateInferenceResponse,
   validateMeteringRecord,
   validateNodeDescriptor,
+  validateQuoteRequest,
   verifyEnvelope,
 } from '@fed-ai/protocol';
 import type {
@@ -18,9 +19,19 @@ import type {
   InferenceResponse,
   MeteringRecord,
   NodeDescriptor,
+  QuoteRequest,
+  QuoteResponse,
 } from '@fed-ai/protocol';
 import type { RouterConfig } from './config';
 import type { RouterService } from './server';
+import { selectNode } from './scheduler';
+
+const NODE_HEARTBEAT_WINDOW_MS = 30_000;
+
+const filterActiveNodes = (nodes: NodeDescriptor[]): NodeDescriptor[] => {
+  const cutoff = Date.now() - NODE_HEARTBEAT_WINDOW_MS;
+  return nodes.filter((node) => !node.lastHeartbeatMs || node.lastHeartbeatMs >= cutoff);
+};
 
 const readJsonBody = async (
   req: IncomingMessage,
@@ -84,10 +95,83 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
 
-        service.nodes = service.nodes.filter((node) => node.nodeId !== envelope.payload.nodeId);
-        service.nodes.push(envelope.payload);
+        const updated = {
+          ...envelope.payload,
+          lastHeartbeatMs: Date.now(),
+        };
+
+        service.nodes = service.nodes.filter((node) => node.nodeId !== updated.nodeId);
+        service.nodes.push(updated);
 
         return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/quote') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validateQuoteRequest);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<QuoteRequest>;
+        const replay = checkReplay(envelope, nonceStore);
+        if (!replay.ok) {
+          return sendJson(res, 400, { error: replay.error });
+        }
+
+        const clientKey = parsePublicKey(envelope.keyId);
+        if (!verifyEnvelope(envelope, clientKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+
+        const selection = selectNode({
+          nodes: filterActiveNodes(service.nodes),
+          request: envelope.payload,
+        });
+
+        if (!selection.selected) {
+          return sendJson(res, 503, { error: selection.reason ?? 'no-nodes-available' });
+        }
+
+        const capability = selection.selected.capabilities.find(
+          (item) => item.modelId === envelope.payload.modelId,
+        );
+
+        if (!capability) {
+          return sendJson(res, 503, { error: 'no-capable-nodes' });
+        }
+
+        const total =
+          capability.pricing.inputRate * envelope.payload.inputTokensEstimate +
+          capability.pricing.outputRate * envelope.payload.outputTokensEstimate;
+
+        const quote: QuoteResponse = {
+          requestId: envelope.payload.requestId,
+          modelId: envelope.payload.modelId,
+          nodeId: selection.selected.nodeId,
+          price: { total, currency: capability.pricing.currency },
+          latencyEstimateMs: 0,
+          expiresAtMs: Date.now() + 60_000,
+        };
+
+        const responseEnvelope = signEnvelope(
+          buildEnvelope(quote, envelope.nonce, Date.now(), config.keyId),
+          config.privateKey,
+        );
+
+        return sendJson(res, 200, { quote: responseEnvelope });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }
@@ -173,7 +257,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
     }
 
     if (req.method === 'GET' && req.url === '/nodes') {
-      return sendJson(res, 200, { nodes: service.nodes });
+      return sendJson(res, 200, { nodes: service.nodes, active: filterActiveNodes(service.nodes) });
     }
 
     return sendJson(res, 404, { error: 'not-found' });

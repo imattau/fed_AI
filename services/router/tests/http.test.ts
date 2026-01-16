@@ -9,10 +9,20 @@ import {
   validateEnvelope,
   validateInferenceResponse,
   validateMeteringRecord,
+  validateQuoteResponse,
+  verifyEnvelope,
 } from '@fed-ai/protocol';
 import { createRouterService } from '../src/server';
 import { createRouterHttpServer } from '../src/http';
-import type { InferenceRequest, NodeDescriptor, MeteringRecord, InferenceResponse } from '@fed-ai/protocol';
+import type {
+  Envelope,
+  InferenceRequest,
+  NodeDescriptor,
+  MeteringRecord,
+  InferenceResponse,
+  QuoteRequest,
+  QuoteResponse,
+} from '@fed-ai/protocol';
 import type { RouterConfig } from '../src/config';
 
 const startRouter = async (config: RouterConfig) => {
@@ -189,4 +199,69 @@ test('router /infer forwards to node and verifies signatures', async () => {
 
   routerServer.close();
   nodeServer.close();
+});
+
+test('router /quote returns signed quote response', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: 'router-key-1',
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+  };
+
+  const service = createRouterService(config);
+  const nodeDescriptor: NodeDescriptor = {
+    nodeId: 'node-1',
+    keyId: 'node-key-1',
+    endpoint: 'http://localhost:9999',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.02, currency: 'USD' },
+      },
+    ],
+  };
+  service.nodes.push(nodeDescriptor);
+
+  const server = createRouterHttpServer(service, config);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const quoteRequest: QuoteRequest = {
+    requestId: 'req-quote',
+    modelId: 'mock-model',
+    maxTokens: 32,
+    inputTokensEstimate: 10,
+    outputTokensEstimate: 5,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(quoteRequest, 'nonce-quote', Date.now(), 'client-key-1'),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/quote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { quote: unknown };
+  const validation = validateEnvelope(body.quote, validateQuoteResponse);
+  assert.equal(validation.ok, true);
+
+  const envelope = body.quote as Envelope<QuoteResponse>;
+  assert.equal(envelope.keyId, config.keyId);
+  assert.equal(verifyEnvelope(envelope, routerKeys.publicKey), true);
+
+  server.close();
 });

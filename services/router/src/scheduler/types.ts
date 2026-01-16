@@ -7,5 +7,6 @@ export type SchedulingInput = {
 
 export type SchedulingResult = {
   selected: NodeDescriptor | null;
+  score?: number;
   reason?: string;
 };

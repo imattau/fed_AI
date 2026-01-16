@@ -12,6 +12,9 @@ Responsibilities
 - Use Nostr-compatible keys for node identity and signing.
 - Service is independently deployable and exposes `/health` and `/infer`.
 
+Heartbeat
+- Nodes periodically sign and send `NodeDescriptor` updates to the router.
+
 Runner interface
 - `listModels()`
 - `infer(request)`

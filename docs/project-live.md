@@ -54,9 +54,8 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Add CLI flows for key generation and signed inference.
-- [ ] Add node heartbeat and router health tracking.
-- [ ] Add scheduler scoring and quote endpoints.
+- [ ] Add CLI tests.
+- [ ] Wire docker-compose for end-to-end local run.
 - [x] Add protocol package tests using `node:test`.
 - [x] Scaffold node service interfaces and mock runner.
 - [x] Scaffold router registry and scheduler interfaces.
@@ -99,6 +98,11 @@ Phase 7 - Optional extensions
 - [x] Router inference dispatch endpoint with response and metering verification.
 - [x] Node and router HTTP handlers return structured errors for invalid JSON.
 - [x] Node and router HTTP tests added for core flows.
+- [x] Scheduler scoring and router quote endpoint added.
+- [x] Node heartbeat registration and router health filtering added.
+- [x] Router quote endpoint tests added.
+- [x] CLI key generation, quote, and inference flows implemented.
+- [x] CLI docs and usage examples added.
 
 ## Scratchpad
 
