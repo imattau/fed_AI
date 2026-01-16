@@ -11,3 +11,6 @@ Notes
 Metering requirements
 - Every inference produces a signed metering record.
 - Metering records are verifiable and auditable without trusting a single operator.
+
+Lightning alignment
+- Metering records are designed to support Lightning settlement for pay-as-you-go usage.

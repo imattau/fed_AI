@@ -54,8 +54,9 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Define router inference dispatch endpoint and metering verification.
 - [ ] Add CLI flows for key generation and signed inference.
+- [ ] Add node heartbeat and router health tracking.
+- [ ] Add scheduler scoring and quote endpoints.
 - [x] Add protocol package tests using `node:test`.
 - [x] Scaffold node service interfaces and mock runner.
 - [x] Scaffold router registry and scheduler interfaces.
@@ -73,6 +74,7 @@ Phase 7 - Optional extensions
 - No prompt/output logging; hash prompts for metering.
 - All inbound/outbound payloads must be signed envelopes.
 - Nostr-compatible identities and signing are required across the control plane.
+- Settlement is intended to be Lightning-compatible.
 - Project summary aligned in `README.md`, `docs/overview.md`, and `docs/architecture.md`.
 
 ## Success definition
@@ -94,6 +96,9 @@ Phase 7 - Optional extensions
 - [x] Node and router services expose minimal HTTP servers with signed envelope validation.
 - [x] Key parsing utilities added (PEM or 32-byte hex Ed25519).
 - [x] Router node registration now verifies signatures and replay protection.
+- [x] Router inference dispatch endpoint with response and metering verification.
+- [x] Node and router HTTP handlers return structured errors for invalid JSON.
+- [x] Node and router HTTP tests added for core flows.
 
 ## Scratchpad
 

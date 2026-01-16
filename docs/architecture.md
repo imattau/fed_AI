@@ -24,6 +24,11 @@ Compute plane
 - Nodes heartbeat to the router; no implicit trust is assumed.
 - Architecture supports gradual evolution toward peer-to-peer discovery.
 
+## Payments and settlement
+
+- Metering records support Lightning-aligned settlement without centralized custody.
+- Settlement details are layered above the protocol to preserve control-plane stability.
+
 ## Data flow (high level)
 
 1. Node advertises capabilities and pricing to the router.

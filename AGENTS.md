@@ -71,6 +71,7 @@ Documentation updates
 - Keep `docs/architecture.md`, `docs/protocol.md`, and `docs/data-handling.md` in sync with implementation changes.
 - Add brief runbook notes for new operational steps or config flags.
 - Maintain `docs/project-live.md` as the live implementation tracker: update active tasks, notes, and decisions as work progresses.
+- Make frequent, logical commits to track progress; include clear, scoped commit messages.
 
 ---
 

@@ -13,13 +13,22 @@ import type { Envelope, InferenceRequest, InferenceResponse, MeteringRecord } fr
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
 
-const readJsonBody = async (req: IncomingMessage): Promise<unknown> => {
+const readJsonBody = async (
+  req: IncomingMessage,
+): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   const body = Buffer.concat(chunks).toString('utf8');
-  return body ? JSON.parse(body) : null;
+  if (!body) {
+    return { ok: false, error: 'empty-body' };
+  }
+  try {
+    return { ok: true, value: JSON.parse(body) };
+  } catch (error) {
+    return { ok: false, error: 'invalid-json' };
+  }
 };
 
 const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
@@ -46,12 +55,16 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
     if (req.method === 'POST' && req.url === '/infer') {
       try {
         const body = await readJsonBody(req);
-        const validation = validateEnvelope(body, validateInferenceRequest);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validateInferenceRequest);
         if (!validation.ok) {
           return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
         }
 
-        const envelope = body as Envelope<InferenceRequest>;
+        const envelope = body.value as Envelope<InferenceRequest>;
         if (!config.routerPublicKey) {
           return sendJson(res, 500, { error: 'router-public-key-missing' });
         }

@@ -24,6 +24,9 @@ Nostr alignment
 - Signed envelopes align with Nostr signing primitives.
 - Discovery and trust can be relay-backed without exposing prompts or outputs.
 
+Payments
+- Settlement is designed to be Lightning-compatible for pay-as-you-go inference.
+
 Control plane
 - Routing, scheduling, metering, trust, protocol enforcement.
 
