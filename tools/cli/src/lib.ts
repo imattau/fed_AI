@@ -6,6 +6,10 @@ export const usage = (): string => {
 
 Commands:
   gen-keys
+  profile --latency-targets host1,host2
+  bench --mode node|router --latency-targets host1,host2
+  recommend --profile profile.json --bench bench.json
+  manifest --role node|router --id <id> --key-id <pub> --private-key <hex|pem> --profile profile.json --bench bench.json --write out.json
   quote --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --input <n> --output <n> --max-tokens <n>
   infer --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --prompt <text> --max-tokens <n>
 `;

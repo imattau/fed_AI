@@ -15,6 +15,27 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/bench:
+    dependencies:
+      systeminformation:
+        specifier: ^5.23.8
+        version: 5.30.4
+
+  packages/manifest:
+    dependencies:
+      '@fed-ai/profiler':
+        specifier: workspace:*
+        version: link:../profiler
+      fast-json-stable-stringify:
+        specifier: ^2.1.0
+        version: 2.1.0
+
+  packages/profiler:
+    dependencies:
+      systeminformation:
+        specifier: ^5.23.8
+        version: 5.30.4
+
   packages/protocol:
     dependencies:
       fast-json-stable-stringify:
@@ -27,6 +48,12 @@ importers:
       tsx:
         specifier: ^4.15.0
         version: 4.21.0
+
+  packages/recommender:
+    dependencies:
+      '@fed-ai/profiler':
+        specifier: workspace:*
+        version: link:../profiler
 
   packages/sdk-js:
     dependencies:
@@ -56,9 +83,21 @@ importers:
 
   tools/cli:
     dependencies:
+      '@fed-ai/bench':
+        specifier: workspace:*
+        version: link:../../packages/bench
+      '@fed-ai/manifest':
+        specifier: workspace:*
+        version: link:../../packages/manifest
+      '@fed-ai/profiler':
+        specifier: workspace:*
+        version: link:../../packages/profiler
       '@fed-ai/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@fed-ai/recommender':
+        specifier: workspace:*
+        version: link:../../packages/recommender
     devDependencies:
       tsx:
         specifier: ^4.15.0
@@ -257,6 +296,12 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
+  systeminformation@5.30.4:
+    resolution: {integrity: sha512-6Zi6NZRuEnK8Uv8R5s6+iz2NvamrxpYdpxhF7ANpzjlTfDRPQEJJh1cz2Car5KT+L1EWv6zGzECITKTinfL47g==}
+    engines: {node: '>=8.0.0'}
+    os: [darwin, linux, win32, freebsd, openbsd, netbsd, sunos, android]
+    hasBin: true
+
   tsx@4.21.0:
     resolution: {integrity: sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw==}
     engines: {node: '>=18.0.0'}
@@ -396,6 +441,8 @@ snapshots:
       resolve-pkg-maps: 1.0.0
 
   resolve-pkg-maps@1.0.0: {}
+
+  systeminformation@5.30.4: {}
 
   tsx@4.21.0:
     dependencies:

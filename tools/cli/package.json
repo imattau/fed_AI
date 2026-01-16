@@ -13,7 +13,11 @@
     "sim": "echo 'sim todo'"
   },
   "dependencies": {
-    "@fed-ai/protocol": "workspace:*"
+    "@fed-ai/bench": "workspace:*",
+    "@fed-ai/manifest": "workspace:*",
+    "@fed-ai/profiler": "workspace:*",
+    "@fed-ai/protocol": "workspace:*",
+    "@fed-ai/recommender": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.15.0"

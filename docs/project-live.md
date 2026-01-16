@@ -56,8 +56,8 @@ Phase 7 - Optional extensions
 
 - [ ] First real runner adapter.
 - [ ] Add simulator scenarios for pricing sensitivity.
-- [ ] Scaffold profiler, bench, recommender, and manifest packages.
-- [ ] Extend CLI with profile/bench/recommend/manifest commands.
+- [ ] Implement profiler/bench data collection details.
+- [ ] Add manifest ingestion in router for initial weighting.
 
 ## Upcoming tasks
 
@@ -108,6 +108,8 @@ Phase 7 - Optional extensions
 - [x] Router payment enforcement added with receipt endpoint and tests.
 - [x] Simulator uses router scheduler and emits JSON + Markdown summary.
 - [x] Node payment enforcement added with receipt verification.
+- [x] Profiler, bench, recommender, and manifest packages scaffolded.
+- [x] CLI supports profile/bench/recommend/manifest commands.
 
 ## Scratchpad
 

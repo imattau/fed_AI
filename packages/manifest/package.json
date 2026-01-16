@@ -8,5 +8,9 @@
     "build": "tsc -p tsconfig.json",
     "lint": "echo 'lint todo'",
     "test": "echo 'test todo'"
+  },
+  "dependencies": {
+    "@fed-ai/profiler": "workspace:*",
+    "fast-json-stable-stringify": "^2.1.0"
   }
 }
