@@ -301,6 +301,264 @@ Add config entries for:
 - Deterministic, short benchmarks over complex, flaky ones.
 - Conservative defaults that prioritise stability and predictability over peak performance.
 
+## Staking and Bonding Model
+
+### Purpose
+
+Introduce a staking system that improves trust, routing quality, and network resilience without turning fed_AI into a financial product.
+
+Staking in fed_AI is a bond against bad behaviour, not yield, governance power, or speculation.
+
+---
+
+## 1. Design principles
+
+Staking MUST:
+
+- Increase economic friction for bad actors
+- Reduce attack surface for routers
+- Influence routing weights, not binary access
+- Be deterministic and rule-based
+- Avoid speculative or yield-based mechanics
+
+Staking MUST NOT:
+
+- Grant voting rights by default
+- Replace observed performance
+- Create plutocracy
+- Require a native token in early phases
+
+---
+
+## 2. Who can stake
+
+### 2.1 Node operators
+
+Nodes MAY stake to:
+
+- Increase routing priority
+- Unlock higher concurrency limits
+- Reduce probation duration
+- Advertise stronger reliability guarantees
+
+Zero-stake nodes are allowed, but routed conservatively.
+
+---
+
+### 2.2 Router operators
+
+Routers MUST stake to:
+
+- Be admitted as routable routers
+- Increase routing influence
+- Shorten probation period
+- Act as policy and enforcement actors
+
+Router staking thresholds are significantly higher than node thresholds.
+
+---
+
+### 2.3 Clients (optional, future)
+
+Clients MAY stake to:
+
+- Reserve capacity
+- Avoid throttling during congestion
+- Guarantee latency or throughput classes
+
+Client staking is explicitly optional and non-blocking.
+
+---
+
+## 3. What is staked
+
+Early phases use abstract stake units, not a live token.
+
+Acceptable stake representations:
+
+- Internal stake credits
+- Time-locked commitments
+- Bonded reputation units earned via work
+- Later mapping to external assets (eg Lightning escrow)
+
+The staking interface MUST be abstract enough to support multiple backends later.
+
+---
+
+## 4. Where stake lives
+
+Stake MUST NOT be held by a single central authority.
+
+Allowed models:
+
+- Router-scoped escrow
+- Time-bound stake commitments
+- Multi-router observation with delayed release
+- Revocable stake credits
+
+Rules:
+
+- Routers do not custody long-term user funds
+- All stake actions are logged and auditable
+- Stake has explicit expiry or decay
+
+---
+
+## 5. How staking affects routing
+
+Staking influences routing weights only, never hard access.
+
+Example routing weight formula (illustrative):
+
+```
+effective_weight =
+  performance_score
+× uptime_score
+× reliability_score
+× stake_factor
+```
+
+Constraints:
+
+- stake_factor is capped
+- Performance always dominates stake
+- Stake cannot compensate for repeated failures
+
+---
+
+## 6. Probation and promotion flow
+
+### New nodes and routers
+
+- Start in probation mode
+- Low or zero stake permitted
+- Strict rate and concurrency limits
+
+### Promotion inputs
+
+- Observed job success
+- Uptime over time
+- Reliability under load
+- Small or moderate stake commitment
+- Time-in-network
+
+Stake accelerates promotion but never replaces observation.
+
+---
+
+## 7. Slashing rules
+
+Slashing MUST be boring, explicit, and deterministic.
+
+### Slashable events
+
+- Cryptographic misrepresentation
+- Repeated job acceptance followed by failure
+- Proven output tampering
+- Explicit policy violations
+- Refusing accepted jobs without cause
+
+### Non-slashable events
+
+- Low quality output
+- Slow responses within declared limits
+- Unpopular or undesired outputs
+
+Slashing properties:
+
+- Partial and proportional
+- Logged and reviewable
+- Never total unless explicitly configured
+- Deterministic based on evidence
+
+---
+
+## 8. Stake decay and expiry
+
+All stake MUST:
+
+- Expire
+- Or decay over time
+- Or be consumed by usage
+
+Supported decay models:
+
+- Linear time decay
+- Inactivity-triggered reduction
+- Usage-based consumption
+
+This prevents dead capital and permanent dominance.
+
+---
+
+## 9. Governance boundaries
+
+Staking DOES NOT automatically grant:
+
+- Votes
+- Protocol control
+- Rule changes
+
+Staking MAY unlock:
+
+- Proposal submission
+- Experimental routing participation
+- Policy module testing
+
+Core protocol rules remain code-defined.
+
+---
+
+## 10. Minimal Viable Staking (MVS)
+
+Initial implementation MUST include:
+
+- Abstract stake units
+- Router-managed escrow logic
+- Deterministic slashing rules
+- Stake-influenced routing weights
+- Probation and promotion flow
+
+Initial implementation MUST NOT include:
+
+- Token issuance
+- Yield or rewards
+- On-chain dependencies
+
+---
+
+## 11. Required spec additions
+
+Add a new section titled:
+
+Staking and Bonding Model
+
+Include:
+
+- Definitions of stake units
+- Stake lifecycle (commit, decay, release)
+- Routing weight integration
+- Slashing conditions
+- Probation and promotion rules
+- Router vs node differences
+
+---
+
+## 12. Acceptance criteria
+
+- Nodes can operate with zero stake.
+- Routers require stake to exit probation.
+- Stake increases priority but cannot override poor performance.
+- Slashing is deterministic and auditable.
+- Stake expires or decays automatically.
+- No yield, rewards, or speculative mechanics exist in the spec.
+
+---
+
+### One-line summary for the spec
+
+> Staking in fed_AI is a bounded economic bond that discourages bad behaviour and smooths routing decisions without granting power, yield, or control.
+
 ## Data flow (high level)
 
 1. Node advertises capabilities and pricing to the router.

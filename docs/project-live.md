@@ -55,9 +55,9 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Add manifest ingestion in router for initial weighting.
 - [ ] Add simulator scenarios for pricing sensitivity.
 - [ ] First real runner adapter.
+- [ ] Add staking and bonding model components (stake unit types, router escrow, slashing rules).
 
 ## Upcoming tasks
 
@@ -110,6 +110,7 @@ Phase 7 - Optional extensions
 - [x] Node payment enforcement added with receipt verification.
 - [x] CLI supports profile/bench/recommend/manifest commands.
 - [x] Profiler, bench, recommender, and manifest packages implemented.
+- [x] Router manifest ingestion and weighting added.
 
 ## Scratchpad
 
