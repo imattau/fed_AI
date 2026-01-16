@@ -54,14 +54,14 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Add protocol docs for payment lifecycle (when to emit PaymentRequest/Receipt).
+- [ ] Define payment flow enforcement in router and node services.
+- [ ] Simulator using router scheduler.
+- [ ] First real runner adapter.
 
 ## Upcoming tasks
 
-- [ ] CLI key generation and signed request workflows.
-- [ ] Docker compose local dev setup with mock runner.
-- [ ] Simulator using router scheduler.
-- [ ] First real runner adapter.
+- [ ] Observability hooks (metrics + tracing).
+- [ ] Expanded trust/resilience handling.
 
 ## Decisions and notes
 
@@ -102,6 +102,7 @@ Phase 7 - Optional extensions
 - [x] CLI unit tests added.
 - [x] Protocol payment and error types added with validators and tests.
 - [x] Docker compose wired for end-to-end local run.
+- [x] Protocol docs include payment lifecycle guidance.
 
 ## Scratchpad
 

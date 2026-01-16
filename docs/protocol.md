@@ -49,6 +49,11 @@ Envelope<T> {
 - `PaymentRequest` carries Lightning invoice details for settlement.
 - `PaymentReceipt` confirms settlement for a request and node.
 
+Payment lifecycle
+- Router issues a `PaymentRequest` envelope after quote acceptance or before inference dispatch.
+- Client pays the Lightning invoice and returns a signed `PaymentReceipt` envelope.
+- Router verifies receipt and records settlement; node can validate receipt before or after executing inference depending on policy.
+
 ## Replay protection
 
 - Nonce tracking
