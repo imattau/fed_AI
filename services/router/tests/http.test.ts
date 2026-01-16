@@ -9,6 +9,7 @@ import {
   validateEnvelope,
   validateInferenceResponse,
   validateMeteringRecord,
+  validatePaymentRequest,
   validateQuoteResponse,
   verifyEnvelope,
 } from '@fed-ai/protocol';
@@ -20,6 +21,7 @@ import type {
   NodeDescriptor,
   MeteringRecord,
   InferenceResponse,
+  PaymentReceipt,
   QuoteRequest,
   QuoteResponse,
 } from '@fed-ai/protocol';
@@ -97,6 +99,7 @@ test('router /infer returns 503 when no nodes', async () => {
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
+    requirePayment: false,
   };
 
   const { server, baseUrl } = await startRouter(config);
@@ -139,6 +142,7 @@ test('router /infer forwards to node and verifies signatures', async () => {
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
+    requirePayment: false,
   };
 
   const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
@@ -201,6 +205,112 @@ test('router /infer forwards to node and verifies signatures', async () => {
   nodeServer.close();
 });
 
+test('router /infer enforces payment when required', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+
+  const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
+    'node-key-1',
+    nodeKeys.privateKey,
+  );
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: 'router-key-1',
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: true,
+  };
+
+  const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
+
+  const nodeDescriptor: NodeDescriptor = {
+    nodeId: 'node-1',
+    keyId: 'node-key-1',
+    endpoint: nodeUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 1, outputRate: 1, currency: 'SAT' },
+      },
+    ],
+  };
+
+  const registrationEnvelope = signEnvelope(
+    buildEnvelope(nodeDescriptor, 'nonce-node-pay', Date.now(), 'node-key-1'),
+    nodeKeys.privateKey,
+  );
+
+  const registerResponse = await fetch(`${routerUrl}/register-node`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(registrationEnvelope),
+  });
+
+  assert.equal(registerResponse.status, 200);
+
+  const clientRequest: InferenceRequest = {
+    requestId: 'req-pay',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(clientRequest, 'nonce-client-pay', Date.now(), 'client-key-1'),
+    clientKeys.privateKey,
+  );
+
+  const paymentResponse = await fetch(`${routerUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(paymentResponse.status, 402);
+  const paymentBody = (await paymentResponse.json()) as { payment: unknown };
+  const paymentValidation = validateEnvelope(paymentBody.payment, validatePaymentRequest);
+  assert.equal(paymentValidation.ok, true);
+  const paymentEnvelope = paymentBody.payment as Envelope<{ nodeId: string; requestId: string }>;
+  assert.equal(paymentEnvelope.payload.requestId, clientRequest.requestId);
+
+  const receipt: PaymentReceipt = {
+    requestId: paymentEnvelope.payload.requestId,
+    nodeId: paymentEnvelope.payload.nodeId,
+    amountSats: 16,
+    paidAtMs: Date.now(),
+  };
+
+  const receiptEnvelope = signEnvelope(
+    buildEnvelope(receipt, 'nonce-receipt', Date.now(), 'client-key-1'),
+    clientKeys.privateKey,
+  );
+
+  const receiptResponse = await fetch(`${routerUrl}/payment-receipt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(receiptEnvelope),
+  });
+
+  assert.equal(receiptResponse.status, 200);
+
+  const inferResponse = await fetch(`${routerUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(inferResponse.status, 200);
+
+  routerServer.close();
+  nodeServer.close();
+});
+
 test('router /quote returns signed quote response', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
@@ -211,6 +321,7 @@ test('router /quote returns signed quote response', async () => {
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
+    requirePayment: false,
   };
 
   const service = createRouterService(config);

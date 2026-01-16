@@ -5,10 +5,11 @@ import { selectNode } from './scheduler';
 export type RouterService = {
   config: RouterConfig;
   nodes: NodeDescriptor[];
+  paymentReceipts: Map<string, Envelope<import('@fed-ai/protocol').PaymentReceipt>>;
 };
 
 export const createRouterService = (config: RouterConfig): RouterService => {
-  return { config, nodes: [] };
+  return { config, nodes: [], paymentReceipts: new Map() };
 };
 
 export const registerNode = (service: RouterService, node: NodeDescriptor): void => {

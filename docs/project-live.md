@@ -54,7 +54,6 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Define payment flow enforcement in router and node services.
 - [ ] Simulator using router scheduler.
 - [ ] First real runner adapter.
 
@@ -103,6 +102,7 @@ Phase 7 - Optional extensions
 - [x] Protocol payment and error types added with validators and tests.
 - [x] Docker compose wired for end-to-end local run.
 - [x] Protocol docs include payment lifecycle guidance.
+- [x] Router payment enforcement added with receipt endpoint and tests.
 
 ## Scratchpad
 

@@ -4,6 +4,7 @@ export type RouterConfig = {
   endpoint: string;
   port: number;
   privateKey?: import('node:crypto').KeyObject;
+  requirePayment: boolean;
 };
 
 export const defaultRouterConfig: RouterConfig = {
@@ -11,4 +12,5 @@ export const defaultRouterConfig: RouterConfig = {
   keyId: 'router-key-1',
   endpoint: 'http://localhost:8080',
   port: 8080,
+  requirePayment: false,
 };

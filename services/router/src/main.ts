@@ -17,6 +17,7 @@ const buildConfig = (): RouterConfig => {
     endpoint: getEnv('ROUTER_ENDPOINT') ?? defaultRouterConfig.endpoint,
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
+    requirePayment: (getEnv('ROUTER_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
   };
 };
 

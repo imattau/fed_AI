@@ -10,6 +10,7 @@ import {
   validateInferenceResponse,
   validateMeteringRecord,
   validateNodeDescriptor,
+  validatePaymentReceipt,
   validateQuoteRequest,
   verifyEnvelope,
 } from '@fed-ai/protocol';
@@ -19,6 +20,8 @@ import type {
   InferenceResponse,
   MeteringRecord,
   NodeDescriptor,
+  PaymentReceipt,
+  PaymentRequest,
   QuoteRequest,
   QuoteResponse,
 } from '@fed-ai/protocol';
@@ -27,11 +30,14 @@ import type { RouterService } from './server';
 import { selectNode } from './scheduler';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
+const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
 
 const filterActiveNodes = (nodes: NodeDescriptor[]): NodeDescriptor[] => {
   const cutoff = Date.now() - NODE_HEARTBEAT_WINDOW_MS;
   return nodes.filter((node) => !node.lastHeartbeatMs || node.lastHeartbeatMs >= cutoff);
 };
+
+const receiptKey = (requestId: string, nodeId: string): string => `${requestId}:${nodeId}`;
 
 const readJsonBody = async (
   req: IncomingMessage,
@@ -177,6 +183,33 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
       }
     }
 
+    if (req.method === 'POST' && req.url === '/payment-receipt') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validatePaymentReceipt);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<PaymentReceipt>;
+        const clientKey = parsePublicKey(envelope.keyId);
+        if (!verifyEnvelope(envelope, clientKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        const key = receiptKey(envelope.payload.requestId, envelope.payload.nodeId);
+        service.paymentReceipts.set(key, envelope);
+
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/infer') {
       try {
         const body = await readJsonBody(req);
@@ -204,12 +237,55 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 500, { error: 'router-private-key-missing' });
         }
 
-        const node = service.nodes.find((candidate) =>
-          candidate.capabilities.some((capability) => capability.modelId === envelope.payload.modelId),
-        );
+        const selection = selectNode({
+          nodes: filterActiveNodes(service.nodes),
+          request: {
+            requestId: envelope.payload.requestId,
+            modelId: envelope.payload.modelId,
+            maxTokens: envelope.payload.maxTokens,
+            inputTokensEstimate: envelope.payload.prompt.length,
+            outputTokensEstimate: envelope.payload.maxTokens,
+          },
+        });
+
+        const node = selection.selected;
 
         if (!node) {
           return sendJson(res, 503, { error: 'no-nodes-available' });
+        }
+
+        if (config.requirePayment) {
+          const key = receiptKey(envelope.payload.requestId, node.nodeId);
+          if (!service.paymentReceipts.has(key)) {
+            const capability = node.capabilities.find(
+              (item) => item.modelId === envelope.payload.modelId,
+            );
+            if (!capability) {
+              return sendJson(res, 503, { error: 'no-capable-nodes' });
+            }
+
+            const total =
+              capability.pricing.inputRate * envelope.payload.prompt.length +
+              capability.pricing.outputRate * envelope.payload.maxTokens;
+
+            const paymentRequest: PaymentRequest = {
+              requestId: envelope.payload.requestId,
+              nodeId: node.nodeId,
+              amountSats: Math.max(1, Math.round(total)),
+              invoice: `lnbc-mock-${envelope.payload.requestId}`,
+              expiresAtMs: Date.now() + PAYMENT_WINDOW_MS,
+              metadata: {
+                currency: capability.pricing.currency,
+              },
+            };
+
+            const paymentEnvelope = signEnvelope(
+              buildEnvelope(paymentRequest, envelope.nonce, Date.now(), config.keyId),
+              config.privateKey,
+            );
+
+            return sendJson(res, 402, { error: 'payment-required', payment: paymentEnvelope });
+          }
         }
 
         const forwardEnvelope = signEnvelope(
