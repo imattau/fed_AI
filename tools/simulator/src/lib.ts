@@ -28,6 +28,19 @@ export type PricingSensitivityReport = {
   results: PricingSensitivityResult[];
 };
 
+export type PaymentFlowVariant = 'pay-before' | 'pay-after';
+
+export type PaymentFlowMetrics = SimulationMetrics & {
+  flow: PaymentFlowVariant;
+  receiptsPerRequest: number;
+  extraLatencyMs: number;
+};
+
+export type PaymentFlowReport = {
+  baseConfig: SimulationConfig;
+  flows: PaymentFlowMetrics[];
+};
+
 const DEFAULT_MAX_TOKENS = 256;
 
 export const createRng = (seed: number): (() => number) => {
@@ -229,4 +242,63 @@ export const formatPricingSummary = (report: PricingSensitivityReport): string =
     );
   }
   return lines.join('\n');
+};
+
+const paymentFlowConfig = {
+  'pay-before': {
+    receipts: 1,
+    latencyDelta: 12,
+    dropPenalty: 0,
+    costMultiplier: 1,
+  },
+  'pay-after': {
+    receipts: 2,
+    latencyDelta: 48,
+    dropPenalty: 0.04,
+    costMultiplier: 1.08,
+  },
+} as const;
+
+const adjustMetricsForFlow = (
+  base: SimulationMetrics,
+  config: SimulationConfig,
+  variant: PaymentFlowVariant,
+): PaymentFlowMetrics => {
+  const adjustment = paymentFlowConfig[variant];
+  const extraDrops = Math.min(config.requests, Math.round(adjustment.dropPenalty * config.requests));
+  const servedRequests = Math.max(0, base.servedRequests - extraDrops);
+  const droppedRequests = config.requests - servedRequests;
+  const dropRate = config.requests === 0 ? 0 : droppedRequests / config.requests;
+
+  const costPerRequestAvg =
+    servedRequests === 0
+      ? 0
+      : base.costPerRequestAvg * adjustment.costMultiplier;
+
+  const p50LatencyMs = base.p50LatencyMs + adjustment.latencyDelta;
+  const p95LatencyMs = base.p95LatencyMs + adjustment.latencyDelta * 1.2;
+
+  return {
+    ...base,
+    flow: variant,
+    receiptsPerRequest: adjustment.receipts,
+    extraLatencyMs: adjustment.latencyDelta,
+    servedRequests,
+    droppedRequests,
+    dropRate,
+    costPerRequestAvg,
+    p50LatencyMs,
+    p95LatencyMs,
+  };
+};
+
+export const runPaymentFlowScenario = (config: SimulationConfig): PaymentFlowReport => {
+  const metrics = runSimulation(config);
+  const flows: PaymentFlowMetrics[] = (['pay-before', 'pay-after'] as PaymentFlowVariant[]).map((variant) =>
+    adjustMetricsForFlow(metrics, config, variant),
+  );
+  return {
+    baseConfig: config,
+    flows,
+  };
 };

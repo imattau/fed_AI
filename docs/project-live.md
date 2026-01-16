@@ -111,6 +111,7 @@ Phase 7 - Optional extensions
 - [x] Router manifest ingestion and weighting added.
 - [x] Staking components added (stake commits, slashing, routing weights).
 - [x] Simulator pricing sensitivity scenario added.
+- [x] Simulator payment flow scenario added (pay-before vs pay-after with receipt counts).
 - [x] P2P Lightning payment documentation updated across core docs.
 
 ## Scratchpad

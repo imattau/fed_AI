@@ -4,6 +4,7 @@ import {
   createRng,
   generateNodes,
   generateRequests,
+  runPaymentFlowScenario,
   runPricingSensitivity,
   runSimulation,
 } from '../src/lib';
@@ -32,4 +33,16 @@ test('runPricingSensitivity returns result for each multiplier', () => {
   const report = runPricingSensitivity({ nodes: 5, requests: 10, seed: 2 }, [0.5, 1, 2]);
   assert.equal(report.results.length, 3);
   assert.equal(report.results[0].multiplier, 0.5);
+});
+
+test('runPaymentFlowScenario compares pay-before and pay-after', () => {
+  const report = runPaymentFlowScenario({ nodes: 5, requests: 10, seed: 3 });
+  assert.equal(report.flows.length, 2);
+  const payBefore = report.flows.find((flow) => flow.flow === 'pay-before');
+  const payAfter = report.flows.find((flow) => flow.flow === 'pay-after');
+  assert.ok(payBefore);
+  assert.ok(payAfter);
+  assert.equal(payBefore?.receiptsPerRequest, 1);
+  assert.equal(payAfter?.receiptsPerRequest, 2);
+  assert.ok(payAfter!.dropRate >= payBefore!.dropRate);
 });

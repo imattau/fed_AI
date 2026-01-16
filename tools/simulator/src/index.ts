@@ -18,6 +18,18 @@ if (scenario === 'pricing') {
   console.log(JSON.stringify(report, null, 2));
   console.log('\n---\n');
   console.log(formatPricingSummary(report));
+} else if (scenario === 'payments') {
+  const report = runPaymentFlowScenario(config);
+  console.log(JSON.stringify(report, null, 2));
+  console.log('\n---\n');
+  console.log(`# Payment Flow Summary`);
+  for (const flow of report.flows) {
+    console.log(
+      `- ${flow.flow}: receipts=${flow.receiptsPerRequest}, drop=${(flow.dropRate * 100).toFixed(
+        2,
+      )}%, extra-latency=${flow.extraLatencyMs}ms`,
+    );
+  }
 } else {
   const metrics = runSimulation(config);
   console.log(JSON.stringify(metrics, null, 2));
