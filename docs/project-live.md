@@ -59,7 +59,6 @@ Phase 7 - Optional extensions
 
 ## Upcoming tasks
 
-- [ ] Observability hooks (metrics + tracing).
 - [ ] Expanded trust/resilience handling.
 
 ## Decisions and notes
@@ -113,6 +112,7 @@ Phase 7 - Optional extensions
 - [x] Simulator pricing sensitivity scenario added.
 - [x] Simulator payment flow scenario added (pay-before vs pay-after with receipt counts).
 - [x] P2P Lightning payment documentation updated across core docs.
+- [x] Observability hooks (metrics + tracing) added for router and node.
 
 ## Scratchpad
 

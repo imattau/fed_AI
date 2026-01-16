@@ -23,6 +23,10 @@ Payments
 - Router verifies proofs and attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
 - Router never holds or forwards funds; it only orchestrates requirements and verification.
 
+Observability
+- `/metrics` exposes Prometheus-friendly metrics such as `router_inference_requests_total` and latency histograms.
+- The router instruments `/infer` and `/payment-receipt` with OpenTelemetry spans (`router.infer`, `router.paymentReceipt`) so traces can correlate ingestion, payment verification, and node dispatch.
+
 Manifests
 - `/manifest` accepts signed node manifests for initial admission and weighting.
 - Manifest capability bands adjust initial trust scores before routing decisions.

@@ -204,3 +204,28 @@ test('node /infer requires payment when configured', async () => {
 
   server.close();
 });
+
+test('node /metrics exposes Prometheus metrics', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: exportPublicKeyHex(nodeKeys.publicKey),
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    requirePayment: false,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: nodeKeys.publicKey,
+  };
+
+  const { server, baseUrl } = await startServer(config);
+  const response = await fetch(`${baseUrl}/metrics`);
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  assert.ok(body.includes('node_inference_requests_total'));
+  server.close();
+});

@@ -38,6 +38,10 @@ Rules
 - Runners may be written in any language.
 - Mock runner exists for testing only.
 
+Observability
+- `/metrics` exposes Prometheus counters and histograms such as `node_inference_requests_total` and `node_payment_receipt_failures_total`.
+- The node wraps `/infer` with OpenTelemetry spans to tie inference handling into distributed traces.
+
 Metering
 - Track tokens in/out, wall time, bytes, model ID.
 - Hash prompts instead of storing them.

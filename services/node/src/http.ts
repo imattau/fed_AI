@@ -20,6 +20,13 @@ import type {
 } from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
+import {
+  nodeInferenceDuration,
+  nodeInferenceRequests,
+  nodeReceiptFailures,
+  nodeRegistry,
+  nodeTracer,
+} from './observability';
 
 const readJsonBody = async (
   req: IncomingMessage,
@@ -60,60 +67,80 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
       return sendJson(res, 200, { ok: true });
     }
 
+    if (req.method === 'GET' && req.url === '/metrics') {
+      const metrics = await nodeRegistry.metrics();
+      res.setHeader('content-type', nodeRegistry.contentType);
+      res.end(metrics);
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/infer') {
+      const span = nodeTracer.startSpan('node.infer', {
+        attributes: { component: 'node', 'node.id': config.nodeId },
+      });
+      const timer = nodeInferenceDuration.startTimer();
+      let statusLabel = '200';
+      const respond = (status: number, body: unknown): void => {
+        statusLabel = status.toString();
+        span.setAttribute('http.status_code', status);
+        sendJson(res, status, body);
+      };
       try {
         const body = await readJsonBody(req);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return respond(400, { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateInferenceRequest);
         if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+          return respond(400, { error: 'invalid-envelope', details: validation.errors });
         }
 
         const envelope = body.value as Envelope<InferenceRequest>;
         if (!config.routerPublicKey) {
-          return sendJson(res, 500, { error: 'router-public-key-missing' });
+          return respond(500, { error: 'router-public-key-missing' });
         }
         if (!verifyEnvelope(envelope, config.routerPublicKey)) {
-          return sendJson(res, 401, { error: 'invalid-signature' });
+          return respond(401, { error: 'invalid-signature' });
         }
 
         const replay = checkReplay(envelope, nonceStore);
         if (!replay.ok) {
-          return sendJson(res, 400, { error: replay.error });
+          return respond(400, { error: replay.error });
         }
 
         if (config.requirePayment) {
           const receipts = envelope.payload.paymentReceipts ?? [];
           const receiptEnvelope = receipts.find(
-            (item) =>
-              item.payload.payeeType === 'node' && item.payload.payeeId === config.nodeId,
+            (item) => item.payload.payeeType === 'node' && item.payload.payeeId === config.nodeId,
           );
 
           if (!receiptEnvelope) {
-            return sendJson(res, 402, { error: 'payment-required' });
+            nodeReceiptFailures.inc();
+            return respond(402, { error: 'payment-required' });
           }
 
           const receiptValidation = validateEnvelope(receiptEnvelope, validatePaymentReceipt);
           if (!receiptValidation.ok) {
-            return sendJson(res, 400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
           }
 
           const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
           if (receipt.payload.amountSats < 1) {
-            return sendJson(res, 400, { error: 'payment-amount-invalid' });
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'payment-amount-invalid' });
           }
 
           const clientKey = parsePublicKey(receipt.keyId);
           if (!verifyEnvelope(receipt, clientKey)) {
-            return sendJson(res, 401, { error: 'invalid-payment-receipt-signature' });
+            nodeReceiptFailures.inc();
+            return respond(401, { error: 'invalid-payment-receipt-signature' });
           }
         }
 
         if (!config.privateKey) {
-          return sendJson(res, 500, { error: 'node-private-key-missing' });
+          return respond(500, { error: 'node-private-key-missing' });
         }
 
         const response = await service.runner.infer(envelope.payload);
@@ -140,9 +167,13 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
           config.privateKey,
         );
 
-        return sendJson(res, 200, { response: responseEnvelope, metering: meteringEnvelope });
+        return respond(200, { response: responseEnvelope, metering: meteringEnvelope });
       } catch (error) {
-        return sendJson(res, 500, { error: 'internal-error' });
+        return respond(500, { error: 'internal-error' });
+      } finally {
+        timer();
+        nodeInferenceRequests.labels(statusLabel).inc();
+        span.end();
       }
     }
 

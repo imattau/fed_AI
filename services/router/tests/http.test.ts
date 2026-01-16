@@ -624,3 +624,22 @@ test('router /stake/commit records stake and affects selection', async () => {
 
   server.close();
 });
+
+test('router /metrics exposes Prometheus metrics', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: exportPublicKeyHex(routerKeys.publicKey),
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+  const metricsResponse = await fetch(`${baseUrl}/metrics`);
+  assert.equal(metricsResponse.status, 200);
+  const body = await metricsResponse.text();
+  assert.ok(body.includes('router_inference_requests_total'));
+  server.close();
+});

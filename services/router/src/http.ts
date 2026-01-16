@@ -34,6 +34,14 @@ import type { NodeManifest } from '@fed-ai/manifest';
 import type { RouterConfig } from './config';
 import type { RouterService } from './server';
 import { selectNode } from './scheduler';
+import {
+  inferenceDuration,
+  inferenceRequests,
+  paymentReceiptFailures,
+  paymentRequests,
+  routerRegistry,
+  routerTracer,
+} from './observability';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
@@ -150,6 +158,13 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
   return http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'GET' && req.url === '/metrics') {
+      const metrics = await routerRegistry.metrics();
+      res.setHeader('content-type', routerRegistry.contentType);
+      res.end(metrics);
+      return;
     }
 
     if (req.method === 'POST' && req.url === '/register-node') {
@@ -347,21 +362,33 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
     }
 
     if (req.method === 'POST' && req.url === '/payment-receipt') {
+      const span = routerTracer.startSpan('router.paymentReceipt', {
+        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+      });
+      let statusLabel = '200';
+      const respond = (status: number, body: unknown): void => {
+        statusLabel = status.toString();
+        span.setAttribute('http.status_code', status);
+        sendJson(res, status, body);
+      };
       try {
         const body = await readJsonBody(req);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          paymentReceiptFailures.inc();
+          return respond(400, { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validatePaymentReceipt);
         if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'invalid-envelope', details: validation.errors });
         }
 
         const envelope = body.value as Envelope<PaymentReceipt>;
         const clientKey = parsePublicKey(envelope.keyId);
         if (!verifyEnvelope(envelope, clientKey)) {
-          return sendJson(res, 401, { error: 'invalid-signature' });
+          paymentReceiptFailures.inc();
+          return respond(401, { error: 'invalid-signature' });
         }
 
         const payeeType = envelope.payload.payeeType;
@@ -370,50 +397,69 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         const expectedRequest = service.paymentRequests.get(key);
 
         if (!expectedRequest) {
-          return sendJson(res, 400, { error: 'payment-request-not-found' });
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'payment-request-not-found' });
         }
 
         if (envelope.payload.amountSats !== expectedRequest.amountSats) {
-          return sendJson(res, 400, { error: 'payment-amount-mismatch' });
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'payment-amount-mismatch' });
         }
 
-        if (expectedRequest.invoice && envelope.payload.invoice && expectedRequest.invoice !== envelope.payload.invoice) {
-          return sendJson(res, 400, { error: 'invoice-mismatch' });
+        if (
+          expectedRequest.invoice &&
+          envelope.payload.invoice &&
+          expectedRequest.invoice !== envelope.payload.invoice
+        ) {
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'invoice-mismatch' });
         }
 
         service.paymentReceipts.set(key, envelope);
-
-        return sendJson(res, 200, { ok: true });
+        return respond(200, { ok: true });
       } catch (error) {
-        return sendJson(res, 500, { error: 'internal-error' });
+        return respond(500, { error: 'internal-error' });
+      } finally {
+        paymentRequests.inc();
+        span.end();
       }
     }
 
     if (req.method === 'POST' && req.url === '/infer') {
+      const span = routerTracer.startSpan('router.infer', {
+        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+      });
+      const timer = inferenceDuration.startTimer();
+      let statusLabel = '200';
+      const respond = (status: number, body: unknown): void => {
+        statusLabel = status.toString();
+        span.setAttribute('http.status_code', status);
+        sendJson(res, status, body);
+      };
       try {
         const body = await readJsonBody(req);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return respond(400, { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateInferenceRequest);
         if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+          return respond(400, { error: 'invalid-envelope', details: validation.errors });
         }
 
         const envelope = body.value as Envelope<InferenceRequest>;
         const replay = checkReplay(envelope, nonceStore);
         if (!replay.ok) {
-          return sendJson(res, 400, { error: replay.error });
+          return respond(400, { error: replay.error });
         }
 
         const clientKey = parsePublicKey(envelope.keyId);
         if (!verifyEnvelope(envelope, clientKey)) {
-          return sendJson(res, 401, { error: 'invalid-signature' });
+          return respond(401, { error: 'invalid-signature' });
         }
 
         if (!config.privateKey) {
-          return sendJson(res, 500, { error: 'router-private-key-missing' });
+          return respond(500, { error: 'router-private-key-missing' });
         }
 
         const selection = selectNode({
@@ -430,22 +476,63 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         const node = selection.selected;
 
         if (!node) {
-          return sendJson(res, 503, { error: 'no-nodes-available' });
+          return respond(503, { error: selection.reason ?? 'no-nodes-available' });
         }
 
-        let storedReceipt: Envelope<PaymentReceipt> | undefined = undefined;
+        const handleNodeResponse = async (payload: InferenceRequest): Promise<void> => {
+          const forwardEnvelope = signEnvelope(
+            buildEnvelope(payload, envelope.nonce, Date.now(), config.keyId),
+            config.privateKey!,
+          );
+
+          const nodeResponse = await fetch(`${node.endpoint}/infer`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(forwardEnvelope),
+          });
+
+          if (!nodeResponse.ok) {
+            return respond(502, { error: 'node-error' });
+          }
+
+          const nodeBody = (await nodeResponse.json()) as {
+            response: Envelope<InferenceResponse>;
+            metering: Envelope<MeteringRecord>;
+          };
+
+          const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
+          if (!responseValidation.ok) {
+            return respond(502, { error: 'invalid-node-response', details: responseValidation.errors });
+          }
+
+          const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
+          if (!meteringValidation.ok) {
+            return respond(502, { error: 'invalid-metering', details: meteringValidation.errors });
+          }
+
+          const nodeKey = parsePublicKey(node.keyId);
+          if (nodeBody.response.keyId !== node.keyId || !verifyEnvelope(nodeBody.response, nodeKey)) {
+            return respond(502, { error: 'node-response-signature-invalid' });
+          }
+          if (nodeBody.metering.keyId !== node.keyId || !verifyEnvelope(nodeBody.metering, nodeKey)) {
+            return respond(502, { error: 'node-metering-signature-invalid' });
+          }
+
+          respond(200, { response: nodeBody.response, metering: nodeBody.metering });
+        };
+
         if (config.requirePayment) {
           const payeeType: PayeeType = 'node';
           const payeeId = node.nodeId;
           const paymentRequestKey = paymentKey(envelope.payload.requestId, payeeType, payeeId);
-          storedReceipt = service.paymentReceipts.get(paymentRequestKey);
+          const storedReceipt = service.paymentReceipts.get(paymentRequestKey);
 
           if (!storedReceipt) {
             const capability = node.capabilities.find(
               (item) => item.modelId === envelope.payload.modelId,
             );
             if (!capability) {
-              return sendJson(res, 503, { error: 'no-capable-nodes' });
+              return respond(503, { error: 'no-capable-nodes' });
             }
 
             const total =
@@ -470,61 +557,29 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
                   };
 
             service.paymentRequests.set(paymentRequestKey, paymentRequest);
+            paymentRequests.inc();
 
             const paymentEnvelope = signEnvelope(
               buildEnvelope(paymentRequest, envelope.nonce, Date.now(), config.keyId),
               config.privateKey,
             );
 
-            return sendJson(res, 402, { error: 'payment-required', payment: paymentEnvelope });
+            return respond(402, { error: 'payment-required', payment: paymentEnvelope });
           }
+
+          const requestPayload = { ...envelope.payload, paymentReceipts: [storedReceipt] };
+          await handleNodeResponse(requestPayload);
+          return;
         }
 
-        const requestPayload = storedReceipt
-          ? { ...envelope.payload, paymentReceipts: [storedReceipt] }
-          : envelope.payload;
-
-        const forwardEnvelope = signEnvelope(
-          buildEnvelope(requestPayload, envelope.nonce, Date.now(), config.keyId),
-          config.privateKey,
-        );
-
-        const nodeResponse = await fetch(`${node.endpoint}/infer`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(forwardEnvelope),
-        });
-
-        if (!nodeResponse.ok) {
-          return sendJson(res, 502, { error: 'node-error' });
-        }
-
-        const nodeBody = (await nodeResponse.json()) as {
-          response: Envelope<InferenceResponse>;
-          metering: Envelope<MeteringRecord>;
-        };
-
-        const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
-        if (!responseValidation.ok) {
-          return sendJson(res, 502, { error: 'invalid-node-response', details: responseValidation.errors });
-        }
-
-        const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
-        if (!meteringValidation.ok) {
-          return sendJson(res, 502, { error: 'invalid-metering', details: meteringValidation.errors });
-        }
-
-        const nodeKey = parsePublicKey(node.keyId);
-        if (nodeBody.response.keyId !== node.keyId || !verifyEnvelope(nodeBody.response, nodeKey)) {
-          return sendJson(res, 502, { error: 'node-response-signature-invalid' });
-        }
-        if (nodeBody.metering.keyId !== node.keyId || !verifyEnvelope(nodeBody.metering, nodeKey)) {
-          return sendJson(res, 502, { error: 'node-metering-signature-invalid' });
-        }
-
-        return sendJson(res, 200, { response: nodeBody.response, metering: nodeBody.metering });
+        await handleNodeResponse(envelope.payload);
+        return;
       } catch (error) {
-        return sendJson(res, 500, { error: 'internal-error' });
+        return respond(500, { error: 'internal-error' });
+      } finally {
+        timer();
+        inferenceRequests.labels(statusLabel).inc();
+        span.end();
       }
     }
 
