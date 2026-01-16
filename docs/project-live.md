@@ -54,11 +54,8 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Add CLI tests.
 - [ ] Wire docker-compose for end-to-end local run.
-- [x] Add protocol package tests using `node:test`.
-- [x] Scaffold node service interfaces and mock runner.
-- [x] Scaffold router registry and scheduler interfaces.
+- [ ] Add protocol docs for payment lifecycle (when to emit PaymentRequest/Receipt).
 
 ## Upcoming tasks
 
@@ -104,6 +101,7 @@ Phase 7 - Optional extensions
 - [x] CLI key generation, quote, and inference flows implemented.
 - [x] CLI docs and usage examples added.
 - [x] CLI unit tests added.
+- [x] Protocol payment and error types added with validators and tests.
 
 ## Scratchpad
 

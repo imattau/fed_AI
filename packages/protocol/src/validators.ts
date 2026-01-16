@@ -7,6 +7,9 @@ import type {
   MeteringRecord,
   ModelInfo,
   NodeDescriptor,
+  PaymentReceipt,
+  PaymentRequest,
+  ProtocolError,
   QuoteRequest,
   QuoteResponse,
 } from './types';
@@ -187,6 +190,51 @@ export const validateQuoteResponse: Validator<QuoteResponse> = (value: unknown):
   return validateErrors(errors);
 };
 
+export const validatePaymentRequest: Validator<PaymentRequest> = (value: unknown): ValidationResult => {
+  const errors = validateObject(value, 'PaymentRequest');
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  const record = value as Record<string, unknown>;
+  requireString(record, 'requestId', errors);
+  requireString(record, 'nodeId', errors);
+  requireNumber(record, 'amountSats', errors);
+  requireString(record, 'invoice', errors);
+  requireNumber(record, 'expiresAtMs', errors);
+
+  if (record.paymentHash !== undefined && !isString(record.paymentHash)) {
+    errors.push('paymentHash must be a string');
+  }
+  if (record.metadata !== undefined && !isRecord(record.metadata)) {
+    errors.push('metadata must be an object');
+  }
+
+  return validateErrors(errors);
+};
+
+export const validatePaymentReceipt: Validator<PaymentReceipt> = (value: unknown): ValidationResult => {
+  const errors = validateObject(value, 'PaymentReceipt');
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  const record = value as Record<string, unknown>;
+  requireString(record, 'requestId', errors);
+  requireString(record, 'nodeId', errors);
+  requireNumber(record, 'amountSats', errors);
+  requireNumber(record, 'paidAtMs', errors);
+
+  if (record.paymentHash !== undefined && !isString(record.paymentHash)) {
+    errors.push('paymentHash must be a string');
+  }
+  if (record.preimage !== undefined && !isString(record.preimage)) {
+    errors.push('preimage must be a string');
+  }
+
+  return validateErrors(errors);
+};
+
 export const validateInferenceRequest: Validator<InferenceRequest> = (value: unknown): ValidationResult => {
   const errors = validateObject(value, 'InferenceRequest');
   if (errors.length > 0) {
@@ -252,6 +300,25 @@ export const validateMeteringRecord: Validator<MeteringRecord> = (value: unknown
   requireNumber(record, 'bytesIn', errors);
   requireNumber(record, 'bytesOut', errors);
   requireNumber(record, 'ts', errors);
+
+  return validateErrors(errors);
+};
+
+export const validateProtocolError: Validator<ProtocolError> = (value: unknown): ValidationResult => {
+  const errors = validateObject(value, 'ProtocolError');
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  const record = value as Record<string, unknown>;
+  requireString(record, 'code', errors);
+  requireString(record, 'message', errors);
+  if (record.retryable !== undefined && !isBoolean(record.retryable)) {
+    errors.push('retryable must be a boolean');
+  }
+  if (record.details !== undefined && !isRecord(record.details)) {
+    errors.push('details must be an object');
+  }
 
   return validateErrors(errors);
 };

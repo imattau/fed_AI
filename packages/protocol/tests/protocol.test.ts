@@ -9,6 +9,9 @@ import {
   signEnvelope,
   validateEnvelope,
   validateInferenceRequest,
+  validatePaymentReceipt,
+  validatePaymentRequest,
+  validateProtocolError,
   verifyEnvelope,
 } from '../src/index';
 import type { InferenceRequest } from '../src/types';
@@ -64,4 +67,36 @@ test('validateEnvelope validates payloads', () => {
   const invalidEnvelope = buildEnvelope({ bad: true }, 'nonce-5', Date.now(), 'key-3');
   const invalidResult = validateEnvelope(invalidEnvelope, validateInferenceRequest);
   assert.equal(invalidResult.ok, false);
+});
+
+test('validatePaymentRequest and validatePaymentReceipt enforce shape', () => {
+  const request = {
+    requestId: 'req-pay',
+    nodeId: 'node-1',
+    amountSats: 1000,
+    invoice: 'lnbc1...',
+    expiresAtMs: Date.now() + 60_000,
+  };
+  const receipt = {
+    requestId: 'req-pay',
+    nodeId: 'node-1',
+    amountSats: 1000,
+    paidAtMs: Date.now(),
+  };
+
+  assert.equal(validatePaymentRequest(request).ok, true);
+  assert.equal(validatePaymentReceipt(receipt).ok, true);
+
+  assert.equal(validatePaymentRequest({}).ok, false);
+  assert.equal(validatePaymentReceipt({}).ok, false);
+});
+
+test('validateProtocolError checks error shape', () => {
+  const error = {
+    code: 'invalid-envelope',
+    message: 'Envelope failed validation',
+    retryable: false,
+  };
+  assert.equal(validateProtocolError(error).ok, true);
+  assert.equal(validateProtocolError({ message: 'missing code' }).ok, false);
 });

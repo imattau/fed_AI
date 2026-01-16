@@ -22,9 +22,12 @@ Envelope<T> {
 - ModelInfo
 - QuoteRequest
 - QuoteResponse
+- PaymentRequest
+- PaymentReceipt
 - InferenceRequest
 - InferenceResponse
 - MeteringRecord
+- ProtocolError
 - Attestation (optional in v0.1)
 
 ## Crypto
@@ -40,6 +43,11 @@ Envelope<T> {
 - All requests and responses use signed envelopes.
 - Replay protection enforced via nonces and timestamp windows.
 - Nodes sign metering records to support independent verification.
+
+## Payments
+
+- `PaymentRequest` carries Lightning invoice details for settlement.
+- `PaymentReceipt` confirms settlement for a request and node.
 
 ## Replay protection
 

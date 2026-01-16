@@ -64,6 +64,25 @@ export type QuoteResponse = {
   expiresAtMs: number;
 };
 
+export type PaymentRequest = {
+  requestId: string;
+  nodeId: string;
+  amountSats: number;
+  invoice: string;
+  expiresAtMs: number;
+  paymentHash?: string;
+  metadata?: Record<string, string>;
+};
+
+export type PaymentReceipt = {
+  requestId: string;
+  nodeId: string;
+  amountSats: number;
+  paidAtMs: number;
+  paymentHash?: string;
+  preimage?: string;
+};
+
 export type InferenceRequest = {
   requestId: string;
   modelId: string;
@@ -96,6 +115,13 @@ export type MeteringRecord = {
   bytesIn: number;
   bytesOut: number;
   ts: number;
+};
+
+export type ProtocolError = {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  details?: Record<string, string>;
 };
 
 export type Attestation = {

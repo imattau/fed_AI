@@ -15,3 +15,4 @@ Metering requirements
 
 Lightning alignment
 - Metering records are designed to support Lightning settlement for pay-as-you-go usage.
+- `PaymentRequest` and `PaymentReceipt` formalize settlement messages.
