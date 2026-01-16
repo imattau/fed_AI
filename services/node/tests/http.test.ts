@@ -4,6 +4,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { AddressInfo } from 'node:net';
 import {
   buildEnvelope,
+  exportPublicKeyHex,
   signEnvelope,
   validateEnvelope,
   validateInferenceResponse,
@@ -68,10 +69,12 @@ test('node /infer rejects when router public key missing', async () => {
 test('node /infer validates signatures and returns signed response', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: nodeKeyId,
     endpoint: 'http://localhost:0',
     routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
@@ -93,7 +96,7 @@ test('node /infer validates signatures and returns signed response', async () =>
   };
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(payload, 'nonce-2', Date.now(), 'router-key-1'),
+    buildEnvelope(payload, 'nonce-2', Date.now(), routerKeyId),
     routerKeys.privateKey,
   );
 
@@ -128,10 +131,13 @@ test('node /infer requires payment when configured', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: nodeKeyId,
     endpoint: 'http://localhost:0',
     routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
@@ -153,7 +159,7 @@ test('node /infer requires payment when configured', async () => {
   };
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(payload, 'nonce-pay', Date.now(), 'router-key-1'),
+    buildEnvelope(payload, 'nonce-pay', Date.now(), routerKeyId),
     routerKeys.privateKey,
   );
 
@@ -175,7 +181,7 @@ test('node /infer requires payment when configured', async () => {
       },
       'nonce-receipt',
       Date.now(),
-      'client-key-1',
+      clientKeyId,
     ),
     clientKeys.privateKey,
   );
@@ -186,7 +192,7 @@ test('node /infer requires payment when configured', async () => {
   };
 
   const paidEnvelope = signEnvelope(
-    buildEnvelope(paidPayload, 'nonce-paid', Date.now(), 'router-key-1'),
+    buildEnvelope(paidPayload, 'nonce-paid', Date.now(), routerKeyId),
     routerKeys.privateKey,
   );
 

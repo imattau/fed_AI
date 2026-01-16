@@ -16,6 +16,13 @@ importers:
         version: 5.9.3
 
   packages/protocol:
+    dependencies:
+      fast-json-stable-stringify:
+        specifier: ^2.1.0
+        version: 2.1.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       tsx:
         specifier: ^4.15.0
@@ -65,6 +72,10 @@ importers:
       '@fed-ai/router':
         specifier: workspace:*
         version: link:../../services/router
+    devDependencies:
+      tsx:
+        specifier: ^4.15.0
+        version: 4.21.0
 
 packages:
 
@@ -232,6 +243,9 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  fast-json-stable-stringify@2.1.0:
+    resolution: {integrity: sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==}
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -255,6 +269,9 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
 
@@ -369,6 +386,8 @@ snapshots:
       '@esbuild/win32-ia32': 0.27.2
       '@esbuild/win32-x64': 0.27.2
 
+  fast-json-stable-stringify@2.1.0: {}
+
   fsevents@2.3.3:
     optional: true
 
@@ -388,3 +407,5 @@ snapshots:
   typescript@5.9.3: {}
 
   undici-types@6.21.0: {}
+
+  zod@3.25.76: {}

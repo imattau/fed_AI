@@ -9,6 +9,10 @@
     "lint": "echo 'lint todo'",
     "test": "tsx --test tests/**/*.test.ts"
   },
+  "dependencies": {
+    "fast-json-stable-stringify": "^2.1.0",
+    "zod": "^3.23.8"
+  },
   "devDependencies": {
     "tsx": "^4.15.0"
   }

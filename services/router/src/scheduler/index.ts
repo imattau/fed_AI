@@ -1,6 +1,8 @@
 import type { SchedulingInput, SchedulingResult } from './types';
 import { scoreNode } from './score';
 
+export { scoreNode };
+
 export const selectNode = (input: SchedulingInput): SchedulingResult => {
   if (input.nodes.length === 0) {
     return { selected: null, reason: 'no-nodes' };

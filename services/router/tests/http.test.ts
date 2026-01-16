@@ -5,6 +5,7 @@ import { AddressInfo } from 'node:net';
 import { createHash, generateKeyPairSync, KeyObject } from 'node:crypto';
 import {
   buildEnvelope,
+  exportPublicKeyHex,
   signEnvelope,
   validateEnvelope,
   validateInferenceResponse,
@@ -93,9 +94,10 @@ const startStubNode = async (nodeKeyId: string, privateKey: KeyObject) => {
 
 test('router /infer returns 503 when no nodes', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: 'router-key-1',
+    keyId: routerKeyId,
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -104,6 +106,7 @@ test('router /infer returns 503 when no nodes', async () => {
 
   const { server, baseUrl } = await startRouter(config);
   const clientKeys = generateKeyPairSync('ed25519');
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-1',
     modelId: 'mock-model',
@@ -112,7 +115,7 @@ test('router /infer returns 503 when no nodes', async () => {
   };
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(payload, 'nonce-1', Date.now(), 'client-key-1'),
+    buildEnvelope(payload, 'nonce-1', Date.now(), clientKeyId),
     clientKeys.privateKey,
   );
 
@@ -130,15 +133,18 @@ test('router /infer forwards to node and verifies signatures', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
 
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
-    'node-key-1',
+    nodeKeyId,
     nodeKeys.privateKey,
   );
 
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: 'router-key-1',
+    keyId: routerKeyId,
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -149,7 +155,7 @@ test('router /infer forwards to node and verifies signatures', async () => {
 
   const nodeDescriptor: NodeDescriptor = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: nodeKeyId,
     endpoint: nodeUrl,
     capacity: { maxConcurrent: 10, currentLoad: 0 },
     capabilities: [
@@ -163,7 +169,7 @@ test('router /infer forwards to node and verifies signatures', async () => {
   };
 
   const registrationEnvelope = signEnvelope(
-    buildEnvelope(nodeDescriptor, 'nonce-node', Date.now(), 'node-key-1'),
+    buildEnvelope(nodeDescriptor, 'nonce-node', Date.now(), nodeKeyId),
     nodeKeys.privateKey,
   );
 
@@ -183,7 +189,7 @@ test('router /infer forwards to node and verifies signatures', async () => {
   };
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(clientRequest, 'nonce-client', Date.now(), 'client-key-1'),
+    buildEnvelope(clientRequest, 'nonce-client', Date.now(), clientKeyId),
     clientKeys.privateKey,
   );
 
@@ -209,15 +215,18 @@ test('router /infer enforces payment when required', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
 
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
-    'node-key-1',
+    nodeKeyId,
     nodeKeys.privateKey,
   );
 
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: 'router-key-1',
+    keyId: routerKeyId,
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -228,7 +237,7 @@ test('router /infer enforces payment when required', async () => {
 
   const nodeDescriptor: NodeDescriptor = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: nodeKeyId,
     endpoint: nodeUrl,
     capacity: { maxConcurrent: 10, currentLoad: 0 },
     capabilities: [
@@ -242,82 +251,103 @@ test('router /infer enforces payment when required', async () => {
   };
 
   const registrationEnvelope = signEnvelope(
-    buildEnvelope(nodeDescriptor, 'nonce-node-pay', Date.now(), 'node-key-1'),
+    buildEnvelope(nodeDescriptor, 'nonce-node-pay', Date.now(), nodeKeyId),
     nodeKeys.privateKey,
   );
 
-  const registerResponse = await fetch(`${routerUrl}/register-node`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(registrationEnvelope),
-  });
+  try {
+    const registerResponse = await fetch(`${routerUrl}/register-node`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(registrationEnvelope),
+    });
 
-  assert.equal(registerResponse.status, 200);
+    assert.equal(registerResponse.status, 200);
 
-  const clientRequest: InferenceRequest = {
-    requestId: 'req-pay',
-    modelId: 'mock-model',
-    prompt: 'hello',
-    maxTokens: 8,
-  };
+    const clientRequest: InferenceRequest = {
+      requestId: 'req-pay',
+      modelId: 'mock-model',
+      prompt: 'hello',
+      maxTokens: 8,
+    };
 
-  const requestEnvelope = signEnvelope(
-    buildEnvelope(clientRequest, 'nonce-client-pay', Date.now(), 'client-key-1'),
-    clientKeys.privateKey,
-  );
+    const requestEnvelope = signEnvelope(
+      buildEnvelope(clientRequest, 'nonce-client-pay', Date.now(), clientKeyId),
+      clientKeys.privateKey,
+    );
 
-  const paymentResponse = await fetch(`${routerUrl}/infer`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(requestEnvelope),
-  });
+    const paymentResponse = await fetch(`${routerUrl}/infer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(requestEnvelope),
+    });
 
-  assert.equal(paymentResponse.status, 402);
-  const paymentBody = (await paymentResponse.json()) as { payment: unknown };
-  const paymentValidation = validateEnvelope(paymentBody.payment, validatePaymentRequest);
-  assert.equal(paymentValidation.ok, true);
-  const paymentEnvelope = paymentBody.payment as Envelope<{ nodeId: string; requestId: string }>;
-  assert.equal(paymentEnvelope.payload.requestId, clientRequest.requestId);
+    const paymentBodyText = await paymentResponse.text();
+    assert.equal(
+      paymentResponse.status,
+      402,
+      `expected 402 got ${paymentResponse.status} body=${paymentBodyText}`,
+    );
+    const paymentBody = JSON.parse(paymentBodyText) as { payment: unknown };
+    const paymentValidation = validateEnvelope(paymentBody.payment, validatePaymentRequest);
+    assert.equal(paymentValidation.ok, true);
+    const paymentEnvelope = paymentBody.payment as Envelope<{ nodeId: string; requestId: string }>;
+    assert.equal(paymentEnvelope.payload.requestId, clientRequest.requestId);
 
-  const receipt: PaymentReceipt = {
-    requestId: paymentEnvelope.payload.requestId,
-    nodeId: paymentEnvelope.payload.nodeId,
-    amountSats: 16,
-    paidAtMs: Date.now(),
-  };
+    const receipt: PaymentReceipt = {
+      requestId: paymentEnvelope.payload.requestId,
+      nodeId: paymentEnvelope.payload.nodeId,
+      amountSats: 16,
+      paidAtMs: Date.now(),
+    };
 
-  const receiptEnvelope = signEnvelope(
-    buildEnvelope(receipt, 'nonce-receipt', Date.now(), 'client-key-1'),
-    clientKeys.privateKey,
-  );
+    const receiptEnvelope = signEnvelope(
+      buildEnvelope(receipt, 'nonce-receipt', Date.now(), clientKeyId),
+      clientKeys.privateKey,
+    );
 
-  const receiptResponse = await fetch(`${routerUrl}/payment-receipt`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(receiptEnvelope),
-  });
+    const receiptResponse = await fetch(`${routerUrl}/payment-receipt`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(receiptEnvelope),
+    });
 
-  assert.equal(receiptResponse.status, 200);
+    assert.equal(receiptResponse.status, 200);
 
-  const inferResponse = await fetch(`${routerUrl}/infer`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(requestEnvelope),
-  });
+    const retryEnvelope = signEnvelope(
+      buildEnvelope(clientRequest, 'nonce-client-pay-retry', Date.now(), clientKeyId),
+      clientKeys.privateKey,
+    );
 
-  assert.equal(inferResponse.status, 200);
+    const inferResponse = await fetch(`${routerUrl}/infer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(retryEnvelope),
+    });
 
-  routerServer.close();
-  nodeServer.close();
+    const inferBodyText = await inferResponse.text();
+    assert.equal(
+      inferResponse.status,
+      200,
+      `expected 200 got ${inferResponse.status} body=${inferBodyText}`,
+    );
+  } finally {
+    routerServer.close();
+    nodeServer.close();
+  }
 });
 
 test('router /quote returns signed quote response', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: 'router-key-1',
+    keyId: routerKeyId,
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -327,7 +357,7 @@ test('router /quote returns signed quote response', async () => {
   const service = createRouterService(config);
   const nodeDescriptor: NodeDescriptor = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: nodeKeyId,
     endpoint: 'http://localhost:9999',
     capacity: { maxConcurrent: 10, currentLoad: 0 },
     capabilities: [
@@ -355,7 +385,7 @@ test('router /quote returns signed quote response', async () => {
   };
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(quoteRequest, 'nonce-quote', Date.now(), 'client-key-1'),
+    buildEnvelope(quoteRequest, 'nonce-quote', Date.now(), clientKeyId),
     clientKeys.privateKey,
   );
 

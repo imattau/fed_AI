@@ -1,4 +1,5 @@
 import { sign, verify, KeyObject } from 'node:crypto';
+import stableStringify from 'fast-json-stable-stringify';
 import type { Envelope } from './types';
 
 export type KeyLike = string | Buffer | KeyObject;
@@ -8,33 +9,6 @@ type EnvelopeSigningPayload<T> = {
   nonce: string;
   ts: number;
   keyId: string;
-};
-
-const stableStringify = (value: unknown): string => {
-  if (value === null || value === undefined) {
-    return 'null';
-  }
-
-  if (typeof value === 'string') {
-    return JSON.stringify(value);
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return JSON.stringify(value);
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-  }
-
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const keys = Object.keys(record).sort();
-    const entries = keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
-    return `{${entries.join(',')}}`;
-  }
-
-  return JSON.stringify(String(value));
 };
 
 const envelopeSigningPayload = <T>(envelope: Envelope<T>): EnvelopeSigningPayload<T> => {
