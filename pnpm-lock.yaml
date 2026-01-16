@@ -73,6 +73,9 @@ importers:
 
   services/router:
     dependencies:
+      '@fed-ai/manifest':
+        specifier: workspace:*
+        version: link:../../packages/manifest
       '@fed-ai/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

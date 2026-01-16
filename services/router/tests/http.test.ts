@@ -12,8 +12,10 @@ import {
   validateMeteringRecord,
   validatePaymentRequest,
   validateQuoteResponse,
+  validateStakeCommit,
   verifyEnvelope,
 } from '@fed-ai/protocol';
+import { signManifest } from '@fed-ai/manifest';
 import { createRouterService } from '../src/server';
 import { createRouterHttpServer } from '../src/http';
 import type {
@@ -25,7 +27,9 @@ import type {
   PaymentReceipt,
   QuoteRequest,
   QuoteResponse,
+  StakeCommit,
 } from '@fed-ai/protocol';
+import type { NodeManifest } from '@fed-ai/manifest';
 import type { RouterConfig } from '../src/config';
 
 const startRouter = async (config: RouterConfig) => {
@@ -403,6 +407,215 @@ test('router /quote returns signed quote response', async () => {
   const envelope = body.quote as Envelope<QuoteResponse>;
   assert.equal(envelope.keyId, config.keyId);
   assert.equal(verifyEnvelope(envelope, routerKeys.publicKey), true);
+
+  server.close();
+});
+
+test('router /manifest influences selection weight', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const service = createRouterService(config);
+  const nodeA: NodeDescriptor = {
+    nodeId: 'node-a',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9999',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.01, currency: 'USD' },
+      },
+    ],
+  };
+  const nodeB: NodeDescriptor = {
+    nodeId: 'node-b',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9998',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.01, currency: 'USD' },
+      },
+    ],
+  };
+  service.nodes.push(nodeA, nodeB);
+
+  const manifest: NodeManifest = {
+    id: 'node-a',
+    role_types: ['prepost_node'],
+    capability_bands: {
+      cpu: 'cpu_high',
+      ram: 'ram_64_plus',
+      disk: 'disk_ssd',
+      net: 'net_good',
+      gpu: 'gpu_none',
+    },
+    limits: { max_concurrency: 2, max_payload_bytes: 1024, max_tokens: 256 },
+    supported_formats: ['text'],
+    pricing_defaults: { unit: 'token', input_rate: 0, output_rate: 0, currency: 'USD' },
+    benchmarks: null,
+    software_version: '0.0.1',
+  };
+
+  const signedManifest = signManifest(manifest, nodeKeyId, nodeKeys.privateKey) as NodeManifest;
+
+  const server = createRouterHttpServer(service, config);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const quoteRequest: QuoteRequest = {
+    requestId: 'req-manifest',
+    modelId: 'mock-model',
+    maxTokens: 32,
+    inputTokensEstimate: 10,
+    outputTokensEstimate: 5,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(quoteRequest, 'nonce-manifest', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const manifestResponse = await fetch(`${baseUrl}/manifest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedManifest),
+  });
+
+  assert.equal(manifestResponse.status, 200);
+
+  const response = await fetch(`${baseUrl}/quote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  const body = (await response.json()) as { quote: Envelope<QuoteResponse> };
+  assert.equal(body.quote.payload.nodeId, 'node-a');
+
+  server.close();
+});
+
+test('router /stake/commit records stake and affects selection', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const service = createRouterService(config);
+  const nodeA: NodeDescriptor = {
+    nodeId: nodeKeyId,
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9997',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.01, currency: 'USD' },
+      },
+    ],
+  };
+  const nodeB: NodeDescriptor = {
+    nodeId: 'node-b',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9996',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.01, currency: 'USD' },
+      },
+    ],
+  };
+  service.nodes.push(nodeA, nodeB);
+
+  const server = createRouterHttpServer(service, config);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const stakeCommit: StakeCommit = {
+    stakeId: 'stake-1',
+    actorId: nodeKeyId,
+    actorType: 'node',
+    units: 2000,
+    committedAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  const stakeEnvelope = signEnvelope(
+    buildEnvelope(stakeCommit, 'nonce-stake', Date.now(), nodeKeyId),
+    nodeKeys.privateKey,
+  );
+
+  const stakeResponse = await fetch(`${baseUrl}/stake/commit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(stakeEnvelope),
+  });
+
+  assert.equal(stakeResponse.status, 200);
+  const stakeBody = (await stakeResponse.json()) as { ok: boolean };
+  assert.equal(stakeBody.ok, true);
+  const stakeValidation = validateEnvelope(stakeEnvelope, validateStakeCommit);
+  assert.equal(stakeValidation.ok, true);
+
+  const quoteRequest: QuoteRequest = {
+    requestId: 'req-stake',
+    modelId: 'mock-model',
+    maxTokens: 32,
+    inputTokensEstimate: 10,
+    outputTokensEstimate: 5,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(quoteRequest, 'nonce-stake-quote', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/quote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  const body = (await response.json()) as { quote: Envelope<QuoteResponse> };
+  assert.equal(body.quote.payload.nodeId, nodeKeyId);
 
   server.close();
 });

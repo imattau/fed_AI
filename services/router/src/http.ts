@@ -11,9 +11,13 @@ import {
   validateMeteringRecord,
   validateNodeDescriptor,
   validatePaymentReceipt,
+  validateStakeCommit,
+  validateStakeSlash,
   validateQuoteRequest,
   verifyEnvelope,
 } from '@fed-ai/protocol';
+import { verifyManifest } from '@fed-ai/manifest';
+import { effectiveStakeUnits, recordCommit, recordSlash } from './accounting/staking';
 import type {
   Envelope,
   InferenceRequest,
@@ -25,6 +29,7 @@ import type {
   QuoteRequest,
   QuoteResponse,
 } from '@fed-ai/protocol';
+import type { NodeManifest } from '@fed-ai/manifest';
 import type { RouterConfig } from './config';
 import type { RouterService } from './server';
 import { selectNode } from './scheduler';
@@ -38,6 +43,77 @@ const filterActiveNodes = (nodes: NodeDescriptor[]): NodeDescriptor[] => {
 };
 
 const receiptKey = (requestId: string, nodeId: string): string => `${requestId}:${nodeId}`;
+
+const manifestScore = (manifest?: NodeManifest): number => {
+  if (!manifest) {
+    return 0;
+  }
+
+  let score = 0;
+  switch (manifest.capability_bands.cpu) {
+    case 'cpu_high':
+      score += 30;
+      break;
+    case 'cpu_mid':
+      score += 15;
+      break;
+    default:
+      break;
+  }
+  switch (manifest.capability_bands.ram) {
+    case 'ram_64_plus':
+      score += 25;
+      break;
+    case 'ram_32':
+      score += 15;
+      break;
+    case 'ram_16':
+      score += 5;
+      break;
+    default:
+      break;
+  }
+  if (manifest.capability_bands.disk === 'disk_ssd') {
+    score += 10;
+  }
+  if (manifest.capability_bands.net === 'net_good') {
+    score += 10;
+  }
+  switch (manifest.capability_bands.gpu) {
+    case 'gpu_24gb_plus':
+      score += 20;
+      break;
+    case 'gpu_16gb':
+      score += 10;
+      break;
+    case 'gpu_8gb':
+      score += 5;
+      break;
+    default:
+      break;
+  }
+
+  return Math.min(score, 100);
+};
+
+const stakeScore = (service: RouterService, nodeId: string): number => {
+  const units = effectiveStakeUnits(service.stakeStore, nodeId);
+  const score = units / 100;
+  return Math.min(20, score);
+};
+
+const applyManifestWeights = (service: RouterService): NodeDescriptor[] => {
+  return service.nodes.map((node) => {
+    const manifest = service.manifests.get(node.nodeId);
+    const baseTrust = node.trustScore ?? 0;
+    const manifestTrust = manifestScore(manifest);
+    const stakeTrust = stakeScore(service, node.nodeId);
+    return {
+      ...node,
+      trustScore: Math.min(100, baseTrust + manifestTrust + stakeTrust),
+    };
+  });
+};
 
 const readJsonBody = async (
   req: IncomingMessage,
@@ -115,6 +191,91 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
       }
     }
 
+    if (req.method === 'POST' && req.url === '/manifest') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const manifest = body.value as NodeManifest;
+        if (!manifest.signature) {
+          return sendJson(res, 400, { error: 'missing-signature' });
+        }
+
+        const publicKey = parsePublicKey(manifest.signature.keyId);
+        if (!verifyManifest(manifest, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.manifests.set(manifest.id, manifest);
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/stake/commit') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validateStakeCommit);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<import('@fed-ai/protocol').StakeCommit>;
+        if (envelope.payload.actorId !== envelope.keyId) {
+          return sendJson(res, 400, { error: 'actor-key-mismatch' });
+        }
+
+        const publicKey = parsePublicKey(envelope.keyId);
+        if (!verifyEnvelope(envelope, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        recordCommit(service.stakeStore, envelope);
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/stake/slash') {
+      try {
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validateStakeSlash);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<import('@fed-ai/protocol').StakeSlash>;
+        if (envelope.keyId !== config.keyId) {
+          return sendJson(res, 403, { error: 'router-only' });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+
+        const routerKey = parsePublicKey(config.keyId);
+        if (!verifyEnvelope(envelope, routerKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        recordSlash(service.stakeStore, envelope.payload);
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/quote') {
       try {
         const body = await readJsonBody(req);
@@ -143,7 +304,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         const selection = selectNode({
-          nodes: filterActiveNodes(service.nodes),
+          nodes: filterActiveNodes(applyManifestWeights(service)),
           request: envelope.payload,
         });
 
@@ -238,7 +399,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         const selection = selectNode({
-          nodes: filterActiveNodes(service.nodes),
+          nodes: filterActiveNodes(applyManifestWeights(service)),
           request: {
             requestId: envelope.payload.requestId,
             modelId: envelope.payload.modelId,

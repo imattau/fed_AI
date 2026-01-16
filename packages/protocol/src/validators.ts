@@ -11,6 +11,8 @@ import type {
   PaymentReceipt,
   PaymentRequest,
   ProtocolError,
+  StakeCommit,
+  StakeSlash,
   QuoteRequest,
   QuoteResponse,
 } from './types';
@@ -148,6 +150,25 @@ const protocolErrorSchema: z.ZodType<ProtocolError> = z.object({
   details: z.record(z.string()).optional(),
 });
 
+const stakeCommitSchema: z.ZodType<StakeCommit> = z.object({
+  stakeId: z.string(),
+  actorId: z.string(),
+  actorType: z.union([z.literal('node'), z.literal('router'), z.literal('client')]),
+  units: z.number(),
+  committedAtMs: z.number(),
+  expiresAtMs: z.number(),
+  metadata: z.record(z.string()).optional(),
+});
+
+const stakeSlashSchema: z.ZodType<StakeSlash> = z.object({
+  slashId: z.string(),
+  stakeId: z.string(),
+  actorId: z.string(),
+  units: z.number(),
+  reason: z.string(),
+  ts: z.number(),
+});
+
 const attestationSchema: z.ZodType<Attestation> = z.object({
   nodeId: z.string(),
   attestationType: z.string(),
@@ -210,6 +231,12 @@ export const validateMeteringRecord: Validator<MeteringRecord> = (value) =>
 
 export const validateProtocolError: Validator<ProtocolError> = (value) =>
   validateWithSchema(protocolErrorSchema, value);
+
+export const validateStakeCommit: Validator<StakeCommit> = (value) =>
+  validateWithSchema(stakeCommitSchema, value);
+
+export const validateStakeSlash: Validator<StakeSlash> = (value) =>
+  validateWithSchema(stakeSlashSchema, value);
 
 export const validateAttestation: Validator<Attestation> = (value) =>
   validateWithSchema(attestationSchema, value);

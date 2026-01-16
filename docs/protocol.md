@@ -28,6 +28,8 @@ Envelope<T> {
 - InferenceResponse
 - MeteringRecord
 - ProtocolError
+- StakeCommit
+- StakeSlash
 - Attestation (optional in v0.1)
 
 ## Crypto

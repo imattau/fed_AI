@@ -125,6 +125,25 @@ export type ProtocolError = {
   details?: Record<string, string>;
 };
 
+export type StakeCommit = {
+  stakeId: string;
+  actorId: string;
+  actorType: 'node' | 'router' | 'client';
+  units: number;
+  committedAtMs: number;
+  expiresAtMs: number;
+  metadata?: Record<string, string>;
+};
+
+export type StakeSlash = {
+  slashId: string;
+  stakeId: string;
+  actorId: string;
+  units: number;
+  reason: string;
+  ts: number;
+};
+
 export type Attestation = {
   nodeId: string;
   attestationType: string;

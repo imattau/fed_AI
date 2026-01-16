@@ -12,6 +12,8 @@ import {
   validatePaymentReceipt,
   validatePaymentRequest,
   validateProtocolError,
+  validateStakeCommit,
+  validateStakeSlash,
   verifyEnvelope,
 } from '../src/index';
 import type { Envelope, InferenceRequest, PaymentReceipt } from '../src/types';
@@ -125,4 +127,27 @@ test('validateProtocolError checks error shape', () => {
   };
   assert.equal(validateProtocolError(error).ok, true);
   assert.equal(validateProtocolError({ message: 'missing code' }).ok, false);
+});
+
+test('validateStakeCommit and validateStakeSlash enforce shape', () => {
+  const commit = {
+    stakeId: 'stake-1',
+    actorId: 'node-1',
+    actorType: 'node',
+    units: 100,
+    committedAtMs: Date.now(),
+    expiresAtMs: Date.now() + 1000,
+  };
+  const slash = {
+    slashId: 'slash-1',
+    stakeId: 'stake-1',
+    actorId: 'node-1',
+    units: 10,
+    reason: 'policy-violation',
+    ts: Date.now(),
+  };
+  assert.equal(validateStakeCommit(commit).ok, true);
+  assert.equal(validateStakeSlash(slash).ok, true);
+  assert.equal(validateStakeCommit({}).ok, false);
+  assert.equal(validateStakeSlash({}).ok, false);
 });

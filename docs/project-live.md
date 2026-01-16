@@ -57,7 +57,6 @@ Phase 7 - Optional extensions
 
 - [ ] Add simulator scenarios for pricing sensitivity.
 - [ ] First real runner adapter.
-- [ ] Add staking and bonding model components (stake unit types, router escrow, slashing rules).
 
 ## Upcoming tasks
 
@@ -111,6 +110,7 @@ Phase 7 - Optional extensions
 - [x] CLI supports profile/bench/recommend/manifest commands.
 - [x] Profiler, bench, recommender, and manifest packages implemented.
 - [x] Router manifest ingestion and weighting added.
+- [x] Staking components added (stake commits, slashing, routing weights).
 
 ## Scratchpad
 
