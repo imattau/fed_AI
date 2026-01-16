@@ -9,5 +9,9 @@
     "test": "pnpm -r test",
     "sim": "pnpm --filter @fed-ai/simulator sim",
     "cli": "pnpm --filter @fed-ai/cli"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3"
   }
 }
