@@ -1,41 +1,7 @@
-import { randomUUID, generateKeyPairSync } from 'node:crypto';
-import {
-  buildEnvelope,
-  exportPrivateKeyHex,
-  exportPublicKeyHex,
-  parsePrivateKey,
-  signEnvelope,
-} from '@fed-ai/protocol';
+import { randomUUID } from 'node:crypto';
+import { buildEnvelope, parsePrivateKey, signEnvelope } from '@fed-ai/protocol';
 import type { QuoteRequest, InferenceRequest } from '@fed-ai/protocol';
-
-const usage = () => {
-  return `fed-ai <command>
-
-Commands:
-  gen-keys
-  quote --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --input <n> --output <n> --max-tokens <n>
-  infer --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --prompt <text> --max-tokens <n>
-`;
-};
-
-const parseArgs = (args: string[]): Record<string, string> => {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i += 1) {
-    const token = args[i];
-    if (!token.startsWith('--')) {
-      continue;
-    }
-    const key = token.slice(2);
-    const value = args[i + 1];
-    if (value === undefined || value.startsWith('--')) {
-      result[key] = 'true';
-    } else {
-      result[key] = value;
-      i += 1;
-    }
-  }
-  return result;
-};
+import { generateKeyPairHex, parseArgs, usage } from './lib';
 
 const postJson = async (url: string, body: unknown): Promise<Response> => {
   return fetch(url, {
@@ -54,12 +20,7 @@ if (!command) {
 const args = parseArgs(process.argv.slice(3));
 
 if (command === 'gen-keys') {
-  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-  const output = {
-    publicKey: exportPublicKeyHex(publicKey),
-    privateKey: exportPrivateKeyHex(privateKey),
-  };
-  console.log(JSON.stringify(output, null, 2));
+  console.log(JSON.stringify(generateKeyPairHex(), null, 2));
   process.exit(0);
 }
 

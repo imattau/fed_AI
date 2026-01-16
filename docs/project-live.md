@@ -103,6 +103,7 @@ Phase 7 - Optional extensions
 - [x] Router quote endpoint tests added.
 - [x] CLI key generation, quote, and inference flows implemented.
 - [x] CLI docs and usage examples added.
+- [x] CLI unit tests added.
 
 ## Scratchpad
 
