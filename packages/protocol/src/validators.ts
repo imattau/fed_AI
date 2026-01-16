@@ -156,13 +156,15 @@ const attestationSchema: z.ZodType<Attestation> = z.object({
 });
 
 const envelopeSchema = <T>(payloadSchema: z.ZodType<T>): z.ZodType<Envelope<T>> => {
-  return z.object({
-    payload: payloadSchema,
-    nonce: z.string(),
-    ts: z.number(),
-    keyId: z.string(),
-    sig: z.string(),
-  });
+  return z
+    .object({
+      payload: payloadSchema,
+      nonce: z.string(),
+      ts: z.number(),
+      keyId: z.string(),
+      sig: z.string(),
+    })
+    .strict() as z.ZodType<Envelope<T>>;
 };
 
 const inferenceRequestSchema: z.ZodType<InferenceRequest> = z.object({
