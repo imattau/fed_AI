@@ -1,0 +1,17 @@
+{
+  "name": "@fed-ai/cli",
+  "version": "0.0.1",
+  "private": true,
+  "bin": {
+    "fed-ai": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo 'lint todo'",
+    "test": "echo 'test todo'",
+    "sim": "echo 'sim todo'"
+  },
+  "dependencies": {
+    "@fed-ai/protocol": "workspace:*"
+  }
+}

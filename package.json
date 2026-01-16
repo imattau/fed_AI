@@ -1,0 +1,13 @@
+{
+  "name": "fed_ai",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "sim": "pnpm --filter @fed-ai/simulator sim",
+    "cli": "pnpm --filter @fed-ai/cli"
+  }
+}

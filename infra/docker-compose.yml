@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  router:
+    build: ../services/router
+    ports:
+      - "8080:8080"
+  node:
+    build: ../services/node
+    ports:
+      - "8081:8081"

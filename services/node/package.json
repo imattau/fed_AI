@@ -1,0 +1,20 @@
+{
+  "name": "@fed-ai/node",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo 'lint todo'",
+    "test": "echo 'test todo'",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@fed-ai/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0"
+  }
+}
