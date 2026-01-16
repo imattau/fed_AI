@@ -23,6 +23,7 @@ Nostr alignment
 - Node identities use Nostr-compatible Ed25519 keys.
 - Signed envelopes align with Nostr signing primitives.
 - Discovery and trust can be relay-backed without exposing prompts or outputs.
+- Nostr relays are for discovery and trust; inference operations are peer-to-peer.
 
 Payments
 - Settlement is designed to be Lightning-compatible for pay-as-you-go inference.
