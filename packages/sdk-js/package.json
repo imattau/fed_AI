@@ -6,8 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "echo 'lint todo'",
-    "test": "echo 'test todo'"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {
     "@fed-ai/protocol": "workspace:*"

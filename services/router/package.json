@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "echo 'lint todo'",
+    "lint": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js"
