@@ -55,7 +55,6 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Add simulator scenarios for pricing sensitivity.
 - [ ] First real runner adapter.
 
 ## Upcoming tasks
@@ -111,6 +110,7 @@ Phase 7 - Optional extensions
 - [x] Profiler, bench, recommender, and manifest packages implemented.
 - [x] Router manifest ingestion and weighting added.
 - [x] Staking components added (stake commits, slashing, routing weights).
+- [x] Simulator pricing sensitivity scenario added.
 
 ## Scratchpad
 

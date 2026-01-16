@@ -18,6 +18,16 @@ export type SimulationMetrics = {
   nodeUtilization: Record<string, number>;
 };
 
+export type PricingSensitivityResult = {
+  multiplier: number;
+  metrics: SimulationMetrics;
+};
+
+export type PricingSensitivityReport = {
+  baseConfig: SimulationConfig;
+  results: PricingSensitivityResult[];
+};
+
 const DEFAULT_MAX_TOKENS = 256;
 
 export const createRng = (seed: number): (() => number) => {
@@ -111,11 +121,11 @@ const percentile = (values: number[], percentileValue: number): number => {
   return sorted[index];
 };
 
-export const runSimulation = (config: SimulationConfig): SimulationMetrics => {
-  const rng = createRng(config.seed);
-  const nodes = generateNodes(config.nodes, rng);
-  const requests = generateRequests(config.requests, rng);
-
+const runSimulationWith = (
+  nodes: NodeDescriptor[],
+  requests: QuoteRequest[],
+  rng: () => number,
+): SimulationMetrics => {
   const latencies: number[] = [];
   let served = 0;
   let totalCost = 0;
@@ -142,17 +152,61 @@ export const runSimulation = (config: SimulationConfig): SimulationMetrics => {
       : 0;
   });
 
-  const dropRate = config.requests === 0 ? 0 : (config.requests - served) / config.requests;
+  const dropRate = requests.length === 0 ? 0 : (requests.length - served) / requests.length;
 
   return {
-    totalRequests: config.requests,
+    totalRequests: requests.length,
     servedRequests: served,
-    droppedRequests: config.requests - served,
+    droppedRequests: requests.length - served,
     dropRate,
     costPerRequestAvg: served === 0 ? 0 : totalCost / served,
     p50LatencyMs: percentile(latencies, 0.5),
     p95LatencyMs: percentile(latencies, 0.95),
     nodeUtilization: utilization,
+  };
+};
+
+const applyPricingMultiplier = (nodes: NodeDescriptor[], multiplier: number): NodeDescriptor[] => {
+  return nodes.map((node) => ({
+    ...node,
+    capabilities: node.capabilities.map((capability) => ({
+      ...capability,
+      pricing: {
+        ...capability.pricing,
+        inputRate: capability.pricing.inputRate * multiplier,
+        outputRate: capability.pricing.outputRate * multiplier,
+      },
+    })),
+  }));
+};
+
+export const runSimulation = (config: SimulationConfig): SimulationMetrics => {
+  const rng = createRng(config.seed);
+  const nodes = generateNodes(config.nodes, rng);
+  const requests = generateRequests(config.requests, rng);
+  return runSimulationWith(nodes, requests, rng);
+};
+
+export const runPricingSensitivity = (
+  config: SimulationConfig,
+  multipliers: number[],
+): PricingSensitivityReport => {
+  const baseRng = createRng(config.seed);
+  const baseNodes = generateNodes(config.nodes, baseRng);
+  const baseRequests = generateRequests(config.requests, baseRng);
+
+  const results = multipliers.map((multiplier, index) => {
+    const nodes = applyPricingMultiplier(baseNodes, multiplier);
+    const rng = createRng(config.seed + index + 1);
+    return {
+      multiplier,
+      metrics: runSimulationWith(nodes, baseRequests, rng),
+    };
+  });
+
+  return {
+    baseConfig: config,
+    results,
   };
 };
 
@@ -165,4 +219,14 @@ export const formatMarkdownSummary = (metrics: SimulationMetrics): string => {
     `- Avg cost per request: ${metrics.costPerRequestAvg.toFixed(6)}\n` +
     `- p50 latency (ms): ${metrics.p50LatencyMs}\n` +
     `- p95 latency (ms): ${metrics.p95LatencyMs}\n`;
+};
+
+export const formatPricingSummary = (report: PricingSensitivityReport): string => {
+  const lines = ['# Pricing Sensitivity Summary', ''];
+  for (const result of report.results) {
+    lines.push(
+      `- x${result.multiplier}: avg cost ${result.metrics.costPerRequestAvg.toFixed(6)}, drop ${(result.metrics.dropRate * 100).toFixed(2)}%`,
+    );
+  }
+  return lines.join('\n');
 };

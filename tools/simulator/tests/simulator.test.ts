@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRng, generateNodes, generateRequests, runSimulation } from '../src/lib';
+import {
+  createRng,
+  generateNodes,
+  generateRequests,
+  runPricingSensitivity,
+  runSimulation,
+} from '../src/lib';
 
 test('rng is deterministic for the same seed', () => {
   const rngA = createRng(123);
@@ -20,4 +26,10 @@ test('runSimulation returns metrics for zero requests', () => {
   assert.equal(metrics.totalRequests, 0);
   assert.equal(metrics.servedRequests, 0);
   assert.equal(metrics.dropRate, 0);
+});
+
+test('runPricingSensitivity returns result for each multiplier', () => {
+  const report = runPricingSensitivity({ nodes: 5, requests: 10, seed: 2 }, [0.5, 1, 2]);
+  assert.equal(report.results.length, 3);
+  assert.equal(report.results[0].multiplier, 0.5);
 });
