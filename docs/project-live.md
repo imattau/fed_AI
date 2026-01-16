@@ -56,6 +56,8 @@ Phase 7 - Optional extensions
 
 - [ ] First real runner adapter.
 - [ ] Add simulator scenarios for pricing sensitivity.
+- [ ] Scaffold profiler, bench, recommender, and manifest packages.
+- [ ] Extend CLI with profile/bench/recommend/manifest commands.
 
 ## Upcoming tasks
 

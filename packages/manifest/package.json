@@ -1,0 +1,12 @@
+{
+  "name": "@fed-ai/manifest",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "echo 'lint todo'",
+    "test": "echo 'test todo'"
+  }
+}
