@@ -1,0 +1,88 @@
+{
+  "uid": "fed-ai-overview",
+  "title": "fed_AI Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Router Inference Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_inference_requests_total[5m]))",
+          "legendFormat": "requests/sec"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Router Inference Latency (p95)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(router_inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Router Accounting Failures",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_accounting_failures_total[5m]))",
+          "legendFormat": "failures/sec"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Node Inference Requests",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(node_inference_requests_total[5m]))",
+          "legendFormat": "requests/sec"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Federation Messages",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_federation_messages_total[5m]))",
+          "legendFormat": "messages/sec"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Federation Jobs",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_federation_jobs_total[5m]))",
+          "legendFormat": "jobs/sec"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 }
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  }
+}

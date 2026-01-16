@@ -10,9 +10,10 @@ Commands:
   bench --mode node|router --latency-targets host1,host2
   recommend --profile profile.json --bench bench.json
   manifest --role node|router --id <id> --key-id <pub> --private-key <hex|pem> --profile profile.json --bench bench.json --write out.json
-  quote --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --input <n> --output <n> --max-tokens <n>
+    [--skip-relays] [--bootstrap <url,...>] [--aggregators <url,...>] [--trust-scores <url=score,...>] [--min-score <n>] [--max-results <n>]
+  quote --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --input <n> --output <n> --max-tokens <n> [--out quote.json]
   infer --router <url> --key-id <pub> --private-key <hex|pem> --model <id> --prompt <text> --max-tokens <n>
-    [--receipts receipt1.json,receipt2.json] [--payment-request-out invoice.json]
+    [--receipts receipt1.json,receipt2.json] [--payment-request-out invoice.json] [--out response.json]
   receipt --payment-request <file> --key-id <pub> --private-key <hex|pem> [--amount <sats>] [--router <url>] [--write receipt.json]
   relays [--aggregators <url,...>] [--bootstrap <url,...>] [--trust-scores <url=score,...>] [--min-score <n>] [--max-results <n>]
 `;

@@ -37,3 +37,36 @@ services:
       - ..:/app
     depends_on:
       - router
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    depends_on:
+      - router
+      - node
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel/collector-config.yml:/etc/otelcol/config.yml:ro
+    command:
+      - "--config=/etc/otelcol/config.yml"

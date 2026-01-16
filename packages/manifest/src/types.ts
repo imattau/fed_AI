@@ -1,9 +1,22 @@
 import type { BenchmarkProfile, CapabilityBands } from '@fed-ai/profiler';
+import type { RelayDescriptor } from '@fed-ai/nostr-relay-discovery';
 
 export type ManifestSignature = {
   signature: string;
   keyId: string;
   signedAtMs: number;
+};
+
+export type RelayDiscoverySnapshot = {
+  discoveredAtMs: number;
+  relays: RelayDescriptor[];
+  options: {
+    bootstrapRelays?: string[];
+    aggregatorUrls?: string[];
+    trustScores?: Record<string, number>;
+    minScore?: number;
+    maxResults?: number;
+  };
 };
 
 export type NodeManifest = {
@@ -25,6 +38,7 @@ export type NodeManifest = {
   benchmarks: BenchmarkProfile | null;
   software_version: string;
   signature?: ManifestSignature;
+  relay_discovery?: RelayDiscoverySnapshot | null;
 };
 
 export type RouterManifest = {
@@ -41,4 +55,5 @@ export type RouterManifest = {
   benchmarks: BenchmarkProfile | null;
   software_version: string;
   signature?: ManifestSignature;
+  relay_discovery?: RelayDiscoverySnapshot | null;
 };

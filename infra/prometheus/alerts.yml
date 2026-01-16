@@ -1,0 +1,71 @@
+groups:
+  - name: fed-ai-router
+    rules:
+      - alert: RouterInferenceErrorRateHigh
+        expr: |
+          sum(rate(router_inference_requests_total{status!~"2.."}[5m]))
+          /
+          sum(rate(router_inference_requests_total[5m]))
+          > 0.02
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Router inference error rate above 2%"
+          description: "Router /infer failures are >2% over 5m."
+      - alert: RouterAccountingFailures
+        expr: sum(rate(router_accounting_failures_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Router accounting failures detected"
+          description: "Accounting verification failures are non-zero."
+      - alert: RouterFederationMessageSpike
+        expr: sum(rate(router_federation_messages_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Router federation message spike"
+          description: "Federation control-plane traffic is above 10 msg/s."
+      - alert: RouterFederationJobFailures
+        expr: sum(rate(router_federation_jobs_total{stage="result"}[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No federation job results"
+          description: "Federation job results have dropped to zero."
+      - alert: RouterP95LatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(router_inference_duration_seconds_bucket[5m])) by (le))
+          > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Router p95 latency above 2s"
+          description: "Router inference p95 latency exceeds 2s."
+  - name: fed-ai-node
+    rules:
+      - alert: NodeInferenceErrorRateHigh
+        expr: |
+          sum(rate(node_inference_requests_total{status!~"2.."}[5m]))
+          /
+          sum(rate(node_inference_requests_total[5m]))
+          > 0.02
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node inference error rate above 2%"
+          description: "Node /infer failures are >2% over 5m."
+      - alert: NodeReceiptFailures
+        expr: sum(rate(node_payment_receipt_failures_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node receipt failures detected"
+          description: "Node payment receipt failures are non-zero."

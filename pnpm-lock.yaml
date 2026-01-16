@@ -27,6 +27,9 @@ importers:
 
   packages/manifest:
     dependencies:
+      '@fed-ai/nostr-relay-discovery':
+        specifier: workspace:*
+        version: link:../nostr-relay-discovery
       '@fed-ai/profiler':
         specifier: workspace:*
         version: link:../profiler

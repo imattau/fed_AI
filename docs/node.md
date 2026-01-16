@@ -51,8 +51,16 @@ Prohibitions
 - No direct inference logic in Node.js.
 - No prompt or output logging.
 
+Configuration
+- Core: `NODE_ID`, `NODE_KEY_ID`, `NODE_PRIVATE_KEY_PEM`, `NODE_ENDPOINT`, `NODE_PORT`.
+- Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`.
+- Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
+- Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
+- Payments: `NODE_REQUIRE_PAYMENT`.
+
 ## Relay discovery
 
 - Nodes also use `@fed-ai/nostr-relay-discovery` to gather relays for publishing capabilities or manifest updates.
 - Support the same overrides: `NODE_RELAY_BOOTSTRAP`, `NODE_RELAY_AGGREGATORS`, `NODE_RELAY_TRUST`, `NODE_RELAY_MIN_SCORE`, and `NODE_RELAY_MAX_RESULTS`.
 - Logs snapshot the top few relays at startup so operators can validate the choices before connecting to routers or relays.
+- The manifest generation process embeds this discovery snapshot (under `relay_discovery`) so routers can audit exactly which relays were considered and when.

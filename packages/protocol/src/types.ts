@@ -155,3 +155,207 @@ export type Attestation = {
   evidence: string;
   ts: number;
 };
+
+export type RouterJobType =
+  | 'EMBEDDING'
+  | 'RERANK'
+  | 'CLASSIFY'
+  | 'MODERATE'
+  | 'TOOL_CALL'
+  | 'SUMMARISE'
+  | 'GEN_CHUNK';
+
+export type RouterPrivacyLevel = 'PL0' | 'PL1' | 'PL2' | 'PL3';
+
+export type RouterBackpressureState = 'NORMAL' | 'BUSY' | 'SATURATED';
+
+export type RouterPricingUnit = 'PER_JOB' | 'PER_1K_TOKENS' | 'PER_MB' | 'PER_SECOND';
+
+export type RouterValidationMode = 'NONE' | 'HASH_ONLY' | 'REDUNDANT_N' | 'DETERMINISTIC_CHECK';
+
+export type RouterFederationMessageType =
+  | 'CAPS_ANNOUNCE'
+  | 'PRICE_ANNOUNCE'
+  | 'STATUS_ANNOUNCE'
+  | 'RFB'
+  | 'BID'
+  | 'AWARD'
+  | 'CANCEL'
+  | 'RECEIPT_SUMMARY';
+
+export type RouterControlMessage<T> = {
+  type: RouterFederationMessageType;
+  version: string;
+  routerId: string;
+  messageId: string;
+  timestamp: number;
+  expiry: number;
+  payload: T;
+  sig: string;
+  prevMessageId?: string;
+};
+
+export type RouterLoadSummary = {
+  queueDepth: number;
+  p95LatencyMs: number;
+  cpuPct: number;
+  ramPct: number;
+  activeJobs: number;
+  backpressureState: RouterBackpressureState;
+};
+
+export type RouterCapabilityProfile = {
+  routerId: string;
+  transportEndpoints: string[];
+  supportedJobTypes: RouterJobType[];
+  resourceLimits: {
+    maxPayloadBytes: number;
+    maxTokens: number;
+    maxConcurrency: number;
+  };
+  modelCaps: Array<{
+    modelId: string;
+    contextWindow?: number;
+    tools?: string[];
+  }>;
+  privacyCaps: {
+    maxLevel: RouterPrivacyLevel;
+  };
+  settlementCaps: {
+    methods: string[];
+    currency: string;
+  };
+  attestation?: {
+    buildHash?: string;
+    policyStatement?: string;
+  };
+  timestamp: number;
+  expiry: number;
+  loadSummary?: RouterLoadSummary;
+};
+
+export type RouterPriceSheet = {
+  routerId: string;
+  jobType: RouterJobType;
+  unit: RouterPricingUnit;
+  basePriceMsat: number;
+  surgeModel?: string;
+  currentSurge: number;
+  slaTargets?: {
+    maxQueueMs: number;
+    expectedRuntimeMs: number;
+  };
+  timestamp: number;
+  expiry: number;
+};
+
+export type RouterStatusPayload = {
+  routerId: string;
+  loadSummary: RouterLoadSummary;
+  timestamp: number;
+  expiry: number;
+};
+
+export type RouterRfbPayload = {
+  jobId: string;
+  jobType: RouterJobType;
+  privacyLevel: RouterPrivacyLevel;
+  sizeEstimate: {
+    tokens?: number;
+    bytes?: number;
+    items?: number;
+  };
+  deadlineMs: number;
+  maxPriceMsat: number;
+  requiredCaps?: {
+    modelId?: string;
+    tools?: string[];
+  };
+  validationMode: RouterValidationMode;
+  transportHint?: string;
+  payloadDescriptor?: Record<string, string>;
+  jobHash: string;
+};
+
+export type RouterBidPayload = {
+  jobId: string;
+  priceMsat: number;
+  etaMs: number;
+  capacityToken: string;
+  constraints?: {
+    maxRuntimeMs?: number;
+    maxTokens?: number;
+  };
+  bidHash: string;
+};
+
+export type RouterAwardPayload = {
+  jobId: string;
+  winnerRouterId: string;
+  acceptedPriceMsat: number;
+  awardExpiry: number;
+  dataPlaneSession?: {
+    sessionEndpoint?: string;
+    keyAgreement?: string;
+  };
+  paymentTerms?: {
+    mode: 'prepay' | 'postpay' | 'escrow';
+    maxCostMsat?: number;
+  };
+  awardHash: string;
+};
+
+export type RouterJobSubmit = {
+  jobId: string;
+  jobType: RouterJobType;
+  privacyLevel: RouterPrivacyLevel;
+  payload: string;
+  contextMinimisation?: Record<string, string>;
+  inputHash: string;
+  maxCostMsat: number;
+  maxRuntimeMs: number;
+  returnEndpoint: string;
+};
+
+export type RouterJobResult = {
+  jobId: string;
+  resultPayload: string;
+  outputHash: string;
+  usage: {
+    tokens?: number;
+    runtimeMs?: number;
+    bytesIn?: number;
+    bytesOut?: number;
+  };
+  resultStatus: 'OK' | 'PARTIAL' | 'FAIL';
+  errorCode?: string;
+  receipt: RouterReceipt;
+};
+
+export type RouterReceipt = {
+  jobId: string;
+  requestRouterId: string;
+  workerRouterId: string;
+  inputHash: string;
+  outputHash?: string;
+  usage: {
+    tokens?: number;
+    runtimeMs?: number;
+    bytesIn?: number;
+    bytesOut?: number;
+  };
+  priceMsat: number;
+  status: 'OK' | 'PARTIAL' | 'FAIL';
+  startedAtMs: number;
+  finishedAtMs: number;
+  receiptId: string;
+  sig: string;
+};
+
+export type RouterReceiptSummary = {
+  routerId: string;
+  receiptId: string;
+  receiptHash: string;
+  timestamp: number;
+  expiry: number;
+};

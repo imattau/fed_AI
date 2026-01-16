@@ -269,6 +269,7 @@ A capability manifest is a signed declaration of:
 - limits and defaults
 - benchmark results if available
 - software version
+- a relay discovery snapshot that names the relays consulted when building the manifest (timestamped and signed)
 
 Routers use this for initial routing decisions, then rely on observed behaviour over time.
 

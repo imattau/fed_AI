@@ -38,3 +38,24 @@ export const nodeFailureEvents = new Counter({
   labelNames: ['nodeId'],
   registers: [routerRegistry],
 });
+
+export const accountingFailures = new Counter({
+  name: 'router_accounting_failures_total',
+  help: 'Accounting-related failures observed by the router',
+  labelNames: ['reason'],
+  registers: [routerRegistry],
+});
+
+export const federationMessages = new Counter({
+  name: 'router_federation_messages_total',
+  help: 'Federation control-plane messages accepted',
+  labelNames: ['type'],
+  registers: [routerRegistry],
+});
+
+export const federationJobs = new Counter({
+  name: 'router_federation_jobs_total',
+  help: 'Federation data-plane jobs processed',
+  labelNames: ['stage'],
+  registers: [routerRegistry],
+});

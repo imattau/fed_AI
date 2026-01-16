@@ -218,6 +218,7 @@ If eligible, default router to probation mode:
 - benchmarks: scores + timestamp
 - software_version
 - signature
+- relay_discovery (optional snapshot of the relays consulted during manifest creation)
 
 ### Router manifest fields (minimum)
 
@@ -230,8 +231,15 @@ If eligible, default router to probation mode:
 - benchmarks: routing latency under load + timestamp
 - software_version
 - signature
+- relay_discovery (optional snapshot of the relays consulted during manifest creation)
 
 Privacy: manifests should avoid unique hardware identifiers unless opt-in.
+
+The optional `relay_discovery` block records:
+
+- `discoveredAtMs`: when the snapshot was captured.
+- `relays`: normalized `RelayDescriptor`s (url, read/write flags, score, latency hint).
+- `options`: bootstrap relays, aggregator URLs, trust-score overrides, and min/max filters used for discovery.
 
 ---
 
@@ -240,12 +248,18 @@ Privacy: manifests should avoid unique hardware identifiers unless opt-in.
 Routers should:
 
 - Accept manifests for initial admission and weighting
-- Replace manifest trust with observed performance over time
+- Require valid relay discovery snapshots before using manifest trust for promotion when configured
+- Replace manifest trust with observed performance over time (decay manifest weight as samples accumulate)
 - Downgrade or quarantine nodes that consistently underperform vs claims
 
 ---
 
 ## 7. UX and CLI requirements
+
+## Router federation (spec v0.1)
+
+Router-to-router offload, pricing, privacy levels, receipts, and backpressure are defined in
+`docs/router-federation-v0.1.md`.
 
 ### First-run wizard (both node and router installers)
 
@@ -265,6 +279,7 @@ Provide commands:
 - fedai bench (run suite)
 - fedai recommend (produce recommended profiles)
 - fedai manifest --write (generate and sign manifests)
+- fedai manifest can optionally consult discovery directories (`--bootstrap`, `--aggregators`, `--trust-scores`, `--min-score`, `--max-results`) and include the snapshot unless `--skip-relays` is supplied.
 - fedai setup node / fedai setup router (guided flow)
 
 All commands must be scriptable and non-interactive via flags.
@@ -304,9 +319,10 @@ Add config entries for:
 
 ## Trust & Resilience
 
-- The router tracks repeated node failures and reduces their trust score, ensuring poor-performing operators are deprioritized automatically.
+- The router tracks repeated node failures and reduces their trust score, with consecutive failures triggering cooldown backoff to protect request latency.
 - Nodes that return invalid responses or fail to sign telemetry are temporarily quarantined for a cooldown window before being reconsidered.
-- Metrics capture node failure counts and cooldowns so operators can audit and improve stability over time.
+- The router retries alternative nodes on inference failure when payments are not locked to a specific node.
+- Metrics capture node failure counts, cooldowns, and accounting verification failures so operators can audit and improve stability over time.
 
 ## Staking and Bonding Model
 

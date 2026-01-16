@@ -1,7 +1,7 @@
 import { parsePrivateKey } from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createRouterService } from './server';
-import { defaultRouterConfig, RouterConfig } from './config';
+import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from './config';
 import { createRouterHttpServer } from './http';
 
 const getEnv = (key: string): string | undefined => {
@@ -55,6 +55,14 @@ const buildDiscoveryOptions = () => ({
   maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
 });
 
+const buildRelayAdmissionPolicy = () => ({
+  requireSnapshot:
+    (getEnv('ROUTER_RELAY_SNAPSHOT_REQUIRED') ?? 'false').toLowerCase() === 'true',
+  maxAgeMs: parseNumber(getEnv('ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS')) ?? defaultRelayAdmissionPolicy.maxAgeMs,
+  minScore: parseNumber(getEnv('ROUTER_RELAY_MIN_SCORE'), true),
+  maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
+});
+
 /** Log a short summary of the discovered relays so operators can audit the candidates. */
 const logRelayCandidates = async (
   role: string,
@@ -83,6 +91,19 @@ const buildConfig = (): RouterConfig => {
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     requirePayment: (getEnv('ROUTER_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
+    relayAdmission: buildRelayAdmissionPolicy(),
+    federation: {
+      enabled: (getEnv('ROUTER_FEDERATION_ENABLED') ?? 'false').toLowerCase() === 'true',
+      endpoint: getEnv('ROUTER_FEDERATION_ENDPOINT') ?? defaultRouterConfig.endpoint,
+      maxSpendMsat: parseNumber(getEnv('ROUTER_FEDERATION_MAX_SPEND_MSAT')),
+      maxOffloads: parseNumber(getEnv('ROUTER_FEDERATION_MAX_OFFLOADS')),
+      maxPrivacyLevel: getEnv('ROUTER_FEDERATION_MAX_PL') as
+        | 'PL0'
+        | 'PL1'
+        | 'PL2'
+        | 'PL3'
+        | undefined,
+    },
   };
 };
 

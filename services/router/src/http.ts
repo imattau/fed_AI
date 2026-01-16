@@ -11,12 +11,25 @@ import {
   validateMeteringRecord,
   validateNodeDescriptor,
   validatePaymentReceipt,
+  validateRouterAwardPayload,
+  validateRouterBidPayload,
+  validateRouterCapabilityProfile,
+  validateRouterControlMessage,
+  validateRouterJobResult,
+  validateRouterJobSubmit,
+  validateRouterReceipt,
+  validateRouterPriceSheet,
+  validateRouterRfbPayload,
+  validateRouterStatusPayload,
   validateStakeCommit,
   validateStakeSlash,
   validateQuoteRequest,
   verifyEnvelope,
+  signRouterMessage,
+  verifyRouterMessage,
+  verifyRouterReceipt,
 } from '@fed-ai/protocol';
-import { verifyManifest } from '@fed-ai/manifest';
+import { RelayDiscoverySnapshot, verifyManifest } from '@fed-ai/manifest';
 import { effectiveStakeUnits, recordCommit, recordSlash } from './accounting/staking';
 import type {
   Envelope,
@@ -29,11 +42,21 @@ import type {
   PaymentRequest,
   QuoteRequest,
   QuoteResponse,
+  RouterAwardPayload,
+  RouterBidPayload,
+  RouterCapabilityProfile,
+  RouterControlMessage,
+  RouterJobResult,
+  RouterJobSubmit,
+  RouterReceipt,
+  RouterPriceSheet,
+  RouterRfbPayload,
+  RouterStatusPayload,
 } from '@fed-ai/protocol';
 import type { NodeManifest } from '@fed-ai/manifest';
-import type { RouterConfig } from './config';
+import { defaultRelayAdmissionPolicy, RelayAdmissionPolicy, RouterConfig } from './config';
 import type { RouterService } from './server';
-import { selectNode } from './scheduler';
+import { scoreNode, selectNode } from './scheduler';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -42,32 +65,161 @@ import {
   routerRegistry,
   routerTracer,
   nodeFailureEvents,
+  accountingFailures,
+  federationMessages,
+  federationJobs,
 } from './observability';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
 const NODE_FAILURE_THRESHOLD = 3;
-const NODE_FAILURE_COOLDOWN_MS = 30_000;
+const NODE_FAILURE_BASE_COOLDOWN_MS = 30_000;
+const NODE_FAILURE_BACKOFF_CAP = 4;
+const NODE_RELIABILITY_SAMPLE_MIN = 5;
+const NODE_RELIABILITY_MAX_PENALTY = 20;
+const NODE_PERFORMANCE_SAMPLE_MIN = 10;
+const NODE_PERFORMANCE_BASELINE = 0.9;
+const NODE_PERFORMANCE_MAX_BONUS = 10;
+const MANIFEST_DECAY_SAMPLES = 20;
+const RELAY_DISCOVERY_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+const getNodeHealth = (service: RouterService, nodeId: string) => {
+  const existing = service.nodeHealth.get(nodeId);
+  if (existing) {
+    return existing;
+  }
+  const entry = {
+    successes: 0,
+    failures: 0,
+    consecutiveFailures: 0,
+    lastFailureMs: 0,
+    lastSuccessMs: 0,
+  };
+  service.nodeHealth.set(nodeId, entry);
+  return entry;
+};
+
+const assessRelayDiscoverySnapshot = (
+  snapshot: RelayDiscoverySnapshot | null | undefined,
+  policy: RelayAdmissionPolicy,
+): { eligible: boolean; reason?: string } => {
+  if (!snapshot) {
+    return policy.requireSnapshot ? { eligible: false, reason: 'missing-relay-discovery' } : { eligible: true };
+  }
+
+  if (!snapshot.discoveredAtMs || Number.isNaN(snapshot.discoveredAtMs)) {
+    return { eligible: false, reason: 'relay-discovery-missing-timestamp' };
+  }
+
+  const now = Date.now();
+  if (snapshot.discoveredAtMs > now + RELAY_DISCOVERY_CLOCK_SKEW_MS) {
+    return { eligible: false, reason: 'relay-discovery-future-timestamp' };
+  }
+  if (now - snapshot.discoveredAtMs > policy.maxAgeMs) {
+    return { eligible: false, reason: 'relay-discovery-expired' };
+  }
+
+  if (!snapshot.relays || snapshot.relays.length === 0) {
+    return { eligible: false, reason: 'relay-discovery-empty' };
+  }
+
+  if (policy.minScore !== undefined) {
+    if (snapshot.options.minScore === undefined || snapshot.options.minScore < policy.minScore) {
+      return { eligible: false, reason: 'relay-discovery-min-score-too-low' };
+    }
+  }
+
+  if (policy.maxResults !== undefined) {
+    if (
+      snapshot.options.maxResults === undefined ||
+      snapshot.options.maxResults > policy.maxResults
+    ) {
+      return { eligible: false, reason: 'relay-discovery-max-results-too-high' };
+    }
+  }
+
+  if (snapshot.options.minScore !== undefined) {
+    const hasLowScore = snapshot.relays.some((relay) => relay.score < snapshot.options.minScore!);
+    if (hasLowScore) {
+      return { eligible: false, reason: 'relay-discovery-score-mismatch' };
+    }
+  }
+
+  if (
+    snapshot.options.maxResults !== undefined &&
+    snapshot.relays.length > snapshot.options.maxResults
+  ) {
+    return { eligible: false, reason: 'relay-discovery-exceeds-max-results' };
+  }
+
+  return { eligible: true };
+};
 
 const markNodeFailure = (service: RouterService, nodeId: string): void => {
-  const entry = service.nodeFailures.get(nodeId) ?? { count: 0, lastFailureMs: 0 };
-  entry.count += 1;
+  const entry = getNodeHealth(service, nodeId);
+  entry.failures += 1;
+  entry.consecutiveFailures += 1;
   entry.lastFailureMs = Date.now();
-  service.nodeFailures.set(nodeId, entry);
   nodeFailureEvents.inc({ nodeId });
-  if (entry.count >= NODE_FAILURE_THRESHOLD) {
-    service.nodeCooldown.set(nodeId, Date.now() + NODE_FAILURE_COOLDOWN_MS);
+  if (entry.consecutiveFailures >= NODE_FAILURE_THRESHOLD) {
+    const multiplier = Math.min(
+      NODE_FAILURE_BACKOFF_CAP,
+      entry.consecutiveFailures - NODE_FAILURE_THRESHOLD + 1,
+    );
+    service.nodeCooldown.set(nodeId, Date.now() + NODE_FAILURE_BASE_COOLDOWN_MS * multiplier);
   }
 };
 
-const resetNodeFailures = (service: RouterService, nodeId: string): void => {
-  service.nodeFailures.delete(nodeId);
+const recordNodeSuccess = (service: RouterService, nodeId: string): void => {
+  const entry = getNodeHealth(service, nodeId);
+  entry.successes += 1;
+  entry.consecutiveFailures = 0;
+  entry.lastSuccessMs = Date.now();
   service.nodeCooldown.delete(nodeId);
 };
 
 const failurePenalty = (service: RouterService, nodeId: string): number => {
-  const entry = service.nodeFailures.get(nodeId);
-  return entry ? Math.min(20, entry.count * 5) : 0;
+  const entry = service.nodeHealth.get(nodeId);
+  if (!entry) {
+    return 0;
+  }
+  const total = entry.successes + entry.failures;
+  const reliabilityPenalty =
+    total >= NODE_RELIABILITY_SAMPLE_MIN
+      ? Math.min(
+          NODE_RELIABILITY_MAX_PENALTY,
+          Math.round((entry.failures / total) * NODE_RELIABILITY_MAX_PENALTY),
+        )
+      : 0;
+  const streakPenalty = Math.min(20, entry.consecutiveFailures * 5);
+  return Math.min(30, reliabilityPenalty + streakPenalty);
+};
+
+const performanceBonus = (service: RouterService, nodeId: string): number => {
+  const entry = service.nodeHealth.get(nodeId);
+  if (!entry) {
+    return 0;
+  }
+  const total = entry.successes + entry.failures;
+  if (total < NODE_PERFORMANCE_SAMPLE_MIN) {
+    return 0;
+  }
+  const successRate = entry.successes / total;
+  const rawBonus = Math.round((successRate - NODE_PERFORMANCE_BASELINE) * 100);
+  return Math.max(-NODE_PERFORMANCE_MAX_BONUS, Math.min(NODE_PERFORMANCE_MAX_BONUS, rawBonus));
+};
+
+const manifestDecayFactor = (service: RouterService, nodeId: string): number => {
+  const entry = service.nodeHealth.get(nodeId);
+  if (!entry) {
+    return 1;
+  }
+  const total = entry.successes + entry.failures;
+  if (total <= 0) {
+    return 1;
+  }
+  const factor = 1 - Math.min(1, total / MANIFEST_DECAY_SAMPLES);
+  return Math.max(0, factor);
 };
 
 const filterActiveNodes = (service: RouterService, nodes: NodeDescriptor[]): NodeDescriptor[] => {
@@ -145,18 +297,34 @@ const stakeScore = (service: RouterService, nodeId: string): number => {
 const applyManifestWeights = (service: RouterService): NodeDescriptor[] => {
   return service.nodes.map((node) => {
     const manifest = service.manifests.get(node.nodeId);
+    const admission = service.manifestAdmissions.get(node.nodeId);
     const baseTrust = node.trustScore ?? 0;
-    const manifestTrust = manifestScore(manifest);
+    const manifestTrust =
+      manifest && (!admission || admission.eligible)
+        ? Math.round(manifestScore(manifest) * manifestDecayFactor(service, node.nodeId))
+        : 0;
     const stakeTrust = stakeScore(service, node.nodeId);
     const penalty = failurePenalty(service, node.nodeId);
+    const performance = performanceBonus(service, node.nodeId);
     return {
       ...node,
       trustScore: Math.max(
         0,
-        Math.min(100, baseTrust + manifestTrust + stakeTrust - penalty),
+        Math.min(100, baseTrust + manifestTrust + stakeTrust + performance - penalty),
       ),
     };
   });
+};
+
+const rankCandidateNodes = (nodes: NodeDescriptor[], request: QuoteRequest): NodeDescriptor[] => {
+  const scored = nodes
+    .map((node) => {
+      const score = scoreNode(node, request);
+      return score === null ? null : { node, score };
+    })
+    .filter((entry): entry is { node: NodeDescriptor; score: number } => entry !== null)
+    .sort((a, b) => b.score - a.score);
+  return scored.map((entry) => entry.node);
 };
 
 const readJsonBody = async (
@@ -184,6 +352,34 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
+};
+
+const verifyFederationMessage = <T>(
+  raw: unknown,
+  validator: (value: unknown) => { ok: true } | { ok: false; errors: string[] },
+): { ok: true; message: RouterControlMessage<T> } | { ok: false; error: string; details?: string[] } => {
+  const validation = validateRouterControlMessage(raw, validator);
+  if (!validation.ok) {
+    return { ok: false, error: 'invalid-message', details: validation.errors };
+  }
+  const message = raw as RouterControlMessage<T>;
+  if (message.expiry < Date.now()) {
+    return { ok: false, error: 'message-expired' };
+  }
+  return { ok: true, message };
+};
+
+const privacyRank: Record<'PL0' | 'PL1' | 'PL2' | 'PL3' | undefined, number> = {
+  PL0: 0,
+  PL1: 1,
+  PL2: 2,
+  PL3: 3,
+  undefined: 3,
+};
+
+const allowsPrivacyLevel = (config: RouterConfig, level: RouterJobSubmit['privacyLevel']): boolean => {
+  const max = config.federation?.maxPrivacyLevel;
+  return privacyRank[level] <= privacyRank[max];
 };
 
 export const createRouterHttpServer = (service: RouterService, config: RouterConfig): http.Server => {
@@ -259,8 +455,401 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
 
+        const admissionPolicy = config.relayAdmission ?? defaultRelayAdmissionPolicy;
+        const admission = assessRelayDiscoverySnapshot(manifest.relay_discovery, admissionPolicy);
+        service.manifestAdmissions.set(manifest.id, admission);
+
         service.manifests.set(manifest.id, manifest);
         return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/caps') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterCapabilityProfile>(
+          body.value,
+          validateRouterCapabilityProfile,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.federation.capabilities = message.payload;
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/self/caps') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterCapabilityProfile(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-capabilities', details: validation.errors });
+        }
+
+        const payload = body.value as RouterCapabilityProfile;
+        if (payload.routerId !== config.keyId) {
+          return sendJson(res, 400, { error: 'router-id-mismatch' });
+        }
+
+        service.federation.localCapabilities = payload;
+        const message: RouterControlMessage<RouterCapabilityProfile> = {
+          type: 'CAPS_ANNOUNCE',
+          version: '0.1',
+          routerId: config.keyId,
+          messageId: `${payload.routerId}:${payload.timestamp}`,
+          timestamp: Date.now(),
+          expiry: payload.expiry,
+          payload,
+          sig: '',
+        };
+        const signed = signRouterMessage(message, config.privateKey);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { message: signed });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/price') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterPriceSheet>(
+          body.value,
+          validateRouterPriceSheet,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.federation.priceSheets.set(message.payload.jobType, message.payload);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/self/price') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterPriceSheet(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-price-sheet', details: validation.errors });
+        }
+
+        const payload = body.value as RouterPriceSheet;
+        if (payload.routerId !== config.keyId) {
+          return sendJson(res, 400, { error: 'router-id-mismatch' });
+        }
+
+        service.federation.localPriceSheets.set(payload.jobType, payload);
+        const message: RouterControlMessage<RouterPriceSheet> = {
+          type: 'PRICE_ANNOUNCE',
+          version: '0.1',
+          routerId: config.keyId,
+          messageId: `${payload.routerId}:${payload.jobType}`,
+          timestamp: Date.now(),
+          expiry: payload.expiry,
+          payload,
+          sig: '',
+        };
+        const signed = signRouterMessage(message, config.privateKey);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { message: signed });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/status') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterStatusPayload>(
+          body.value,
+          validateRouterStatusPayload,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.federation.status = message.payload;
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/self/status') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterStatusPayload(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-status', details: validation.errors });
+        }
+
+        const payload = body.value as RouterStatusPayload;
+        if (payload.routerId !== config.keyId) {
+          return sendJson(res, 400, { error: 'router-id-mismatch' });
+        }
+
+        service.federation.localStatus = payload;
+        const message: RouterControlMessage<RouterStatusPayload> = {
+          type: 'STATUS_ANNOUNCE',
+          version: '0.1',
+          routerId: config.keyId,
+          messageId: `${payload.routerId}:${payload.timestamp}`,
+          timestamp: Date.now(),
+          expiry: payload.expiry,
+          payload,
+          sig: '',
+        };
+        const signed = signRouterMessage(message, config.privateKey);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { message: signed });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/rfb') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterRfbPayload>(
+          body.value,
+          validateRouterRfbPayload,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true, jobId: message.payload.jobId });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/bid') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterBidPayload>(
+          body.value,
+          validateRouterBidPayload,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.federation.bids.set(message.payload.jobId, message.payload);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/award') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validated = verifyFederationMessage<RouterAwardPayload>(
+          body.value,
+          validateRouterAwardPayload,
+        );
+        if (!validated.ok) {
+          return sendJson(res, 400, { error: validated.error, details: validated.details });
+        }
+
+        const message = validated.message;
+        const publicKey = parsePublicKey(message.routerId);
+        if (!verifyRouterMessage(message, publicKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        service.federation.awards.set(message.payload.jobId, message.payload);
+        federationMessages.inc({ type: message.type });
+        return sendJson(res, 200, { ok: true });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/job-submit') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterJobSubmit(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-job-submit', details: validation.errors });
+        }
+
+        const submit = body.value as RouterJobSubmit;
+        if (!allowsPrivacyLevel(config, submit.privacyLevel)) {
+          return sendJson(res, 403, { error: 'privacy-level-not-allowed' });
+        }
+
+        service.federation.jobs.set(submit.jobId, { submit });
+        federationJobs.inc({ stage: 'submit' });
+        return sendJson(res, 200, { ok: true, jobId: submit.jobId });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/job-result') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterJobResult(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-job-result', details: validation.errors });
+        }
+
+        const result = body.value as RouterJobResult;
+        const receiptValidation = validateRouterReceipt(result.receipt);
+        if (!receiptValidation.ok) {
+          accountingFailures.inc({ reason: 'receipt-invalid' });
+          return sendJson(res, 400, { error: 'invalid-receipt', details: receiptValidation.errors });
+        }
+        if (result.receipt.jobId !== result.jobId) {
+          accountingFailures.inc({ reason: 'receipt-job-mismatch' });
+          return sendJson(res, 400, { error: 'receipt-job-mismatch' });
+        }
+
+        const workerKey = parsePublicKey(result.receipt.workerRouterId);
+        if (!verifyRouterReceipt(result.receipt, workerKey)) {
+          accountingFailures.inc({ reason: 'receipt-signature' });
+          return sendJson(res, 401, { error: 'invalid-receipt-signature' });
+        }
+
+        const existing = service.federation.jobs.get(result.jobId);
+        if (!existing) {
+          return sendJson(res, 404, { error: 'unknown-job' });
+        }
+        existing.result = result;
+        federationJobs.inc({ stage: 'result' });
+        return sendJson(res, 200, { ok: true, jobId: result.jobId });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }
@@ -513,22 +1102,37 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return respond(503, { error: selection.reason ?? 'no-nodes-available' });
         }
 
-        const handleNodeResponse = async (payload: InferenceRequest): Promise<void> => {
+        const attemptNode = async (
+          targetNode: NodeDescriptor,
+          payload: InferenceRequest,
+        ): Promise<
+          | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
+          | { ok: false; status: number; body: { error: string; details?: string[] } }
+        > => {
           const forwardEnvelope = signEnvelope(
             buildEnvelope(payload, envelope.nonce, Date.now(), config.keyId),
             config.privateKey!,
           );
 
-          const nodeResponse = await fetch(`${node.endpoint}/infer`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(forwardEnvelope),
-          });
-
-          const failNode = (status: number, body: unknown) => {
-            markNodeFailure(service, node.nodeId);
-            return respond(status, body);
+          const failNode = (status: number, body: { error: string; details?: string[] }, reason?: string) => {
+            markNodeFailure(service, targetNode.nodeId);
+            if (reason) {
+              accountingFailures.inc({ reason });
+              console.warn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
+            }
+            return { ok: false, status, body };
           };
+
+          let nodeResponse: Response;
+          try {
+            nodeResponse = await fetch(`${targetNode.endpoint}/infer`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(forwardEnvelope),
+            });
+          } catch (error) {
+            return failNode(502, { error: 'node-unreachable' });
+          }
 
           if (!nodeResponse.ok) {
             return failNode(502, { error: 'node-error' });
@@ -541,24 +1145,38 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
 
           const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
           if (!responseValidation.ok) {
-            return failNode(502, { error: 'invalid-node-response', details: responseValidation.errors });
+            return failNode(
+              502,
+              { error: 'invalid-node-response', details: responseValidation.errors },
+              'node-response-invalid',
+            );
           }
 
           const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
           if (!meteringValidation.ok) {
-            return failNode(502, { error: 'invalid-metering', details: meteringValidation.errors });
+            return failNode(
+              502,
+              { error: 'invalid-metering', details: meteringValidation.errors },
+              'metering-invalid',
+            );
           }
 
-          const nodeKey = parsePublicKey(node.keyId);
-          if (nodeBody.response.keyId !== node.keyId || !verifyEnvelope(nodeBody.response, nodeKey)) {
-            return failNode(502, { error: 'node-response-signature-invalid' });
+          const nodeKey = parsePublicKey(targetNode.keyId);
+          if (
+            nodeBody.response.keyId !== targetNode.keyId ||
+            !verifyEnvelope(nodeBody.response, nodeKey)
+          ) {
+            return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
           }
-          if (nodeBody.metering.keyId !== node.keyId || !verifyEnvelope(nodeBody.metering, nodeKey)) {
-            return failNode(502, { error: 'node-metering-signature-invalid' });
+          if (
+            nodeBody.metering.keyId !== targetNode.keyId ||
+            !verifyEnvelope(nodeBody.metering, nodeKey)
+          ) {
+            return failNode(502, { error: 'node-metering-signature-invalid' }, 'metering-signature');
           }
-          resetNodeFailures(service, node.nodeId);
+          recordNodeSuccess(service, targetNode.nodeId);
 
-          respond(200, { response: nodeBody.response, metering: nodeBody.metering });
+          return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
         };
 
         if (config.requirePayment) {
@@ -608,11 +1226,43 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           }
 
           const requestPayload = { ...envelope.payload, paymentReceipts: [storedReceipt] };
-          await handleNodeResponse(requestPayload);
+          const attempt = await attemptNode(node, requestPayload);
+          if (!attempt.ok) {
+            respond(attempt.status, attempt.body);
+            return;
+          }
+          respond(200, attempt.body);
           return;
         }
 
-        await handleNodeResponse(envelope.payload);
+        const candidates = rankCandidateNodes(
+          filterActiveNodes(service, applyManifestWeights(service)),
+          {
+            requestId: envelope.payload.requestId,
+            modelId: envelope.payload.modelId,
+            maxTokens: envelope.payload.maxTokens,
+            inputTokensEstimate: envelope.payload.prompt.length,
+            outputTokensEstimate: envelope.payload.maxTokens,
+          },
+        );
+
+        let lastFailure: { status: number; body: { error: string; details?: string[] } } | null =
+          null;
+        for (const candidate of candidates) {
+          const result = await attemptNode(candidate, envelope.payload);
+          if (result.ok) {
+            respond(200, result.body);
+            return;
+          }
+          lastFailure = { status: result.status, body: result.body };
+        }
+
+        if (lastFailure) {
+          respond(lastFailure.status, lastFailure.body);
+          return;
+        }
+
+        respond(503, { error: 'no-nodes-available' });
         return;
       } catch (error) {
         return respond(500, { error: 'internal-error' });

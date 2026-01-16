@@ -12,9 +12,36 @@ export type RouterService = {
   paymentReceipts: Map<string, Envelope<import('@fed-ai/protocol').PaymentReceipt>>;
   paymentRequests: Map<string, import('@fed-ai/protocol').PaymentRequest>;
   manifests: Map<string, import('@fed-ai/manifest').NodeManifest>;
+  manifestAdmissions: Map<string, { eligible: boolean; reason?: string }>;
   stakeStore: StakeStore;
-  nodeFailures: Map<string, { count: number; lastFailureMs: number }>;
   nodeCooldown: Map<string, number>;
+  nodeHealth: Map<
+    string,
+    {
+      successes: number;
+      failures: number;
+      consecutiveFailures: number;
+      lastFailureMs: number;
+      lastSuccessMs: number;
+    }
+  >;
+  federation: {
+    capabilities: import('@fed-ai/protocol').RouterCapabilityProfile | null;
+    priceSheets: Map<string, import('@fed-ai/protocol').RouterPriceSheet>;
+    status: import('@fed-ai/protocol').RouterStatusPayload | null;
+    bids: Map<string, import('@fed-ai/protocol').RouterBidPayload>;
+    awards: Map<string, import('@fed-ai/protocol').RouterAwardPayload>;
+    localCapabilities: import('@fed-ai/protocol').RouterCapabilityProfile | null;
+    localPriceSheets: Map<string, import('@fed-ai/protocol').RouterPriceSheet>;
+    localStatus: import('@fed-ai/protocol').RouterStatusPayload | null;
+    jobs: Map<
+      string,
+      {
+        submit: import('@fed-ai/protocol').RouterJobSubmit;
+        result?: import('@fed-ai/protocol').RouterJobResult;
+      }
+    >;
+  };
 };
 
 export const createRouterService = (config: RouterConfig): RouterService => {
@@ -24,9 +51,21 @@ export const createRouterService = (config: RouterConfig): RouterService => {
     paymentReceipts: new Map(),
     paymentRequests: new Map(),
     manifests: new Map(),
+    manifestAdmissions: new Map(),
     stakeStore: createStakeStore(),
-    nodeFailures: new Map(),
     nodeCooldown: new Map(),
+    nodeHealth: new Map(),
+    federation: {
+      capabilities: null,
+      priceSheets: new Map(),
+      status: null,
+      bids: new Map(),
+      awards: new Map(),
+      localCapabilities: null,
+      localPriceSheets: new Map(),
+      localStatus: null,
+      jobs: new Map(),
+    },
   };
 };
 

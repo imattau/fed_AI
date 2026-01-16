@@ -43,4 +43,4 @@ export const manifestHash = (manifest: NodeManifest | RouterManifest): string =>
   return hashManifest(manifest);
 };
 
-export type { NodeManifest, RouterManifest, ManifestSignature } from './types';
+export type { NodeManifest, RouterManifest, ManifestSignature, RelayDiscoverySnapshot } from './types';

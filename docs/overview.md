@@ -26,6 +26,7 @@ Nostr alignment
 - Signed envelopes align with Nostr signing primitives.
 - Discovery and trust can be relay-backed without exposing prompts or outputs.
 - Nostr relays are for discovery and trust; inference operations are peer-to-peer between client, router, and node.
+- Router federation v0.1 is specified in `docs/router-federation-v0.1.md` to cover router-to-router offload and pricing.
 
 Payments
 - Settlement is peer-to-peer over Lightning from day one; routers coordinate requirements but never custody funds.

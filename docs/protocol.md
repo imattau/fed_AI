@@ -31,6 +31,18 @@ Envelope<T> {
 - StakeCommit
 - StakeSlash
 - Attestation (optional in v0.1)
+- Router federation:
+  - RouterControlMessage
+  - RouterCapabilityProfile
+  - RouterPriceSheet
+  - RouterStatusPayload
+  - RouterRfbPayload
+  - RouterBidPayload
+  - RouterAwardPayload
+  - RouterJobSubmit
+  - RouterJobResult
+  - RouterReceipt
+  - RouterReceiptSummary
 
 ## Crypto
 
@@ -66,3 +78,9 @@ Payment lifecycle
 
 - Runtime validators for every public type
 - Invalid envelopes rejected before business logic
+
+## Router federation (v0.1)
+
+Router-to-router offload, pricing, privacy levels, control-plane messages, and receipts are
+specified in `docs/router-federation-v0.1.md`. Protocol types for federation messaging will
+consolidate into the canonical protocol package once implemented.

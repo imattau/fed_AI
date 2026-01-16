@@ -48,3 +48,10 @@ Audience: coding agents and contributors.
 - Test: `pnpm -w test`
 - Simulator: `pnpm -w sim`
 - CLI infer: `pnpm -w cli infer`
+
+## Operator references
+
+- Router ops: `docs/runbooks/router-ops.md`
+- Node ops: `docs/runbooks/node-ops.md`
+- CLI: `docs/runbooks/cli.md`
+- Observability: `docs/runbooks/observability.md`

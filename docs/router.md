@@ -14,6 +14,9 @@ Responsibilities
 
 Health tracking
 - Router tracks `lastHeartbeatMs` and filters stale nodes during selection.
+- Router tracks per-node success/failure history; consecutive failures trigger cooldown with backoff.
+- Reliability penalties reduce trust scores once a minimum sample is reached.
+- Router retries alternative nodes on inference failure when payment is not locked to a specific node.
 
 Payments
 - When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope that includes invoice details for the payee.
@@ -26,10 +29,19 @@ Payments
 Observability
 - `/metrics` exposes Prometheus-friendly metrics such as `router_inference_requests_total` and latency histograms.
 - The router instruments `/infer` and `/payment-receipt` with OpenTelemetry spans (`router.infer`, `router.paymentReceipt`) so traces can correlate ingestion, payment verification, and node dispatch.
+- Accounting failures surface as `router_accounting_failures_total` with reason labels for metering/signature issues.
+
+Configuration
+- Core: `ROUTER_ID`, `ROUTER_KEY_ID`, `ROUTER_PRIVATE_KEY_PEM`, `ROUTER_ENDPOINT`, `ROUTER_PORT`.
+- Payments: `ROUTER_REQUIRE_PAYMENT`.
+- Federation: `ROUTER_FEDERATION_ENABLED`, `ROUTER_FEDERATION_ENDPOINT`, `ROUTER_FEDERATION_MAX_SPEND_MSAT`, `ROUTER_FEDERATION_MAX_OFFLOADS`, `ROUTER_FEDERATION_MAX_PL`.
+- Relay discovery: `ROUTER_RELAY_BOOTSTRAP`, `ROUTER_RELAY_AGGREGATORS`, `ROUTER_RELAY_TRUST`, `ROUTER_RELAY_MIN_SCORE`, `ROUTER_RELAY_MAX_RESULTS`.
+- Relay snapshot admission: `ROUTER_RELAY_SNAPSHOT_REQUIRED`, `ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS`.
 
 Manifests
 - `/manifest` accepts signed node manifests for initial admission and weighting.
 - Manifest capability bands adjust initial trust scores before routing decisions.
+- Manifest-based trust decays as observed performance data accumulates.
 
 Staking
 - `/stake/commit` records stake commitments signed by node or router keys.
@@ -46,10 +58,18 @@ Selection inputs
 - Current load
 - Capacity
 - Trust score
+- Observed performance bonus (bounded) and reliability penalties.
 
 Scheduling guarantees
 - Scheduling is policy-driven and expressed as pure functions.
 - Simulator uses the same scheduling logic to ensure economic modeling matches production behavior.
+
+## Federation (early implementation)
+
+- Control-plane endpoints: `/federation/caps`, `/federation/price`, `/federation/status`, `/federation/rfb`, `/federation/bid`, `/federation/award`.
+- Data-plane stubs: `/federation/job-submit`, `/federation/job-result`.
+- Self-publishing helpers: `/federation/self/caps`, `/federation/self/price`, `/federation/self/status` return signed messages.
+- Enable with `ROUTER_FEDERATION_ENABLED=true` and set `ROUTER_FEDERATION_ENDPOINT`.
 
 ## Relay discovery
 
@@ -57,3 +77,5 @@ Scheduling guarantees
 - Override sources with `ROUTER_RELAY_BOOTSTRAP` (comma-separated relay URLs) and `ROUTER_RELAY_AGGREGATORS` (directory endpoints).
 - Adjust scoring with `ROUTER_RELAY_TRUST` entries such as `wss://relay.example=5`.
 - Tune filtering with `ROUTER_RELAY_MIN_SCORE` and `ROUTER_RELAY_MAX_RESULTS` as needed for conservative admission.
+- When `ROUTER_RELAY_SNAPSHOT_REQUIRED=true`, manifests must include a recent `relay_discovery` snapshot before capability bands can promote trust weighting.
+- Set `ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS` to cap snapshot freshness for admission checks.

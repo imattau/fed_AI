@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: fed-ai
+    orgId: 1
+    folder: fed-ai
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards

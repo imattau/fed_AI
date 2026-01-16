@@ -44,7 +44,7 @@ Phase 4 - Real runner integration
 
 Phase 5 - Trust, resilience, abuse resistance
 - Trust scoring hooks, failure handling, replay hardening
-- Exit: graceful degradation and no silent accounting failures
+- Exit: graceful degradation, no silent accounting failures, and v0.1 router federation spec drafted
 
 Phase 6 - Operational readiness
 - Runbooks, observability, CLI ergonomics, operator docs
@@ -56,11 +56,15 @@ Phase 7 - Optional extensions
 ## Active tasks
 
 - [x] First real runner adapter (HTTP-backed).
-- [ ] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
+- [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 
 ## Upcoming tasks
 
-- [ ] Expanded trust/resilience handling.
+- [x] Expanded trust/resilience handling.
+- [x] Add router admission checks that verify `relay_discovery` snapshots before promotion.
+- [x] Draft Router Federation Spec v0.1 (router-to-router offload + auctioning, privacy levels, receipts, settlement, and backpressure rules).
+- [x] Phase 6: operator runbooks + observability checklist + CLI ergonomics pass.
+- [ ] Router federation implementation: control-plane message ingestion + signing, data-plane stubs, and tests.
 
 ## Decisions and notes
 
@@ -117,6 +121,25 @@ Phase 7 - Optional extensions
 - [x] Router/node startup logs the `discoverRelays` candidate set and respects discovery env overrides.
 - [x] CLI exposes `fedai relays` plus docs for aggregator/trust overrides.
 - [x] Automated Nostr relay discovery package added with normalization, trust scoring, and directory fetching utilities.
+- [x] Manifests embed relay discovery snapshots and the CLI manifest flow now harvests them via discovery directories.
+- [x] Router tracks reliability penalties and cooldown backoff after repeated node failures.
+- [x] Router manifest promotion requires relay discovery snapshots when configured.
+- [x] Router decays manifest trust as performance samples accumulate and applies a bounded performance bonus.
+- [x] Router federation protocol message types and validators added to `packages/protocol`.
+- [x] Phase 5 exit criteria met (graceful degradation + explicit accounting failure visibility).
+- [x] Added operator runbooks for router, node, and CLI usage.
+- [x] CLI ergonomics: added `--out` support for quote/infer and documented usage.
+- [x] Observability checklist documented for router and node metrics/alerts.
+- [x] Added Prometheus + Grafana local stack wiring in docker compose.
+- [x] Added a starter Grafana dashboard for router/node metrics.
+- [x] Added starter Prometheus alert rules for router/node error conditions.
+- [x] Added a local OpenTelemetry collector config for trace ingestion.
+- [x] Router federation spec documented in `docs/router-federation-v0.1.md`.
+- [x] Router federation control-plane scaffolding (config/state/endpoints) added with tests.
+- [x] Router federation data-plane stubs and receipt verification added with tests.
+- [x] Federation metrics and dashboard panels added for control/data-plane activity.
+- [x] Federation alert rules added to Prometheus starter alerts.
+- [x] Self-publishing federation endpoints added for signed caps/price/status messages.
 
 ## Scratchpad
 

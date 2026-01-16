@@ -2,6 +2,8 @@
 
 CLI for key generation, quotes, profiling, and signed inference requests.
 
+Operator runbook: `docs/runbooks/cli.md`.
+
 Usage
 
 ```
@@ -35,7 +37,8 @@ pnpm --filter @fed-ai/cli dev -- quote \
   --model mock-model \
   --input 10 \
   --output 5 \
-  --max-tokens 32
+  --max-tokens 32 \
+  --out quote.json
 
 # Send a signed inference request (optionally attach previously saved receipts)
 pnpm --filter @fed-ai/cli dev -- infer \
@@ -46,7 +49,8 @@ pnpm --filter @fed-ai/cli dev -- infer \
   --prompt "hello" \
   --max-tokens 16 \
   --receipts node-receipt.json \
-  --payment-request-out invoice.json
+  --payment-request-out invoice.json \
+  --out infer.json
 
 # Convert a saved payment request into a signed receipt
 pnpm --filter @fed-ai/cli dev -- receipt \

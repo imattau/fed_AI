@@ -7,12 +7,15 @@ import {
   buildEnvelope,
   exportPublicKeyHex,
   signEnvelope,
+  signRouterMessage,
+  signRouterReceipt,
   validateEnvelope,
   validateInferenceResponse,
   validateMeteringRecord,
   validatePaymentRequest,
   validateQuoteResponse,
   validateStakeCommit,
+  verifyRouterMessage,
   verifyEnvelope,
 } from '@fed-ai/protocol';
 import { signManifest } from '@fed-ai/manifest';
@@ -29,8 +32,13 @@ import type {
   QuoteRequest,
   QuoteResponse,
   StakeCommit,
+  RouterCapabilityProfile,
+  RouterControlMessage,
+  RouterJobResult,
+  RouterJobSubmit,
+  RouterReceipt,
 } from '@fed-ai/protocol';
-import type { NodeManifest } from '@fed-ai/manifest';
+import type { NodeManifest, RelayDiscoverySnapshot } from '@fed-ai/manifest';
 import type { RouterConfig } from '../src/config';
 
 const startRouter = async (config: RouterConfig) => {
@@ -41,7 +49,12 @@ const startRouter = async (config: RouterConfig) => {
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 };
 
-const startStubNode = async (nodeKeyId: string, privateKey: KeyObject) => {
+const startStubNode = async (
+  nodeKeyId: string,
+  privateKey: KeyObject,
+  nodeId = 'node-1',
+  output = 'ok',
+) => {
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/infer') {
       const chunks: Buffer[] = [];
@@ -55,14 +68,14 @@ const startStubNode = async (nodeKeyId: string, privateKey: KeyObject) => {
       const responsePayload: InferenceResponse = {
         requestId: body.payload.requestId,
         modelId: body.payload.modelId,
-        output: 'ok',
+        output,
         usage: { inputTokens: 1, outputTokens: 1 },
         latencyMs: 5,
       };
 
       const meteringPayload: MeteringRecord = {
         requestId: body.payload.requestId,
-        nodeId: 'node-1',
+        nodeId,
         modelId: body.payload.modelId,
         promptHash: createHash('sha256').update(body.payload.prompt, 'utf8').digest('hex'),
         inputTokens: 1,
@@ -215,6 +228,116 @@ test('router /infer forwards to node and verifies signatures', async () => {
   await Promise.all([
     new Promise<void>((resolve) => routerServer.close(() => resolve())),
     new Promise<void>((resolve) => nodeServer.close(() => resolve())),
+  ]);
+});
+
+test('router /infer falls back to another node on failure', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const nodeAKeys = generateKeyPairSync('ed25519');
+  const nodeBKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeAKeyId = exportPublicKeyHex(nodeAKeys.publicKey);
+  const nodeBKeyId = exportPublicKeyHex(nodeBKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+
+  const failingServer = http.createServer((_req, res) => {
+    res.writeHead(500, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'boom' }));
+  });
+  await new Promise<void>((resolve) => failingServer.listen(0, resolve));
+  const failingAddress = failingServer.address() as AddressInfo;
+  const failingUrl = `http://127.0.0.1:${failingAddress.port}`;
+
+  const { server: nodeBServer, baseUrl: nodeBUrl } = await startStubNode(
+    nodeBKeyId,
+    nodeBKeys.privateKey,
+    'node-b',
+    'ok-b',
+  );
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
+
+  const nodeADescriptor: NodeDescriptor = {
+    nodeId: 'node-a',
+    keyId: nodeAKeyId,
+    endpoint: failingUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0, outputRate: 0, currency: 'USD' },
+      },
+    ],
+  };
+
+  const nodeBDescriptor: NodeDescriptor = {
+    nodeId: 'node-b',
+    keyId: nodeBKeyId,
+    endpoint: nodeBUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 1, outputRate: 1, currency: 'USD' },
+      },
+    ],
+  };
+
+  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: KeyObject) => {
+    const envelope = signEnvelope(
+      buildEnvelope(descriptor, `nonce-${descriptor.nodeId}`, Date.now(), keyId),
+      privateKey,
+    );
+    await fetch(`${routerUrl}/register-node`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(envelope),
+    });
+  };
+
+  await registerNode(nodeADescriptor, nodeAKeyId, nodeAKeys.privateKey);
+  await registerNode(nodeBDescriptor, nodeBKeyId, nodeBKeys.privateKey);
+
+  const request: InferenceRequest = {
+    requestId: 'req-fallback',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(request, 'nonce-fallback', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${routerUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { response: Envelope<InferenceResponse> };
+  assert.equal(body.response.payload.output, 'ok-b');
+
+  await Promise.all([
+    new Promise<void>((resolve) => routerServer.close(() => resolve())),
+    new Promise<void>((resolve) => failingServer.close(() => resolve())),
+    new Promise<void>((resolve) => nodeBServer.close(() => resolve())),
   ]);
 });
 
@@ -627,6 +750,306 @@ test('router /stake/commit records stake and affects selection', async () => {
   server.close();
 });
 
+test('router /manifest requires relay snapshot for promotion when configured', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    relayAdmission: {
+      requireSnapshot: true,
+      maxAgeMs: 60_000,
+      minScore: 1,
+      maxResults: 2,
+    },
+  };
+
+  const service = createRouterService(config);
+  const nodeA: NodeDescriptor = {
+    nodeId: 'node-a',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9999',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.02, outputRate: 0.02, currency: 'USD' },
+      },
+    ],
+  };
+  const nodeB: NodeDescriptor = {
+    nodeId: 'node-b',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:9998',
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0.01, outputRate: 0.01, currency: 'USD' },
+      },
+    ],
+  };
+  service.nodes.push(nodeA, nodeB);
+
+  const manifest: NodeManifest = {
+    id: 'node-a',
+    role_types: ['prepost_node'],
+    capability_bands: {
+      cpu: 'cpu_high',
+      ram: 'ram_64_plus',
+      disk: 'disk_ssd',
+      net: 'net_good',
+      gpu: 'gpu_none',
+    },
+    limits: { max_concurrency: 2, max_payload_bytes: 1024, max_tokens: 256 },
+    supported_formats: ['text'],
+    pricing_defaults: { unit: 'token', input_rate: 0, output_rate: 0, currency: 'USD' },
+    benchmarks: null,
+    software_version: '0.0.1',
+  };
+
+  const server = createRouterHttpServer(service, config);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const quoteRequest: QuoteRequest = {
+    requestId: 'req-manifest-policy',
+    modelId: 'mock-model',
+    maxTokens: 32,
+    inputTokensEstimate: 10,
+    outputTokensEstimate: 5,
+  };
+
+  const buildQuoteEnvelope = (nonce: string) =>
+    signEnvelope(buildEnvelope(quoteRequest, nonce, Date.now(), clientKeyId), clientKeys.privateKey);
+
+  const signedManifest = signManifest(manifest, nodeKeyId, nodeKeys.privateKey) as NodeManifest;
+  await fetch(`${baseUrl}/manifest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedManifest),
+  });
+
+  const requestEnvelope = buildQuoteEnvelope('nonce-manifest-policy-1');
+  const responseWithoutSnapshot = await fetch(`${baseUrl}/quote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+  const bodyWithoutSnapshot = (await responseWithoutSnapshot.json()) as { quote: Envelope<QuoteResponse> };
+  assert.equal(bodyWithoutSnapshot.quote.payload.nodeId, 'node-b');
+
+  const relaySnapshot: RelayDiscoverySnapshot = {
+    discoveredAtMs: Date.now(),
+    relays: [
+      {
+        url: 'wss://relay.example',
+        read: true,
+        write: true,
+        priority: 3,
+        score: 2,
+        tags: [],
+        lastSeenMs: Date.now(),
+      },
+    ],
+    options: {
+      minScore: 1,
+      maxResults: 2,
+    },
+  };
+
+  const promotedManifest = signManifest(
+    { ...manifest, relay_discovery: relaySnapshot },
+    nodeKeyId,
+    nodeKeys.privateKey,
+  ) as NodeManifest;
+
+  await fetch(`${baseUrl}/manifest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(promotedManifest),
+  });
+
+  const requestEnvelopeWithSnapshot = buildQuoteEnvelope('nonce-manifest-policy-2');
+  const responseWithSnapshot = await fetch(`${baseUrl}/quote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelopeWithSnapshot),
+  });
+  const bodyWithSnapshot = (await responseWithSnapshot.json()) as { quote: Envelope<QuoteResponse> };
+  assert.equal(bodyWithSnapshot.quote.payload.nodeId, 'node-a');
+
+  server.close();
+});
+
+test('router manifest trust decays as observed performance accumulates', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const nodeAKeys = generateKeyPairSync('ed25519');
+  const nodeBKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const nodeAKeyId = exportPublicKeyHex(nodeAKeys.publicKey);
+  const nodeBKeyId = exportPublicKeyHex(nodeBKeys.publicKey);
+
+  const { server: nodeAServer, baseUrl: nodeAUrl } = await startStubNode(
+    nodeAKeyId,
+    nodeAKeys.privateKey,
+    'node-a',
+  );
+  const { server: nodeBServer, baseUrl: nodeBUrl } = await startStubNode(
+    nodeBKeyId,
+    nodeBKeys.privateKey,
+    'node-b',
+  );
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
+
+  const baseCapabilities = (inputRate: number, outputRate: number) => [
+    {
+      modelId: 'mock-model',
+      contextWindow: 4096,
+      maxTokens: 1024,
+      pricing: { unit: 'token', inputRate, outputRate, currency: 'USD' },
+    },
+  ];
+
+  const nodeADescriptor: NodeDescriptor = {
+    nodeId: 'node-a',
+    keyId: nodeAKeyId,
+    endpoint: nodeAUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: baseCapabilities(0.05, 0.05),
+  };
+  const nodeBCheap: NodeDescriptor = {
+    nodeId: 'node-b',
+    keyId: nodeBKeyId,
+    endpoint: nodeBUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: baseCapabilities(0.005, 0.005),
+  };
+  const nodeBExpensive: NodeDescriptor = {
+    ...nodeBCheap,
+    capabilities: baseCapabilities(0.5, 0.5),
+  };
+
+  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: KeyObject) => {
+    const envelope = signEnvelope(
+      buildEnvelope(descriptor, `nonce-${descriptor.nodeId}-${Date.now()}`, Date.now(), keyId),
+      privateKey,
+    );
+    await fetch(`${routerUrl}/register-node`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(envelope),
+    });
+  };
+
+  try {
+    await registerNode(nodeADescriptor, nodeAKeyId, nodeAKeys.privateKey);
+    await registerNode(nodeBCheap, nodeBKeyId, nodeBKeys.privateKey);
+
+    const manifest: NodeManifest = {
+      id: 'node-a',
+      role_types: ['prepost_node'],
+      capability_bands: {
+        cpu: 'cpu_high',
+        ram: 'ram_64_plus',
+        disk: 'disk_ssd',
+        net: 'net_good',
+        gpu: 'gpu_none',
+      },
+      limits: { max_concurrency: 2, max_payload_bytes: 1024, max_tokens: 256 },
+      supported_formats: ['text'],
+      pricing_defaults: { unit: 'token', input_rate: 0, output_rate: 0, currency: 'USD' },
+      benchmarks: null,
+      software_version: '0.0.1',
+    };
+    const signedManifest = signManifest(manifest, nodeAKeyId, nodeAKeys.privateKey) as NodeManifest;
+    await fetch(`${routerUrl}/manifest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(signedManifest),
+    });
+
+    const quoteRequest: QuoteRequest = {
+      requestId: 'req-manifest-decay',
+      modelId: 'mock-model',
+      maxTokens: 32,
+      inputTokensEstimate: 10,
+      outputTokensEstimate: 5,
+    };
+    const buildQuoteEnvelope = (nonce: string) =>
+      signEnvelope(buildEnvelope(quoteRequest, nonce, Date.now(), clientKeyId), clientKeys.privateKey);
+
+    const initialQuote = await fetch(`${routerUrl}/quote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(buildQuoteEnvelope('nonce-decay-1')),
+    });
+    const initialBody = (await initialQuote.json()) as { quote: Envelope<QuoteResponse> };
+    assert.equal(initialBody.quote.payload.nodeId, 'node-a');
+
+    await registerNode(nodeBExpensive, nodeBKeyId, nodeBKeys.privateKey);
+    for (let i = 0; i < 20; i += 1) {
+      const inferRequest: InferenceRequest = {
+        requestId: `req-decay-${i}`,
+        modelId: 'mock-model',
+        prompt: 'hello',
+        maxTokens: 8,
+      };
+      const inferEnvelope = signEnvelope(
+        buildEnvelope(inferRequest, `nonce-decay-infer-${i}`, Date.now(), clientKeyId),
+        clientKeys.privateKey,
+      );
+      const response = await fetch(`${routerUrl}/infer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(inferEnvelope),
+      });
+      assert.equal(response.status, 200);
+    }
+
+    await registerNode(nodeBCheap, nodeBKeyId, nodeBKeys.privateKey);
+    const finalQuote = await fetch(`${routerUrl}/quote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(buildQuoteEnvelope('nonce-decay-2')),
+    });
+    const finalBody = (await finalQuote.json()) as { quote: Envelope<QuoteResponse> };
+    assert.equal(finalBody.quote.payload.nodeId, 'node-b');
+  } finally {
+    await Promise.all([
+      new Promise<void>((resolve) => routerServer.close(() => resolve())),
+      new Promise<void>((resolve) => nodeAServer.close(() => resolve())),
+      new Promise<void>((resolve) => nodeBServer.close(() => resolve())),
+    ]);
+  }
+});
+
 test('router /metrics exposes Prometheus metrics', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const config: RouterConfig = {
@@ -771,4 +1194,179 @@ test('router cools down nodes after repeated failures', async () => {
 
   routerServer.close();
   nodeServer.close();
+});
+
+test('router federation caps endpoint accepts signed message', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const peerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const peerKeyId = exportPublicKeyHex(peerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const caps: RouterCapabilityProfile = {
+    routerId: peerKeyId,
+    transportEndpoints: ['http://peer-router:8080'],
+    supportedJobTypes: ['GEN_CHUNK'],
+    resourceLimits: { maxPayloadBytes: 1024, maxTokens: 256, maxConcurrency: 2 },
+    modelCaps: [{ modelId: 'mock-model' }],
+    privacyCaps: { maxLevel: 'PL1' },
+    settlementCaps: { methods: ['invoice'], currency: 'SAT' },
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+
+  const message: RouterControlMessage<RouterCapabilityProfile> = {
+    type: 'CAPS_ANNOUNCE',
+    version: '0.1',
+    routerId: peerKeyId,
+    messageId: 'msg-1',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: caps,
+    sig: '',
+  };
+
+  const signed = signRouterMessage(message, peerKeys.privateKey);
+
+  const response = await fetch(`${baseUrl}/federation/caps`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signed),
+  });
+
+  assert.equal(response.status, 200);
+  server.close();
+});
+
+test('router federation job submit/result validates receipt', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const workerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const submit: RouterJobSubmit = {
+    jobId: 'job-1',
+    jobType: 'GEN_CHUNK',
+    privacyLevel: 'PL1',
+    payload: 'encrypted-payload',
+    inputHash: 'input-hash',
+    maxCostMsat: 1000,
+    maxRuntimeMs: 1000,
+    returnEndpoint: 'http://router:8080/federation/job-result',
+  };
+
+  const submitResponse = await fetch(`${baseUrl}/federation/job-submit`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(submit),
+  });
+  assert.equal(submitResponse.status, 200);
+
+  const receipt: RouterReceipt = {
+    jobId: 'job-1',
+    requestRouterId: routerKeyId,
+    workerRouterId: workerKeyId,
+    inputHash: 'input-hash',
+    outputHash: 'output-hash',
+    usage: { tokens: 10, runtimeMs: 5 },
+    priceMsat: 900,
+    status: 'OK',
+    startedAtMs: Date.now(),
+    finishedAtMs: Date.now(),
+    receiptId: 'receipt-1',
+    sig: '',
+  };
+
+  const signedReceipt = signRouterReceipt(receipt, workerKeys.privateKey);
+
+  const result: RouterJobResult = {
+    jobId: 'job-1',
+    resultPayload: 'encrypted-result',
+    outputHash: 'output-hash',
+    usage: { tokens: 10, runtimeMs: 5 },
+    resultStatus: 'OK',
+    receipt: signedReceipt,
+  };
+
+  const resultResponse = await fetch(`${baseUrl}/federation/job-result`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(result),
+  });
+
+  assert.equal(resultResponse.status, 200);
+  server.close();
+});
+
+test('router federation self caps returns signed message', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const caps: RouterCapabilityProfile = {
+    routerId: routerKeyId,
+    transportEndpoints: ['http://router:8080'],
+    supportedJobTypes: ['GEN_CHUNK'],
+    resourceLimits: { maxPayloadBytes: 2048, maxTokens: 512, maxConcurrency: 2 },
+    modelCaps: [{ modelId: 'mock-model' }],
+    privacyCaps: { maxLevel: 'PL1' },
+    settlementCaps: { methods: ['invoice'], currency: 'SAT' },
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+
+  const response = await fetch(`${baseUrl}/federation/self/caps`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(caps),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { message: RouterControlMessage<RouterCapabilityProfile> };
+  assert.equal(verifyRouterMessage(body.message, routerKeys.publicKey), true);
+
+  server.close();
 });

@@ -19,7 +19,7 @@ import type {
 } from '@fed-ai/protocol';
 import type { BenchOptions, BenchResult } from '@fed-ai/bench';
 import type { ProfileReport } from '@fed-ai/profiler';
-import type { NodeManifest, RouterManifest } from '@fed-ai/manifest';
+import type { NodeManifest, RelayDiscoverySnapshot, RouterManifest } from '@fed-ai/manifest';
 import { generateKeyPairHex, parseArgs, usage } from './lib';
 
 const postJson = async (url: string, body: unknown): Promise<Response> => {
@@ -79,6 +79,28 @@ const buildDiscoveryOptionsFromArgs = (args: Record<string, string>) => ({
   minScore: parseNumberArg(args['min-score'], true),
   maxResults: parseNumberArg(args['max-results']),
 });
+
+const buildDiscoverySnapshot = async (
+  options: ReturnType<typeof buildDiscoveryOptionsFromArgs>,
+): Promise<RelayDiscoverySnapshot | null> => {
+  try {
+    const relays = await discoverRelays(options);
+    return {
+      discoveredAtMs: Date.now(),
+      relays,
+      options: {
+        bootstrapRelays: options.bootstrapRelays,
+        aggregatorUrls: options.aggregatorUrls,
+        trustScores: options.trustScores,
+        minScore: options.minScore,
+        maxResults: options.maxResults,
+      },
+    };
+  } catch (error) {
+    console.error('Warning: failed to discover relays for manifest creation', error);
+    return null;
+  }
+};
 
 const run = async (): Promise<void> => {
   const command = process.argv[2];
@@ -152,6 +174,11 @@ const run = async (): Promise<void> => {
       benchPath ? loadJson<BenchResult>(benchPath) : Promise.resolve(null),
     ]);
 
+    const includeRelays = args['skip-relays'] !== 'true';
+    const discoverySnapshot = includeRelays
+      ? await buildDiscoverySnapshot(buildDiscoveryOptionsFromArgs(args))
+      : null;
+
     if (role === 'node') {
       const manifest: NodeManifest = {
         id,
@@ -171,6 +198,7 @@ const run = async (): Promise<void> => {
         },
         benchmarks: bench,
         software_version: args.version ?? '0.0.1',
+        relay_discovery: discoverySnapshot,
       };
 
       const signed = signManifest(manifest, keyId, privateKey) as NodeManifest;
@@ -192,6 +220,7 @@ const run = async (): Promise<void> => {
       audit_mode: (args.auditMode as RouterManifest['audit_mode']) ?? 'basic',
       benchmarks: bench,
       software_version: args.version ?? '0.0.1',
+      relay_discovery: discoverySnapshot,
     };
 
     const signed = signManifest(manifest, keyId, privateKey) as RouterManifest;
@@ -229,6 +258,11 @@ const run = async (): Promise<void> => {
     if (!response.ok) {
       console.error(body || response.statusText);
       process.exit(1);
+    }
+    if (args.out) {
+      await writeFile(args.out, body);
+      console.log(`Wrote ${args.out}`);
+      return;
     }
     console.log(body);
     return;
@@ -290,6 +324,11 @@ const run = async (): Promise<void> => {
       }
       console.error(body || response.statusText);
       process.exit(1);
+    }
+    if (args.out) {
+      await writeFile(args.out, body);
+      console.log(`Wrote ${args.out}`);
+      return;
     }
     console.log(body);
     return;

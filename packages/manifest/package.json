@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fed-ai/profiler": "workspace:*",
+    "@fed-ai/nostr-relay-discovery": "workspace:*",
     "fast-json-stable-stringify": "^2.1.0"
   },
   "devDependencies": {
