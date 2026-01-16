@@ -5,11 +5,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "echo 'lint todo'",
-    "test": "echo 'test todo'",
+    "test": "tsx --test tests/**/*.test.ts",
     "sim": "node dist/index.js"
   },
   "dependencies": {
     "@fed-ai/protocol": "workspace:*",
     "@fed-ai/router": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0"
   }
 }
