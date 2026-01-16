@@ -71,7 +71,7 @@ Phase 7 - Optional extensions
 - All inbound/outbound payloads must be signed envelopes.
 - Nostr-compatible identities and signing are required across the control plane.
 - Settlement is intended to be Lightning-compatible.
-- Discovery uses Nostr relays; operational inference traffic is peer-to-peer.
+- Discovery uses Nostr relays; operational inference traffic is peer-to-peer between client, router, and node.
 - Project summary aligned in `README.md`, `docs/overview.md`, and `docs/architecture.md`.
 
 ## Success definition

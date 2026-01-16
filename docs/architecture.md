@@ -16,7 +16,7 @@ Compute plane
 - Node identities are Ed25519 keys compatible with Nostr key formats.
 - Control-plane messages are signed and can be relayed over Nostr without payload leakage.
 - Discovery and reputation can be relay-backed while keeping prompts and outputs off relays.
-- Nostr relays are used for discovery and trust signaling; operational traffic is peer-to-peer (direct router↔node HTTP).
+- Nostr relays are used for discovery and trust signaling; operational traffic is peer-to-peer between client, router, and node (direct HTTP).
 
 ## Federation model
 
