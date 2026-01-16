@@ -1,5 +1,8 @@
 import type { Envelope, InferenceRequest, InferenceResponse, NodeDescriptor } from '@fed-ai/protocol';
-import { createStakeStore, StakeStore } from './accounting/staking';
+import {
+  createStakeStore,
+  StakeStore,
+} from './accounting/staking';
 import type { RouterConfig } from './config';
 import { selectNode } from './scheduler';
 
@@ -7,6 +10,7 @@ export type RouterService = {
   config: RouterConfig;
   nodes: NodeDescriptor[];
   paymentReceipts: Map<string, Envelope<import('@fed-ai/protocol').PaymentReceipt>>;
+  paymentRequests: Map<string, import('@fed-ai/protocol').PaymentRequest>;
   manifests: Map<string, import('@fed-ai/manifest').NodeManifest>;
   stakeStore: StakeStore;
 };
@@ -16,6 +20,7 @@ export const createRouterService = (config: RouterConfig): RouterService => {
     config,
     nodes: [],
     paymentReceipts: new Map(),
+    paymentRequests: new Map(),
     manifests: new Map(),
     stakeStore: createStakeStore(),
   };

@@ -25,6 +25,7 @@ import type {
   MeteringRecord,
   InferenceResponse,
   PaymentReceipt,
+  PaymentRequest,
   QuoteRequest,
   QuoteResponse,
   StakeCommit,
@@ -295,14 +296,18 @@ test('router /infer enforces payment when required', async () => {
     const paymentBody = JSON.parse(paymentBodyText) as { payment: unknown };
     const paymentValidation = validateEnvelope(paymentBody.payment, validatePaymentRequest);
     assert.equal(paymentValidation.ok, true);
-    const paymentEnvelope = paymentBody.payment as Envelope<{ nodeId: string; requestId: string }>;
+    const paymentEnvelope = paymentBody.payment as Envelope<PaymentRequest>;
     assert.equal(paymentEnvelope.payload.requestId, clientRequest.requestId);
+    assert.equal(paymentEnvelope.payload.payeeType, 'node');
+    assert.equal(paymentEnvelope.payload.payeeId, nodeDescriptor.nodeId);
 
     const receipt: PaymentReceipt = {
       requestId: paymentEnvelope.payload.requestId,
-      nodeId: paymentEnvelope.payload.nodeId,
-      amountSats: 16,
+      payeeType: paymentEnvelope.payload.payeeType,
+      payeeId: paymentEnvelope.payload.payeeId,
+      amountSats: paymentEnvelope.payload.amountSats,
       paidAtMs: Date.now(),
+      invoice: paymentEnvelope.payload.invoice,
     };
 
     const receiptEnvelope = signEnvelope(

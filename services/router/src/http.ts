@@ -24,6 +24,7 @@ import type {
   InferenceResponse,
   MeteringRecord,
   NodeDescriptor,
+  PayeeType,
   PaymentReceipt,
   PaymentRequest,
   QuoteRequest,
@@ -42,7 +43,8 @@ const filterActiveNodes = (nodes: NodeDescriptor[]): NodeDescriptor[] => {
   return nodes.filter((node) => !node.lastHeartbeatMs || node.lastHeartbeatMs >= cutoff);
 };
 
-const receiptKey = (requestId: string, nodeId: string): string => `${requestId}:${nodeId}`;
+const paymentKey = (requestId: string, payeeType: PayeeType, payeeId: string): string =>
+  `${requestId}:${payeeType}:${payeeId}`;
 
 const manifestScore = (manifest?: NodeManifest): number => {
   if (!manifest) {
@@ -362,7 +364,23 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
 
-        const key = receiptKey(envelope.payload.requestId, envelope.payload.nodeId);
+        const payeeType = envelope.payload.payeeType;
+        const payeeId = envelope.payload.payeeId;
+        const key = paymentKey(envelope.payload.requestId, payeeType, payeeId);
+        const expectedRequest = service.paymentRequests.get(key);
+
+        if (!expectedRequest) {
+          return sendJson(res, 400, { error: 'payment-request-not-found' });
+        }
+
+        if (envelope.payload.amountSats !== expectedRequest.amountSats) {
+          return sendJson(res, 400, { error: 'payment-amount-mismatch' });
+        }
+
+        if (expectedRequest.invoice && envelope.payload.invoice && expectedRequest.invoice !== envelope.payload.invoice) {
+          return sendJson(res, 400, { error: 'invoice-mismatch' });
+        }
+
         service.paymentReceipts.set(key, envelope);
 
         return sendJson(res, 200, { ok: true });
@@ -415,9 +433,14 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 503, { error: 'no-nodes-available' });
         }
 
+        let storedReceipt: Envelope<PaymentReceipt> | undefined = undefined;
         if (config.requirePayment) {
-          const key = receiptKey(envelope.payload.requestId, node.nodeId);
-          if (!service.paymentReceipts.has(key)) {
+          const payeeType: PayeeType = 'node';
+          const payeeId = node.nodeId;
+          const paymentRequestKey = paymentKey(envelope.payload.requestId, payeeType, payeeId);
+          storedReceipt = service.paymentReceipts.get(paymentRequestKey);
+
+          if (!storedReceipt) {
             const capability = node.capabilities.find(
               (item) => item.modelId === envelope.payload.modelId,
             );
@@ -429,16 +452,24 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
               capability.pricing.inputRate * envelope.payload.prompt.length +
               capability.pricing.outputRate * envelope.payload.maxTokens;
 
-            const paymentRequest: PaymentRequest = {
-              requestId: envelope.payload.requestId,
-              nodeId: node.nodeId,
-              amountSats: Math.max(1, Math.round(total)),
-              invoice: `lnbc-mock-${envelope.payload.requestId}`,
-              expiresAtMs: Date.now() + PAYMENT_WINDOW_MS,
-              metadata: {
-                currency: capability.pricing.currency,
-              },
-            };
+            const now = Date.now();
+            const existingRequest = service.paymentRequests.get(paymentRequestKey);
+            const paymentRequest: PaymentRequest =
+              existingRequest && existingRequest.expiresAtMs > now
+                ? existingRequest
+                : {
+                    requestId: envelope.payload.requestId,
+                    payeeType,
+                    payeeId,
+                    amountSats: Math.max(1, Math.round(total)),
+                    invoice: `lnbc-mock-${envelope.payload.requestId}`,
+                    expiresAtMs: now + PAYMENT_WINDOW_MS,
+                    metadata: {
+                      currency: capability.pricing.currency,
+                    },
+                  };
+
+            service.paymentRequests.set(paymentRequestKey, paymentRequest);
 
             const paymentEnvelope = signEnvelope(
               buildEnvelope(paymentRequest, envelope.nonce, Date.now(), config.keyId),
@@ -449,10 +480,8 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           }
         }
 
-        const receiptKeyId = receiptKey(envelope.payload.requestId, node.nodeId);
-        const storedReceipt = service.paymentReceipts.get(receiptKeyId);
         const requestPayload = storedReceipt
-          ? { ...envelope.payload, paymentReceipt: storedReceipt }
+          ? { ...envelope.payload, paymentReceipts: [storedReceipt] }
           : envelope.payload;
 
         const forwardEnvelope = signEnvelope(
