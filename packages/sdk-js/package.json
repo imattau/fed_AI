@@ -7,9 +7,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test tests/**/*.test.js"
+    "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@fed-ai/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0"
   }
 }

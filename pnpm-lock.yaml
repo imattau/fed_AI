@@ -76,6 +76,10 @@ importers:
       '@fed-ai/protocol':
         specifier: workspace:*
         version: link:../protocol
+    devDependencies:
+      tsx:
+        specifier: ^4.15.0
+        version: 4.21.0
 
   services/node:
     dependencies:
