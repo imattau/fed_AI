@@ -1,4 +1,6 @@
 # fed_AI
+![fed_AI Header](fed_Ai_header.png)
+
 fed_AI is a Nostr-centric, decentralized, federated, pay-as-you-go AI inference network that routes requests across independent nodes. It focuses on low latency, competitive pricing, pluggable models, and privacy-preserving operation without centralized control.
 
 Core intent
@@ -6,3 +8,5 @@ Core intent
 - Build a federated market where operators supply capacity and users pay only for what they consume.
 - Enforce trust and verification cryptographically with signed envelopes and metering records.
 - Support Nostr-compatible identity and Lightning-aligned payments for settlement.
+
+![fed_AI Logo](fed_Ai_logo.png)

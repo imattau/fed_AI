@@ -1,5 +1,7 @@
 # fed_AI Overview
 
+![fed_AI Header](../fed_Ai_header.png)
+
 fed_AI is a Nostr-centric, decentralized, federated, pay-as-you-go AI inference network.
 
 - Requests route across independently operated nodes.
