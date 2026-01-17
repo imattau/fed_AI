@@ -1,0 +1,100 @@
+version: "3.9"
+
+services:
+  keys:
+    image: node:20-bookworm-slim
+    working_dir: /scripts
+    volumes:
+      - ./scripts:/scripts:ro
+      - keys:/keys
+    command: ["node", "/scripts/gen-keys.js", "/keys/keys.env"]
+
+  router:
+    build:
+      context: ../..
+      dockerfile: services/router/Dockerfile
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+    environment:
+      ROUTER_ENDPOINT: http://router:8080
+      ROUTER_PORT: 8080
+      ROUTER_REQUIRE_PAYMENT: "true"
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "export $(cat /keys/keys.env | xargs) && pnpm --filter @fed-ai/router dev",
+      ]
+    volumes:
+      - keys:/keys:ro
+    ports:
+      - "8080:8080"
+
+  node:
+    build:
+      context: ../..
+      dockerfile: services/node/Dockerfile
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+      router:
+        condition: service_started
+      llama:
+        condition: service_started
+    environment:
+      NODE_ENDPOINT: http://node:8081
+      NODE_PORT: 8081
+      NODE_REQUIRE_PAYMENT: "true"
+      NODE_RUNNER: llama_cpp
+      NODE_LLAMA_CPP_URL: http://llama:8080
+      NODE_MODEL_ID: tinyllama
+      ROUTER_ENDPOINT: http://router:8080
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "export $(cat /keys/keys.env | xargs) && pnpm --filter @fed-ai/node dev",
+      ]
+    volumes:
+      - keys:/keys:ro
+
+  llama:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    command:
+      [
+        "-m",
+        "/models/tinyllama.gguf",
+        "-c",
+        "2048",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+      ]
+    volumes:
+      - ./models:/models:ro
+    ports:
+      - "8085:8080"
+
+  chat:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      ROUTER_URL: http://router:8080
+      MODEL_ID: tinyllama
+      MAX_TOKENS: 128
+      PORT: 3000
+    command: ["node", "server.js"]
+    depends_on:
+      router:
+        condition: service_started
+      node:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  keys:
