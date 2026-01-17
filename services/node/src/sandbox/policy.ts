@@ -15,5 +15,13 @@ export const enforceSandboxPolicy = (config: NodeConfig): SandboxCheck => {
     return { ok: false, error: 'sandbox-runner-not-allowed' };
   }
 
+  if (
+    config.maxPromptBytes === undefined ||
+    config.maxTokens === undefined ||
+    config.maxRequestBytes === undefined
+  ) {
+    return { ok: false, error: 'sandbox-limits-missing' };
+  }
+
   return { ok: true };
 };

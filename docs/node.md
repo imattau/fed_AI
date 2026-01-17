@@ -61,6 +61,7 @@ Configuration
 - Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`, `NODE_MAX_REQUEST_BYTES`, `NODE_MAX_RUNTIME_MS`.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
 - Sandbox endpoints: `NODE_SANDBOX_ALLOWED_ENDPOINTS` (prefix allowlist).
+- When `NODE_SANDBOX_MODE=restricted`, set explicit limits (`NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_MAX_REQUEST_BYTES`) or the node will refuse to start.
 - Payments: `NODE_REQUIRE_PAYMENT`.
 
 ## Relay discovery

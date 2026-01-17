@@ -36,6 +36,8 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_SANDBOX_ALLOWED_RUNNERS`: comma-separated list of allowed runner names when restricted.
 - `NODE_SANDBOX_ALLOWED_ENDPOINTS`: comma-separated list of allowed base URL prefixes for HTTP-based runners.
 - `NODE_REQUIRE_PAYMENT`: `true|false` to require receipts.
+
+When running with `NODE_SANDBOX_MODE=restricted`, you must set `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, and `NODE_MAX_REQUEST_BYTES` or the node will refuse to start.
 - `NODE_RELAY_BOOTSTRAP`: comma-separated relay URLs.
 - `NODE_RELAY_AGGREGATORS`: comma-separated relay directory endpoints.
 - `NODE_RELAY_TRUST`: comma-separated `url=score` entries.
