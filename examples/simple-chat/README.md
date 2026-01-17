@@ -26,6 +26,12 @@ cd examples/simple-chat
 docker compose up --build
 ```
 
+If the llama.cpp image tag changes, set `LLAMA_CPP_TAG`:
+
+```bash
+LLAMA_CPP_TAG=full-<tag> docker compose up --build
+```
+
 If you update the model file, remove the `keys` volume to regenerate keys:
 
 ```bash
