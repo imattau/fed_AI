@@ -159,8 +159,8 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'router-error', details: errorText }));
         return;
       }
-      const payload = await retryResponse.json();
-      const output = payload?.response?.payload?.output ?? '';
+      const retryPayload = await retryResponse.json();
+      const output = retryPayload?.response?.payload?.output ?? '';
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ output }));
       return;

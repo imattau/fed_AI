@@ -7,6 +7,19 @@ services:
       - keys:/keys
     command: ["node", "/scripts/gen-keys.js", "/keys/keys.env"]
 
+  model:
+    image: curlimages/curl:8.5.0
+    volumes:
+      - ./models:/models
+    environment:
+      MODEL_URL: https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi",
+      ]
+
   router:
     build:
       context: ../..
@@ -35,6 +48,8 @@ services:
       dockerfile: services/node/Dockerfile
     depends_on:
       keys:
+        condition: service_completed_successfully
+      model:
         condition: service_completed_successfully
       router:
         condition: service_started

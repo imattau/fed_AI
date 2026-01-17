@@ -228,7 +228,10 @@ const buildCapabilities = async (runner: Runner): Promise<Capability[]> => {
   }));
 };
 
-const startHeartbeat = async (service: ReturnType<typeof createNodeService>, config: NodeConfig) => {
+async function startHeartbeat(
+  service: ReturnType<typeof createNodeService>,
+  config: NodeConfig,
+) {
   const capabilities = await buildCapabilities(service.runner);
 
   const sendHeartbeat = async (): Promise<void> => {
@@ -265,4 +268,4 @@ const startHeartbeat = async (service: ReturnType<typeof createNodeService>, con
 
   await sendHeartbeat();
   setInterval(sendHeartbeat, config.heartbeatIntervalMs);
-};
+}

@@ -7,17 +7,10 @@ This example spins up a tiny web chat client, a router, a node, and a llama.cpp-
 - Docker (for the llama.cpp server)
 - Node.js LTS + pnpm
 
-## 1) Download a small GGUF model
+## 1) Tiny GGUF model
 
-Pick any GGUF model and place it in `examples/simple-chat/models/`.
-
-Example (TinyLlama Q2_K, smaller):
-
-```bash
-mkdir -p examples/simple-chat/models
-curl -L -o examples/simple-chat/models/tinyllama.gguf \
-  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf
-```
+The compose stack auto-downloads a TinyLlama Q2_K GGUF on first run into `examples/simple-chat/models/`.
+If you want a different model, edit `MODEL_URL` in `examples/simple-chat/docker-compose.yml` and keep the output filename `tinyllama.gguf` (or adjust the compose path accordingly).
 
 ## 2) Start everything with Docker Compose
 
