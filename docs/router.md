@@ -67,15 +67,17 @@ Scheduling guarantees
 ## Federation (early implementation)
 
 - Control-plane endpoints: `/federation/caps`, `/federation/price`, `/federation/status`, `/federation/rfb`, `/federation/bid`, `/federation/award`.
-- Data-plane stubs: `/federation/job-submit`, `/federation/job-result`.
+- Data-plane endpoints: `/federation/job-submit`, `/federation/job-result` require signed envelopes and replay protection.
 - Self-publishing helpers: `/federation/self/caps`, `/federation/self/price`, `/federation/self/status` return signed messages.
-- `/federation/rfb` responds with a signed `BID` stub to support auction loops.
+- `/federation/rfb` responds with a signed `BID` only when privacy, pricing, and backpressure checks pass.
 - `/federation/award` rejects awards not targeted to this router and acknowledges accepted awards.
 - `/federation/payment-request` issues a signed `PaymentRequest` for a verified federation receipt.
 - Award selection helpers choose a winner from bids before posting to `/federation/award`.
 - Auction orchestration uses an RFB → BID → AWARD loop with helper utilities.
 - `/federation/payment-receipt` accepts signed payment receipts for federation payment requests.
 - Federation jobs track settlement state for payment requests and receipts.
+- `/infer` attempts federation offload (auction + job submit) when no local nodes are available.
+- `/federation/job-submit` returns inline inference results when the payload is a JSON-encoded `InferenceRequest`.
 - Enable with `ROUTER_FEDERATION_ENABLED=true` and set `ROUTER_FEDERATION_ENDPOINT`.
 
 ## Relay discovery

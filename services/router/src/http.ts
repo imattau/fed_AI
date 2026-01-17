@@ -1,10 +1,12 @@
 import http, { IncomingMessage, ServerResponse } from 'node:http';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   buildEnvelope,
   checkReplay,
   InMemoryNonceStore,
   parsePublicKey,
   signEnvelope,
+  signRouterReceipt,
   validateEnvelope,
   validateInferenceRequest,
   validateInferenceResponse,
@@ -48,6 +50,7 @@ import type {
   RouterControlMessage,
   RouterJobResult,
   RouterJobSubmit,
+  RouterPrivacyLevel,
   RouterReceipt,
   RouterPriceSheet,
   RouterRfbPayload,
@@ -57,6 +60,8 @@ import type { NodeManifest } from '@fed-ai/manifest';
 import { defaultRelayAdmissionPolicy, RelayAdmissionPolicy, RouterConfig } from './config';
 import type { RouterService } from './server';
 import { scoreNode, selectNode } from './scheduler';
+import { discoverFederationPeers } from './federation/discovery';
+import { runAuctionAndAward } from './federation/publisher';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -82,6 +87,9 @@ const NODE_PERFORMANCE_BASELINE = 0.9;
 const NODE_PERFORMANCE_MAX_BONUS = 10;
 const MANIFEST_DECAY_SAMPLES = 20;
 const RELAY_DISCOVERY_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const FEDERATION_AUCTION_EXPIRY_MS = 1500;
+const FEDERATION_JOB_RUNTIME_MS = 10_000;
+const FEDERATION_JOB_RETURN_PATH = '/federation/job-result';
 
 const getNodeHealth = (service: RouterService, nodeId: string) => {
   const existing = service.nodeHealth.get(nodeId);
@@ -354,6 +362,61 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
+const isEnvelopeLike = (value: unknown): value is Envelope<unknown> => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  return ['payload', 'nonce', 'ts', 'keyId', 'sig'].every((key) => key in value);
+};
+
+const hashString = (value: string): string => {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+};
+
+const buildFederationJobHash = (request: InferenceRequest, inputHash: string): string => {
+  const descriptor = `${request.requestId}:${request.modelId}:${inputHash}:${request.maxTokens}`;
+  return hashString(descriptor);
+};
+
+const parseSignedEnvelope = <T>(
+  raw: unknown,
+  validator: (value: unknown) => { ok: true } | { ok: false; errors: string[] },
+  nonceStore: InMemoryNonceStore,
+): { ok: true; envelope: Envelope<T> } | { ok: false; error: string; details?: string[] } => {
+  if (!isEnvelopeLike(raw)) {
+    return { ok: false, error: 'missing-envelope' };
+  }
+  const validation = validateEnvelope(raw, validator);
+  if (!validation.ok) {
+    return { ok: false, error: 'invalid-envelope', details: validation.errors };
+  }
+  const envelope = raw as Envelope<T>;
+  const replay = checkReplay(envelope, nonceStore);
+  if (!replay.ok) {
+    return { ok: false, error: replay.error };
+  }
+  const publicKey = parsePublicKey(envelope.keyId);
+  if (!verifyEnvelope(envelope, publicKey)) {
+    return { ok: false, error: 'invalid-signature' };
+  }
+  return { ok: true, envelope };
+};
+
+const parseInferencePayload = (
+  payload: string,
+): { ok: true; request: InferenceRequest } | { ok: false } => {
+  try {
+    const parsed = JSON.parse(payload) as InferenceRequest;
+    const validation = validateInferenceRequest(parsed);
+    if (!validation.ok) {
+      return { ok: false };
+    }
+    return { ok: true, request: parsed };
+  } catch {
+    return { ok: false };
+  }
+};
+
 const verifyFederationMessage = <T>(
   raw: unknown,
   validator: (value: unknown) => { ok: true } | { ok: false; errors: string[] },
@@ -382,8 +445,197 @@ const allowsPrivacyLevel = (config: RouterConfig, level: RouterJobSubmit['privac
   return privacyRank[level] <= privacyRank[max];
 };
 
+const estimateBidPrice = (price: RouterPriceSheet, size: RouterRfbPayload['sizeEstimate']): number => {
+  const surge = price.currentSurge || 1;
+  switch (price.unit) {
+    case 'PER_1K_TOKENS': {
+      const tokens = size.tokens ?? 0;
+      const units = Math.max(1, Math.ceil(tokens / 1000));
+      return Math.max(1, Math.round(price.basePriceMsat * surge * units));
+    }
+    case 'PER_MB': {
+      const bytes = size.bytes ?? 0;
+      const units = Math.max(1, Math.ceil(bytes / (1024 * 1024)));
+      return Math.max(1, Math.round(price.basePriceMsat * surge * units));
+    }
+    case 'PER_SECOND': {
+      const seconds = Math.max(1, Math.ceil((size.tokens ?? 0) / 1000));
+      return Math.max(1, Math.round(price.basePriceMsat * surge * seconds));
+    }
+    case 'PER_JOB':
+    default:
+      return Math.max(1, Math.round(price.basePriceMsat * surge));
+  }
+};
+
+const canBidForRfb = (
+  service: RouterService,
+  config: RouterConfig,
+  payload: RouterRfbPayload,
+): { ok: true; priceSheet: RouterPriceSheet } | { ok: false; reason: string } => {
+  if (!allowsPrivacyLevel(config, payload.privacyLevel)) {
+    return { ok: false, reason: 'privacy-level-not-allowed' };
+  }
+  const status = service.federation.localStatus;
+  if (status?.loadSummary.backpressureState === 'SATURATED') {
+    return { ok: false, reason: 'router-saturated' };
+  }
+  const caps = service.federation.localCapabilities;
+  if (caps && !caps.supportedJobTypes.includes(payload.jobType)) {
+    return { ok: false, reason: 'job-type-unsupported' };
+  }
+  const priceSheet = service.federation.localPriceSheets.get(payload.jobType);
+  if (!priceSheet) {
+    return { ok: false, reason: 'missing-price' };
+  }
+  return { ok: true, priceSheet };
+};
+
 export const createRouterHttpServer = (service: RouterService, config: RouterConfig): http.Server => {
   const nonceStore = new InMemoryNonceStore();
+  const federationPeers = discoverFederationPeers(
+    config.federation?.peers,
+    config.federation?.discovery?.bootstrapPeers,
+  ).map((peer) => peer.url);
+
+  const attemptFederationOffload = async (
+    envelope: Envelope<InferenceRequest>,
+  ): Promise<
+    | {
+        ok: true;
+        body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> };
+      }
+    | { ok: false; status: number; error: string }
+  > => {
+    if (!config.federation?.enabled || !config.privateKey) {
+      return { ok: false, status: 503, error: 'federation-disabled' };
+    }
+    if (federationPeers.length === 0) {
+      return { ok: false, status: 503, error: 'no-federation-peers' };
+    }
+    if (
+      config.federation.maxOffloads !== undefined &&
+      service.federation.outboundJobs.size >= config.federation.maxOffloads
+    ) {
+      return { ok: false, status: 429, error: 'federation-offload-cap' };
+    }
+
+    const inputHash = hashString(envelope.payload.prompt);
+    const privacyLevel = (config.federation.maxPrivacyLevel ?? 'PL1') as RouterPrivacyLevel;
+    const rfbPayload: RouterRfbPayload = {
+      jobId: envelope.payload.requestId,
+      jobType: 'GEN_CHUNK',
+      privacyLevel,
+      sizeEstimate: {
+        tokens: envelope.payload.prompt.length + envelope.payload.maxTokens,
+        bytes: envelope.payload.prompt.length,
+      },
+      deadlineMs: Date.now() + FEDERATION_AUCTION_EXPIRY_MS,
+      maxPriceMsat: config.federation.maxSpendMsat ?? 10_000,
+      requiredCaps: { modelId: envelope.payload.modelId },
+      validationMode: 'HASH_ONLY',
+      transportHint: 'https',
+      payloadDescriptor: { type: 'inference' },
+      jobHash: buildFederationJobHash(envelope.payload, inputHash),
+    };
+    const rfbMessage: RouterControlMessage<RouterRfbPayload> = signRouterMessage(
+      {
+        type: 'RFB',
+        version: '0.1',
+        routerId: config.keyId,
+        messageId: `${config.keyId}:${rfbPayload.jobId}:${Date.now()}`,
+        timestamp: Date.now(),
+        expiry: Date.now() + FEDERATION_AUCTION_EXPIRY_MS,
+        payload: rfbPayload,
+        sig: '',
+      },
+      config.privateKey,
+    );
+
+    const { award, winnerPeer } = await runAuctionAndAward(config, federationPeers, rfbMessage);
+    if (!award || !winnerPeer) {
+      return { ok: false, status: 503, error: 'no-federation-bids' };
+    }
+
+    const submit: RouterJobSubmit = {
+      jobId: envelope.payload.requestId,
+      jobType: rfbPayload.jobType,
+      privacyLevel,
+      payload: JSON.stringify(envelope.payload),
+      inputHash,
+      maxCostMsat: award.payload.acceptedPriceMsat,
+      maxRuntimeMs: FEDERATION_JOB_RUNTIME_MS,
+      returnEndpoint: `${config.endpoint}${FEDERATION_JOB_RETURN_PATH}`,
+    };
+    const submitEnvelope = signEnvelope(
+      buildEnvelope(submit, randomUUID(), Date.now(), config.keyId),
+      config.privateKey,
+    );
+    service.federation.outboundAwards.set(submit.jobId, award);
+    service.federation.outboundJobs.set(submit.jobId, {
+      submit,
+      award,
+      peer: winnerPeer,
+      settlement: {},
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(`${winnerPeer}/federation/job-submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(submitEnvelope),
+      });
+    } catch (error) {
+      return { ok: false, status: 502, error: 'federation-submit-failed' };
+    }
+    if (!response.ok) {
+      return { ok: false, status: 502, error: 'federation-submit-rejected' };
+    }
+
+    const body = (await response.json()) as {
+      response?: Envelope<InferenceResponse>;
+      metering?: Envelope<MeteringRecord>;
+      receipt?: RouterReceipt;
+    };
+    if (!body.response || !body.metering || !body.receipt) {
+      return { ok: false, status: 502, error: 'federation-response-missing' };
+    }
+    const responseValidation = validateEnvelope(body.response, validateInferenceResponse);
+    if (!responseValidation.ok) {
+      return { ok: false, status: 502, error: 'federation-response-invalid' };
+    }
+    const meteringValidation = validateEnvelope(body.metering, validateMeteringRecord);
+    if (!meteringValidation.ok) {
+      return { ok: false, status: 502, error: 'federation-metering-invalid' };
+    }
+    const nodeKey = parsePublicKey(body.response.keyId);
+    if (!verifyEnvelope(body.response, nodeKey) || !verifyEnvelope(body.metering, nodeKey)) {
+      return { ok: false, status: 502, error: 'federation-signature-invalid' };
+    }
+    const receiptValidation = validateRouterReceipt(body.receipt);
+    if (!receiptValidation.ok) {
+      return { ok: false, status: 502, error: 'federation-receipt-invalid' };
+    }
+    const workerKey = parsePublicKey(body.receipt.workerRouterId);
+    if (!verifyRouterReceipt(body.receipt, workerKey)) {
+      return { ok: false, status: 502, error: 'federation-receipt-signature' };
+    }
+
+    const job = service.federation.outboundJobs.get(submit.jobId);
+    if (job) {
+      job.result = {
+        jobId: submit.jobId,
+        resultPayload: body.response.payload.output,
+        outputHash: body.receipt.outputHash ?? hashString(body.response.payload.output),
+        usage: body.receipt.usage,
+        resultStatus: body.receipt.status,
+        receipt: body.receipt,
+      };
+      job.settlement = { ...(job.settlement ?? {}), receipt: body.receipt };
+    }
+    return { ok: true, body: { response: body.response, metering: body.metering } };
+  };
 
   return http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -713,6 +965,14 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         federationMessages.inc({ type: message.type });
+        const eligibility = canBidForRfb(service, config, message.payload);
+        if (!eligibility.ok) {
+          return sendJson(res, 204, { ok: false, reason: eligibility.reason });
+        }
+        const candidatePrice = estimateBidPrice(eligibility.priceSheet, message.payload.sizeEstimate);
+        if (candidatePrice > message.payload.maxPriceMsat) {
+          return sendJson(res, 204, { ok: false, reason: 'price-above-max' });
+        }
         const bid: RouterControlMessage<RouterBidPayload> = {
           type: 'BID',
           version: '0.1',
@@ -722,7 +982,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           expiry: message.expiry,
           payload: {
             jobId: message.payload.jobId,
-            priceMsat: Math.max(1, Math.round(message.payload.maxPriceMsat * 0.9)),
+            priceMsat: candidatePrice,
             etaMs: 120,
             capacityToken: `${config.keyId}:${message.payload.jobId}`,
             bidHash: message.payload.jobHash,
@@ -799,7 +1059,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 403, { error: 'award-not-for-router' });
         }
 
-        service.federation.awards.set(message.payload.jobId, message.payload);
+        service.federation.awards.set(message.payload.jobId, message);
         federationMessages.inc({ type: message.type });
         return sendJson(res, 200, { ok: true, accepted: true });
       } catch (error) {
@@ -817,19 +1077,211 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 400, { error: body.error });
         }
 
-        const validation = validateRouterJobSubmit(body.value);
-        if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-job-submit', details: validation.errors });
+        const parsed = parseSignedEnvelope<RouterJobSubmit>(
+          body.value,
+          validateRouterJobSubmit,
+          nonceStore,
+        );
+        if (!parsed.ok) {
+          return sendJson(res, 400, { error: parsed.error, details: parsed.details });
         }
 
-        const submit = body.value as RouterJobSubmit;
+        const envelope = parsed.envelope;
+        const submit = envelope.payload;
         if (!allowsPrivacyLevel(config, submit.privacyLevel)) {
           return sendJson(res, 403, { error: 'privacy-level-not-allowed' });
         }
 
-        service.federation.jobs.set(submit.jobId, { submit, settlement: {} });
+        const award = service.federation.awards.get(submit.jobId);
+        if (!award) {
+          return sendJson(res, 403, { error: 'missing-award' });
+        }
+        if (award.payload.winnerRouterId !== config.keyId) {
+          return sendJson(res, 403, { error: 'award-not-for-router' });
+        }
+        if (award.payload.awardExpiry < Date.now()) {
+          return sendJson(res, 403, { error: 'award-expired' });
+        }
+        if (submit.maxCostMsat < award.payload.acceptedPriceMsat) {
+          return sendJson(res, 402, { error: 'max-cost-too-low' });
+        }
+        if (envelope.keyId !== award.routerId) {
+          return sendJson(res, 403, { error: 'award-router-mismatch' });
+        }
+
+        service.federation.jobs.set(submit.jobId, {
+          submit,
+          requestRouterId: envelope.keyId,
+          settlement: {},
+        });
         federationJobs.inc({ stage: 'submit' });
-        return sendJson(res, 200, { ok: true, jobId: submit.jobId });
+
+        const decoded = parseInferencePayload(submit.payload);
+        if (!decoded.ok) {
+          return sendJson(res, 200, { ok: true, jobId: submit.jobId });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+
+        const candidates = rankCandidateNodes(
+          filterActiveNodes(service, applyManifestWeights(service)),
+          {
+            requestId: decoded.request.requestId,
+            modelId: decoded.request.modelId,
+            maxTokens: decoded.request.maxTokens,
+            inputTokensEstimate: decoded.request.prompt.length,
+            outputTokensEstimate: decoded.request.maxTokens,
+          },
+        );
+
+        const attemptNode = async (
+          targetNode: NodeDescriptor,
+          payload: InferenceRequest,
+        ): Promise<
+          | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
+          | { ok: false; status: number; body: { error: string; details?: string[] } }
+        > => {
+          const forwardEnvelope = signEnvelope(
+            buildEnvelope(payload, randomUUID(), Date.now(), config.keyId),
+            config.privateKey!,
+          );
+
+          const failNode = (status: number, body: { error: string; details?: string[] }, reason?: string) => {
+            markNodeFailure(service, targetNode.nodeId);
+            if (reason) {
+              accountingFailures.inc({ reason });
+              console.warn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
+            }
+            return { ok: false, status, body };
+          };
+
+          let nodeResponse: Response;
+          try {
+            nodeResponse = await fetch(`${targetNode.endpoint}/infer`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(forwardEnvelope),
+            });
+          } catch (error) {
+            return failNode(502, { error: 'node-unreachable' });
+          }
+
+          if (!nodeResponse.ok) {
+            return failNode(502, { error: 'node-error' });
+          }
+
+          const nodeBody = (await nodeResponse.json()) as {
+            response: Envelope<InferenceResponse>;
+            metering: Envelope<MeteringRecord>;
+          };
+
+          const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
+          if (!responseValidation.ok) {
+            return failNode(
+              502,
+              { error: 'invalid-node-response', details: responseValidation.errors },
+              'node-response-invalid',
+            );
+          }
+
+          const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
+          if (!meteringValidation.ok) {
+            return failNode(
+              502,
+              { error: 'invalid-metering', details: meteringValidation.errors },
+              'metering-invalid',
+            );
+          }
+
+          const nodeKey = parsePublicKey(targetNode.keyId);
+          if (
+            nodeBody.response.keyId !== targetNode.keyId ||
+            !verifyEnvelope(nodeBody.response, nodeKey)
+          ) {
+            return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
+          }
+          if (
+            nodeBody.metering.keyId !== targetNode.keyId ||
+            !verifyEnvelope(nodeBody.metering, nodeKey)
+          ) {
+            return failNode(502, { error: 'node-metering-signature-invalid' }, 'metering-signature');
+          }
+          recordNodeSuccess(service, targetNode.nodeId);
+
+          return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
+        };
+
+        let lastFailure: { status: number; body: { error: string; details?: string[] } } | null = null;
+        for (const candidate of candidates) {
+          const result = await attemptNode(candidate, decoded.request);
+          if (!result.ok) {
+            lastFailure = { status: result.status, body: result.body };
+            continue;
+          }
+          const outputHash = hashString(result.body.response.payload.output);
+          const priceSheet = service.federation.localPriceSheets.get(submit.jobType);
+          const priceEstimate = priceSheet
+            ? estimateBidPrice(priceSheet, {
+                tokens:
+                  (result.body.response.payload.usage.inputTokens ?? 0) +
+                  (result.body.response.payload.usage.outputTokens ?? 0),
+                bytes: submit.payload.length,
+              })
+            : submit.maxCostMsat;
+          const receipt: RouterReceipt = signRouterReceipt(
+            {
+              jobId: submit.jobId,
+              requestRouterId: envelope.keyId,
+              workerRouterId: config.keyId,
+              inputHash: submit.inputHash,
+              outputHash,
+              usage: {
+                tokens:
+                  (result.body.response.payload.usage.inputTokens ?? 0) +
+                  (result.body.response.payload.usage.outputTokens ?? 0),
+                runtimeMs: result.body.response.payload.latencyMs,
+                bytesIn: submit.payload.length,
+                bytesOut: result.body.response.payload.output.length,
+              },
+              priceMsat: Math.min(submit.maxCostMsat, priceEstimate),
+              status: 'OK',
+              startedAtMs: Date.now() - result.body.response.payload.latencyMs,
+              finishedAtMs: Date.now(),
+              receiptId: `${submit.jobId}:${randomUUID()}`,
+              sig: '',
+            },
+            config.privateKey,
+          );
+
+          const jobResult: RouterJobResult = {
+            jobId: submit.jobId,
+            resultPayload: result.body.response.payload.output,
+            outputHash,
+            usage: receipt.usage,
+            resultStatus: 'OK',
+            receipt,
+          };
+
+          const record = service.federation.jobs.get(submit.jobId);
+          if (record) {
+            record.result = jobResult;
+          }
+
+          federationJobs.inc({ stage: 'result' });
+          return sendJson(res, 200, {
+            ok: true,
+            jobId: submit.jobId,
+            response: result.body.response,
+            metering: result.body.metering,
+            receipt,
+          });
+        }
+
+        if (lastFailure) {
+          return sendJson(res, lastFailure.status, lastFailure.body);
+        }
+        return sendJson(res, 503, { error: 'no-nodes-available' });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }
@@ -845,12 +1297,16 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 400, { error: body.error });
         }
 
-        const validation = validateRouterJobResult(body.value);
-        if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-job-result', details: validation.errors });
+        const parsed = parseSignedEnvelope<RouterJobResult>(
+          body.value,
+          validateRouterJobResult,
+          nonceStore,
+        );
+        if (!parsed.ok) {
+          return sendJson(res, 400, { error: parsed.error, details: parsed.details });
         }
-
-        const result = body.value as RouterJobResult;
+        const envelope = parsed.envelope;
+        const result = envelope.payload;
         const receiptValidation = validateRouterReceipt(result.receipt);
         if (!receiptValidation.ok) {
           accountingFailures.inc({ reason: 'receipt-invalid' });
@@ -866,6 +1322,10 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           accountingFailures.inc({ reason: 'receipt-signature' });
           return sendJson(res, 401, { error: 'invalid-receipt-signature' });
         }
+        if (envelope.keyId !== result.receipt.workerRouterId) {
+          accountingFailures.inc({ reason: 'receipt-worker-mismatch' });
+          return sendJson(res, 400, { error: 'receipt-worker-mismatch' });
+        }
         if (
           config.federation?.maxSpendMsat !== undefined &&
           result.receipt.priceMsat > config.federation.maxSpendMsat
@@ -874,9 +1334,21 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 402, { error: 'federation-over-cap' });
         }
 
-        const existing = service.federation.jobs.get(result.jobId);
+        const existing = service.federation.outboundJobs.get(result.jobId);
         if (!existing) {
           return sendJson(res, 404, { error: 'unknown-job' });
+        }
+        if (result.receipt.requestRouterId !== config.keyId) {
+          return sendJson(res, 403, { error: 'receipt-requester-mismatch' });
+        }
+        if (existing.submit.inputHash !== result.receipt.inputHash) {
+          return sendJson(res, 400, { error: 'receipt-input-hash-mismatch' });
+        }
+        if (result.receipt.outputHash && result.outputHash !== result.receipt.outputHash) {
+          return sendJson(res, 400, { error: 'receipt-output-hash-mismatch' });
+        }
+        if (existing.award.payload.winnerRouterId !== result.receipt.workerRouterId) {
+          return sendJson(res, 403, { error: 'receipt-worker-not-awarded' });
         }
         existing.result = result;
         existing.settlement = { ...(existing.settlement ?? {}), receipt: result.receipt };
@@ -911,6 +1383,29 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         if (!verifyRouterReceipt(receipt, workerKey)) {
           return sendJson(res, 401, { error: 'invalid-receipt-signature' });
         }
+        if (receipt.requestRouterId !== config.keyId) {
+          return sendJson(res, 403, { error: 'receipt-requester-mismatch' });
+        }
+
+        const job = service.federation.outboundJobs.get(receipt.jobId);
+        if (!job) {
+          return sendJson(res, 404, { error: 'unknown-job' });
+        }
+        if (job.submit.inputHash !== receipt.inputHash) {
+          return sendJson(res, 400, { error: 'receipt-input-hash-mismatch' });
+        }
+        if (receipt.outputHash && job.result?.outputHash && receipt.outputHash !== job.result.outputHash) {
+          return sendJson(res, 400, { error: 'receipt-output-hash-mismatch' });
+        }
+        if (job.award.payload.winnerRouterId !== receipt.workerRouterId) {
+          return sendJson(res, 403, { error: 'receipt-worker-not-awarded' });
+        }
+        if (
+          config.federation?.maxSpendMsat !== undefined &&
+          receipt.priceMsat > config.federation.maxSpendMsat
+        ) {
+          return sendJson(res, 402, { error: 'federation-over-cap' });
+        }
 
         const amountSats = Math.max(1, Math.ceil(receipt.priceMsat / 1000));
         const paymentRequest: PaymentRequest = {
@@ -928,10 +1423,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           buildEnvelope(paymentRequest, receipt.jobId, Date.now(), config.keyId),
           config.privateKey,
         );
-        const existing = service.federation.jobs.get(receipt.jobId);
-        if (existing) {
-          existing.settlement = { ...(existing.settlement ?? {}), paymentRequest };
-        }
+        job.settlement = { ...(job.settlement ?? {}), paymentRequest };
 
         return sendJson(res, 200, { payment: paymentEnvelope });
       } catch (error) {
@@ -978,7 +1470,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           envelope,
         );
         service.federationPaymentReceipts.set(receipt.requestId, envelope);
-        const existing = service.federation.jobs.get(receipt.requestId);
+        const existing = service.federation.outboundJobs.get(receipt.requestId);
         if (existing) {
           existing.settlement = { ...(existing.settlement ?? {}), paymentReceipt: envelope };
         }
@@ -1232,7 +1724,12 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         const node = selection.selected;
 
         if (!node) {
-          return respond(503, { error: selection.reason ?? 'no-nodes-available' });
+          const offload = await attemptFederationOffload(envelope);
+          if (offload.ok) {
+            respond(200, offload.body);
+            return;
+          }
+          return respond(503, { error: selection.reason ?? offload.error ?? 'no-nodes-available' });
         }
 
         const attemptNode = async (

@@ -42,6 +42,7 @@ import type {
   StakeCommit,
   RouterCapabilityProfile,
   RouterControlMessage,
+  RouterAwardPayload,
   RouterJobResult,
   RouterJobSubmit,
   RouterReceipt,
@@ -54,7 +55,7 @@ const startRouter = async (config: RouterConfig) => {
   const server = createRouterHttpServer(service, config);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address() as AddressInfo;
-  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { server, baseUrl: `http://127.0.0.1:${address.port}`, service };
 };
 
 const startStubNode = async (
@@ -118,6 +119,116 @@ const startStubNode = async (
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 };
 
+const startFederationPeer = async (
+  routerKeyId: string,
+  routerPrivateKey: KeyObject,
+  nodeKeyId: string,
+  nodePrivateKey: KeyObject,
+) => {
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/federation/rfb') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as RouterControlMessage<{
+        jobId: string;
+        jobHash: string;
+        maxPriceMsat: number;
+      }>;
+      const bid: RouterControlMessage<import('@fed-ai/protocol').RouterBidPayload> = {
+        type: 'BID',
+        version: '0.1',
+        routerId: routerKeyId,
+        messageId: `bid:${body.payload.jobId}`,
+        timestamp: Date.now(),
+        expiry: Date.now() + 60_000,
+        payload: {
+          jobId: body.payload.jobId,
+          priceMsat: Math.max(1, Math.round(body.payload.maxPriceMsat * 0.8)),
+          etaMs: 100,
+          capacityToken: `cap:${body.payload.jobId}`,
+          bidHash: body.payload.jobHash,
+        },
+        sig: '',
+      };
+      const signedBid = signRouterMessage(bid, routerPrivateKey);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ bid: signedBid }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/award') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/job-submit') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Envelope<RouterJobSubmit>;
+      const jobSubmit = body.payload;
+      const decoded = JSON.parse(jobSubmit.payload) as InferenceRequest;
+      const responsePayload: InferenceResponse = {
+        requestId: decoded.requestId,
+        modelId: decoded.modelId,
+        output: 'federation-output',
+        usage: { inputTokens: 1, outputTokens: 2 },
+        latencyMs: 12,
+      };
+      const responseEnvelope = signEnvelope(
+        buildEnvelope(responsePayload, `nonce-resp-${decoded.requestId}`, Date.now(), nodeKeyId),
+        nodePrivateKey,
+      );
+      const meteringPayload: MeteringRecord = {
+        requestId: decoded.requestId,
+        nodeId: 'node-remote',
+        modelId: decoded.modelId,
+        promptHash: createHash('sha256').update(decoded.prompt, 'utf8').digest('hex'),
+        inputTokens: 1,
+        outputTokens: 2,
+        wallTimeMs: 12,
+        bytesIn: decoded.prompt.length,
+        bytesOut: responsePayload.output.length,
+        ts: Date.now(),
+      };
+      const meteringEnvelope = signEnvelope(
+        buildEnvelope(meteringPayload, `nonce-meter-${decoded.requestId}`, Date.now(), nodeKeyId),
+        nodePrivateKey,
+      );
+      const outputHash = createHash('sha256').update(responsePayload.output, 'utf8').digest('hex');
+      const receipt: RouterReceipt = signRouterReceipt(
+        {
+          jobId: jobSubmit.jobId,
+          requestRouterId: body.keyId,
+          workerRouterId: routerKeyId,
+          inputHash: jobSubmit.inputHash,
+          outputHash,
+          usage: { tokens: 3, runtimeMs: 12 },
+          priceMsat: Math.min(jobSubmit.maxCostMsat, 500),
+          status: 'OK',
+          startedAtMs: Date.now() - 12,
+          finishedAtMs: Date.now(),
+          receiptId: `receipt:${jobSubmit.jobId}`,
+          sig: '',
+        },
+        routerPrivateKey,
+      );
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, jobId: jobSubmit.jobId, response: responseEnvelope, metering: meteringEnvelope, receipt }));
+      return;
+    }
+
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+};
+
 test('router /infer returns 503 when no nodes', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
@@ -152,6 +263,67 @@ test('router /infer returns 503 when no nodes', async () => {
   });
 
   assert.equal(response.status, 503);
+  server.close();
+});
+
+test('router /infer offloads to federation peer when no nodes', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const peerKeys = generateKeyPairSync('ed25519');
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const peerKeyId = exportPublicKeyHex(peerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+
+  const { server: peerServer, baseUrl: peerUrl } = await startFederationPeer(
+    peerKeyId,
+    peerKeys.privateKey,
+    nodeKeyId,
+    nodeKeys.privateKey,
+  );
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+      peers: [peerUrl],
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+  const payload: InferenceRequest = {
+    requestId: 'req-fed-1',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(payload, 'nonce-fed', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> };
+  const responseValidation = validateEnvelope(body.response, validateInferenceResponse);
+  assert.equal(responseValidation.ok, true);
+  const meteringValidation = validateEnvelope(body.metering, validateMeteringRecord);
+  assert.equal(meteringValidation.ok, true);
+
+  peerServer.close();
   server.close();
 });
 
@@ -1261,17 +1433,17 @@ test('router federation caps endpoint accepts signed message', async () => {
 });
 
 test('router federation job submit/result validates receipt', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
+  const requesterKeys = generateKeyPairSync('ed25519');
   const workerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const requesterKeyId = exportPublicKeyHex(requesterKeys.publicKey);
   const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
 
-  const config: RouterConfig = {
-    routerId: 'router-1',
-    keyId: routerKeyId,
+  const workerConfig: RouterConfig = {
+    routerId: 'worker-router',
+    keyId: workerKeyId,
     endpoint: 'http://localhost:0',
     port: 0,
-    privateKey: routerKeys.privateKey,
+    privateKey: workerKeys.privateKey,
     requirePayment: false,
     federation: {
       enabled: true,
@@ -1279,7 +1451,48 @@ test('router federation job submit/result validates receipt', async () => {
     },
   };
 
-  const { server, baseUrl } = await startRouter(config);
+  const requesterConfig: RouterConfig = {
+    routerId: 'requester-router',
+    keyId: requesterKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: requesterKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server: workerServer, baseUrl: workerUrl } = await startRouter(workerConfig);
+  const { server: requesterServer, baseUrl: requesterUrl, service: requesterService } =
+    await startRouter(requesterConfig);
+
+  const awardPayload: RouterAwardPayload = {
+    jobId: 'job-1',
+    winnerRouterId: workerKeyId,
+    acceptedPriceMsat: 900,
+    awardExpiry: Date.now() + 60_000,
+    awardHash: 'award-hash',
+  };
+  const awardMessage: RouterControlMessage<typeof awardPayload> = {
+    type: 'AWARD',
+    version: '0.1',
+    routerId: requesterKeyId,
+    messageId: 'award-1',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: awardPayload,
+    sig: '',
+  };
+  const signedAward = signRouterMessage(awardMessage, requesterKeys.privateKey);
+
+  const awardResponse = await fetch(`${workerUrl}/federation/award`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedAward),
+  });
+  assert.equal(awardResponse.status, 200);
 
   const submit: RouterJobSubmit = {
     jobId: 'job-1',
@@ -1292,16 +1505,28 @@ test('router federation job submit/result validates receipt', async () => {
     returnEndpoint: 'http://router:8080/federation/job-result',
   };
 
-  const submitResponse = await fetch(`${baseUrl}/federation/job-submit`, {
+  const submitEnvelope = signEnvelope(
+    buildEnvelope(submit, 'nonce-job-submit', Date.now(), requesterKeyId),
+    requesterKeys.privateKey,
+  );
+
+  const submitResponse = await fetch(`${workerUrl}/federation/job-submit`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(submit),
+    body: JSON.stringify(submitEnvelope),
   });
   assert.equal(submitResponse.status, 200);
 
+  requesterService.federation.outboundJobs.set(submit.jobId, {
+    submit,
+    award: signedAward,
+    peer: workerUrl,
+    settlement: {},
+  });
+
   const receipt: RouterReceipt = {
     jobId: 'job-1',
-    requestRouterId: routerKeyId,
+    requestRouterId: requesterKeyId,
     workerRouterId: workerKeyId,
     inputHash: 'input-hash',
     outputHash: 'output-hash',
@@ -1325,14 +1550,20 @@ test('router federation job submit/result validates receipt', async () => {
     receipt: signedReceipt,
   };
 
-  const resultResponse = await fetch(`${baseUrl}/federation/job-result`, {
+  const resultEnvelope = signEnvelope(
+    buildEnvelope(result, 'nonce-job-result', Date.now(), workerKeyId),
+    workerKeys.privateKey,
+  );
+
+  const resultResponse = await fetch(`${requesterUrl}/federation/job-result`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(result),
+    body: JSON.stringify(resultEnvelope),
   });
 
   assert.equal(resultResponse.status, 200);
-  server.close();
+  workerServer.close();
+  requesterServer.close();
 });
 
 test('router federation self caps returns signed message', async () => {
@@ -1800,7 +2031,44 @@ test('router federation payment request returns signed payment request', async (
     },
   };
 
-  const { server, baseUrl } = await startRouter(config);
+  const { server, baseUrl, service } = await startRouter(config);
+
+  const submit: RouterJobSubmit = {
+    jobId: 'job-2',
+    jobType: 'GEN_CHUNK',
+    privacyLevel: 'PL1',
+    payload: 'encrypted-payload',
+    inputHash: 'input-hash',
+    maxCostMsat: 2000,
+    maxRuntimeMs: 1000,
+    returnEndpoint: 'http://router:8080/federation/job-result',
+  };
+
+  const awardPayload: RouterAwardPayload = {
+    jobId: 'job-2',
+    winnerRouterId: workerKeyId,
+    acceptedPriceMsat: 2000,
+    awardExpiry: Date.now() + 60_000,
+    awardHash: 'award-hash-2',
+  };
+  const awardMessage: RouterControlMessage<RouterAwardPayload> = {
+    type: 'AWARD',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'award-2',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: awardPayload,
+    sig: '',
+  };
+  const signedAward = signRouterMessage(awardMessage, routerKeys.privateKey);
+
+  service.federation.outboundJobs.set(submit.jobId, {
+    submit,
+    award: signedAward,
+    peer: 'http://peer.local',
+    settlement: {},
+  });
 
   const receipt: RouterReceipt = {
     jobId: 'job-2',
@@ -1809,7 +2077,7 @@ test('router federation payment request returns signed payment request', async (
     inputHash: 'input-hash',
     outputHash: 'output-hash',
     usage: { tokens: 10, runtimeMs: 5 },
-    priceMsat: 2000,
+    priceMsat: 1000,
     status: 'OK',
     startedAtMs: Date.now(),
     finishedAtMs: Date.now(),
@@ -1853,7 +2121,44 @@ test('router federation payment receipt accepts signed receipt', async () => {
     },
   };
 
-  const { server, baseUrl } = await startRouter(config);
+  const { server, baseUrl, service } = await startRouter(config);
+
+  const submit: RouterJobSubmit = {
+    jobId: 'job-3',
+    jobType: 'GEN_CHUNK',
+    privacyLevel: 'PL1',
+    payload: 'encrypted-payload',
+    inputHash: 'input-hash',
+    maxCostMsat: 2000,
+    maxRuntimeMs: 1000,
+    returnEndpoint: 'http://router:8080/federation/job-result',
+  };
+
+  const awardPayload: RouterAwardPayload = {
+    jobId: 'job-3',
+    winnerRouterId: workerKeyId,
+    acceptedPriceMsat: 2000,
+    awardExpiry: Date.now() + 60_000,
+    awardHash: 'award-hash-3',
+  };
+  const awardMessage: RouterControlMessage<RouterAwardPayload> = {
+    type: 'AWARD',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'award-3',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: awardPayload,
+    sig: '',
+  };
+  const signedAward = signRouterMessage(awardMessage, routerKeys.privateKey);
+
+  service.federation.outboundJobs.set(submit.jobId, {
+    submit,
+    award: signedAward,
+    peer: 'http://peer.local',
+    settlement: {},
+  });
 
   const receipt: RouterReceipt = {
     jobId: 'job-3',
@@ -1930,17 +2235,38 @@ test('router federation settlement tracks request and receipt', async () => {
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   const jobId = 'job-4';
-  service.federation.jobs.set(jobId, {
-    submit: {
-      jobId,
-      jobType: 'GEN_CHUNK',
-      privacyLevel: 'PL1',
-      payload: 'encrypted-payload',
-      inputHash: 'input-hash',
-      maxCostMsat: 1000,
-      maxRuntimeMs: 1000,
-      returnEndpoint: 'http://router:8080/federation/job-result',
-    },
+  const submit: RouterJobSubmit = {
+    jobId,
+    jobType: 'GEN_CHUNK',
+    privacyLevel: 'PL1',
+    payload: 'encrypted-payload',
+    inputHash: 'input-hash',
+    maxCostMsat: 1000,
+    maxRuntimeMs: 1000,
+    returnEndpoint: 'http://router:8080/federation/job-result',
+  };
+  const awardPayload: RouterAwardPayload = {
+    jobId,
+    winnerRouterId: workerKeyId,
+    acceptedPriceMsat: 1000,
+    awardExpiry: Date.now() + 60_000,
+    awardHash: 'award-hash-4',
+  };
+  const awardMessage: RouterControlMessage<RouterAwardPayload> = {
+    type: 'AWARD',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'award-4',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: awardPayload,
+    sig: '',
+  };
+  const signedAward = signRouterMessage(awardMessage, routerKeys.privateKey);
+  service.federation.outboundJobs.set(jobId, {
+    submit,
+    award: signedAward,
+    peer: 'http://peer.local',
     settlement: {},
   });
 
@@ -1966,7 +2292,7 @@ test('router federation settlement tracks request and receipt', async () => {
     body: JSON.stringify(signedReceipt),
   });
 
-  const paymentRequest = service.federation.jobs.get(jobId)?.settlement?.paymentRequest;
+  const paymentRequest = service.federation.outboundJobs.get(jobId)?.settlement?.paymentRequest;
   assert.ok(paymentRequest);
 
   const paymentReceipt: PaymentReceipt = {
@@ -1988,7 +2314,7 @@ test('router federation settlement tracks request and receipt', async () => {
     body: JSON.stringify(signedPaymentReceipt),
   });
 
-  const storedReceipt = service.federation.jobs.get(jobId)?.settlement?.paymentReceipt;
+  const storedReceipt = service.federation.outboundJobs.get(jobId)?.settlement?.paymentReceipt;
   assert.ok(storedReceipt);
 
   server.close();

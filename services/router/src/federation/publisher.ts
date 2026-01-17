@@ -207,7 +207,10 @@ export const runAuctionAndAward = async (
   peers: string[],
   rfb: RouterControlMessage<import('@fed-ai/protocol').RouterRfbPayload>,
   fetcher: Fetcher = fetch,
-): Promise<{ award?: RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload> }> => {
+): Promise<{
+  award?: RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload>;
+  winnerPeer?: string;
+}> => {
   const auction = await runFederationAuction(config, peers, rfb, fetcher);
   if (!auction.winner) {
     return {};
@@ -222,5 +225,5 @@ export const runAuctionAndAward = async (
     return {};
   }
   await publishAward(config, auction.winner.peer, award, fetcher);
-  return { award };
+  return { award, winnerPeer: auction.winner.peer };
 };

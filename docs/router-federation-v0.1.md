@@ -227,6 +227,9 @@ Data plane MUST provide:
 - replay protection
 - payload size enforcement
 
+Implementation note (v0.1):
+- The reference implementation wraps `JOB_SUBMIT` and `JOB_RESULT` in the standard `Envelope<T>` and verifies signatures + replay windows before processing.
+
 Job transfer has two messages:
 
 - `JOB_SUBMIT`

@@ -32,7 +32,11 @@ export type RouterService = {
     priceSheets: Map<string, import('@fed-ai/protocol').RouterPriceSheet>;
     status: import('@fed-ai/protocol').RouterStatusPayload | null;
     bids: Map<string, import('@fed-ai/protocol').RouterBidPayload>;
-    awards: Map<string, import('@fed-ai/protocol').RouterAwardPayload>;
+    awards: Map<string, import('@fed-ai/protocol').RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload>>;
+    outboundAwards: Map<
+      string,
+      import('@fed-ai/protocol').RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload>
+    >;
     localCapabilities: import('@fed-ai/protocol').RouterCapabilityProfile | null;
     localPriceSheets: Map<string, import('@fed-ai/protocol').RouterPriceSheet>;
     localStatus: import('@fed-ai/protocol').RouterStatusPayload | null;
@@ -40,8 +44,24 @@ export type RouterService = {
       string,
       {
         submit: import('@fed-ai/protocol').RouterJobSubmit;
+        requestRouterId: string;
         result?: import('@fed-ai/protocol').RouterJobResult;
         settlement?: {
+          receipt?: import('@fed-ai/protocol').RouterReceipt;
+          paymentRequest?: import('@fed-ai/protocol').PaymentRequest;
+          paymentReceipt?: Envelope<import('@fed-ai/protocol').PaymentReceipt>;
+        };
+      }
+    >;
+    outboundJobs: Map<
+      string,
+      {
+        submit: import('@fed-ai/protocol').RouterJobSubmit;
+        award: import('@fed-ai/protocol').RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload>;
+        peer: string;
+        result?: import('@fed-ai/protocol').RouterJobResult;
+        settlement?: {
+          receipt?: import('@fed-ai/protocol').RouterReceipt;
           paymentRequest?: import('@fed-ai/protocol').PaymentRequest;
           paymentReceipt?: Envelope<import('@fed-ai/protocol').PaymentReceipt>;
         };
@@ -69,10 +89,12 @@ export const createRouterService = (config: RouterConfig): RouterService => {
       status: null,
       bids: new Map(),
       awards: new Map(),
+      outboundAwards: new Map(),
       localCapabilities: null,
       localPriceSheets: new Map(),
       localStatus: null,
       jobs: new Map(),
+      outboundJobs: new Map(),
     },
   };
 };

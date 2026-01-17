@@ -64,6 +64,11 @@ Phase 7 - Optional extensions
 - [x] Add router admission checks that verify `relay_discovery` snapshots before promotion.
 - [x] Draft Router Federation Spec v0.1 (router-to-router offload + auctioning, privacy levels, receipts, settlement, and backpressure rules).
 - [x] Phase 6: operator runbooks + observability checklist + CLI ergonomics pass.
+- [x] Federation data-plane auth: require signed envelopes + replay checks for job submit/result.
+- [x] Enforce award/capacity checks before accepting federation jobs; reject expired awards and over-cap receipts.
+- [x] Router offload path: integrate federation posted price/auction fallback into `/infer`.
+- [x] Federation settlement validation: only issue payment requests for known jobs/receipts.
+- [x] HTTP runner timeout enforcement.
 
 ## Decisions and notes
 

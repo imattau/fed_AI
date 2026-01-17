@@ -22,10 +22,12 @@ type InferResponse = {
 export class HttpRunner implements Runner {
   private baseUrl: string;
   private defaultModelId: string;
+  private timeoutMs?: number;
 
   constructor(options: HttpRunnerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.defaultModelId = options.defaultModelId ?? 'llama-model';
+    this.timeoutMs = options.timeoutMs;
   }
 
   private buildUrl(path: string): string {
@@ -33,12 +35,21 @@ export class HttpRunner implements Runner {
   }
 
   private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
+    const controller = this.timeoutMs ? new AbortController() : null;
+    const timeout = this.timeoutMs
+      ? setTimeout(() => controller?.abort(), this.timeoutMs)
+      : null;
     const response = await fetch(this.buildUrl(path), {
       ...init,
+      signal: controller?.signal,
       headers: {
         'content-type': 'application/json',
         ...(init.headers ?? {}),
       },
+    }).finally(() => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     });
 
     if (!response.ok) {
@@ -95,7 +106,18 @@ export class HttpRunner implements Runner {
 
   async health(): Promise<RunnerHealth> {
     try {
-      const response = await fetch(this.buildUrl('/health'), { method: 'GET' });
+      const controller = this.timeoutMs ? new AbortController() : null;
+      const timeout = this.timeoutMs
+        ? setTimeout(() => controller?.abort(), this.timeoutMs)
+        : null;
+      const response = await fetch(this.buildUrl('/health'), {
+        method: 'GET',
+        signal: controller?.signal,
+      }).finally(() => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      });
       return { ok: response.ok };
     } catch (error) {
       return { ok: false, detail: error instanceof Error ? error.message : String(error) };
