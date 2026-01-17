@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fed_AI Simple Chat</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>fed_AI Simple Chat</h1>
+        <p>Local demo: browser → chat server → router → node → tiny LLM</p>
+      </header>
+      <section id="chat" class="chat"></section>
+      <form id="chat-form" class="composer">
+        <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+      <footer>
+        <span id="status">Ready</span>
+      </footer>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
