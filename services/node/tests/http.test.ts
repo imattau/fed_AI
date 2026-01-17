@@ -171,6 +171,37 @@ test('node /infer requires payment when configured', async () => {
 
   assert.equal(response.status, 402);
 
+  const badReceiptPayload = {
+    requestId: 'req-wrong',
+    payeeType: 'node',
+    payeeId: config.nodeId,
+    amountSats: 100,
+    paidAtMs: Date.now(),
+  };
+
+  const badReceipt: Envelope<PaymentReceipt> = signEnvelope(
+    buildEnvelope(badReceiptPayload, 'nonce-receipt-bad', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const badPayload: InferenceRequest = {
+    ...payload,
+    paymentReceipts: [badReceipt],
+  };
+
+  const badEnvelope = signEnvelope(
+    buildEnvelope(badPayload, 'nonce-paid-bad', Date.now(), routerKeyId),
+    routerKeys.privateKey,
+  );
+
+  const badResponse = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(badEnvelope),
+  });
+
+  assert.equal(badResponse.status, 400);
+
   const receiptPayload = {
     requestId: payload.requestId,
     payeeType: 'node',

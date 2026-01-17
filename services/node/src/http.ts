@@ -147,6 +147,10 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
             nodeReceiptFailures.inc();
             return respond(400, { error: 'payment-amount-invalid' });
           }
+          if (receipt.payload.requestId !== envelope.payload.requestId) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'payment-request-mismatch' });
+          }
 
           const clientKey = parsePublicKey(receipt.keyId);
           if (!verifyEnvelope(receipt, clientKey)) {
