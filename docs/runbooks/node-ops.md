@@ -29,6 +29,7 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_MAX_PROMPT_BYTES`: reject prompts above this byte size.
 - `NODE_MAX_TOKENS`: reject requests above this token limit.
 - `NODE_RUNNER_TIMEOUT_MS`: abort runner HTTP calls after this timeout.
+- `NODE_MAX_REQUEST_BYTES`: reject requests above this total payload size.
 - `NODE_SANDBOX_MODE`: `disabled` (default) or `restricted` to enforce allowlists.
 - `NODE_SANDBOX_ALLOWED_RUNNERS`: comma-separated list of allowed runner names when restricted.
 - `NODE_SANDBOX_ALLOWED_ENDPOINTS`: comma-separated list of allowed base URL prefixes for HTTP-based runners.

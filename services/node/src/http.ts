@@ -30,10 +30,17 @@ import {
 
 const readJsonBody = async (
   req: IncomingMessage,
+  maxBytes?: number,
 ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (maxBytes !== undefined && totalBytes > maxBytes) {
+      return { ok: false, error: 'payload-too-large' };
+    }
+    chunks.push(buffer);
   }
   const body = Buffer.concat(chunks).toString('utf8');
   if (!body) {
@@ -87,9 +94,10 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         sendJson(res, status, body);
       };
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return respond(400, { error: body.error });
+          const status = body.error === 'payload-too-large' ? 413 : 400;
+          return respond(status, { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateInferenceRequest);

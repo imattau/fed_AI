@@ -107,6 +107,7 @@ const buildConfig = (): NodeConfig => {
     sandboxMode: (getEnv('NODE_SANDBOX_MODE') as NodeConfig['sandboxMode']) ?? 'disabled',
     sandboxAllowedRunners: sandboxAllowedRunners ?? undefined,
     sandboxAllowedEndpoints: sandboxAllowedEndpoints ?? undefined,
+    maxRequestBytes: parseNumber(getEnv('NODE_MAX_REQUEST_BYTES')),
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : undefined,
