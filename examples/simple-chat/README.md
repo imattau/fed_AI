@@ -11,12 +11,12 @@ This example spins up a tiny web chat client, a router, a node, and a llama.cpp-
 
 Pick any GGUF model and place it in `examples/simple-chat/models/`.
 
-Example (TinyLlama Q4):
+Example (TinyLlama Q2_K, smaller):
 
 ```bash
 mkdir -p examples/simple-chat/models
 curl -L -o examples/simple-chat/models/tinyllama.gguf \
-  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf
 ```
 
 ## 2) Start everything with Docker Compose
@@ -26,7 +26,7 @@ cd examples/simple-chat
 docker compose up --build
 ```
 
-If the llama.cpp image tag changes, set `LLAMA_CPP_TAG`:
+If the llama.cpp image tag changes, set `LLAMA_CPP_TAG` (default is a `light-*` tag to keep the image small):
 
 ```bash
 LLAMA_CPP_TAG=full-<tag> docker compose up --build
