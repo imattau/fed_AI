@@ -205,6 +205,111 @@ test('node /infer requires payment when configured', async () => {
   server.close();
 });
 
+test('node /infer enforces capacity limits', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 0,
+    capacityCurrentLoad: 0,
+    requirePayment: false,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: routerKeys.publicKey,
+  };
+
+  const { server, baseUrl } = await startServer(config);
+  const payload: InferenceRequest = {
+    requestId: 'req-cap',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(payload, 'nonce-cap', Date.now(), routerKeyId),
+    routerKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 429);
+  server.close();
+});
+
+test('node /infer enforces prompt and token limits', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    maxPromptBytes: 3,
+    maxTokens: 4,
+    requirePayment: false,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: routerKeys.publicKey,
+  };
+
+  const { server, baseUrl } = await startServer(config);
+  const tooLargePrompt: InferenceRequest = {
+    requestId: 'req-prompt',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 2,
+  };
+  const largePromptEnvelope = signEnvelope(
+    buildEnvelope(tooLargePrompt, 'nonce-prompt', Date.now(), routerKeyId),
+    routerKeys.privateKey,
+  );
+  const promptResponse = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(largePromptEnvelope),
+  });
+  assert.equal(promptResponse.status, 413);
+
+  const tooManyTokens: InferenceRequest = {
+    requestId: 'req-tokens',
+    modelId: 'mock-model',
+    prompt: 'hi',
+    maxTokens: 8,
+  };
+  const tokensEnvelope = signEnvelope(
+    buildEnvelope(tooManyTokens, 'nonce-tokens', Date.now(), routerKeyId),
+    routerKeys.privateKey,
+  );
+  const tokenResponse = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(tokensEnvelope),
+  });
+  assert.equal(tokenResponse.status, 400);
+
+  server.close();
+});
+
 test('node /metrics exposes Prometheus metrics', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const config: NodeConfig = {

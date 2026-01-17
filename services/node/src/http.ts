@@ -80,6 +80,7 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
       });
       const timer = nodeInferenceDuration.startTimer();
       let statusLabel = '200';
+      let inFlightRegistered = false;
       const respond = (status: number, body: unknown): void => {
         statusLabel = status.toString();
         span.setAttribute('http.status_code', status);
@@ -97,6 +98,13 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         }
 
         const envelope = body.value as Envelope<InferenceRequest>;
+        const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
+        if (config.maxPromptBytes !== undefined && promptBytes > config.maxPromptBytes) {
+          return respond(413, { error: 'prompt-too-large' });
+        }
+        if (config.maxTokens !== undefined && envelope.payload.maxTokens > config.maxTokens) {
+          return respond(400, { error: 'max-tokens-exceeded' });
+        }
         if (!config.routerPublicKey) {
           return respond(500, { error: 'router-public-key-missing' });
         }
@@ -143,6 +151,13 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
           return respond(500, { error: 'node-private-key-missing' });
         }
 
+        const currentLoad = config.capacityCurrentLoad + service.inFlight;
+        if (config.capacityMaxConcurrent <= 0 || currentLoad >= config.capacityMaxConcurrent) {
+          return respond(429, { error: 'capacity-exhausted' });
+        }
+        service.inFlight += 1;
+        inFlightRegistered = true;
+
         const response = await service.runner.infer(envelope.payload);
         const responseEnvelope = signEnvelope(
           buildEnvelope(response, randomUUID(), Date.now(), config.keyId),
@@ -171,6 +186,9 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
       } catch (error) {
         return respond(500, { error: 'internal-error' });
       } finally {
+        if (inFlightRegistered) {
+          service.inFlight = Math.max(0, service.inFlight - 1);
+        }
         timer();
         nodeInferenceRequests.labels(statusLabel).inc();
         span.end();

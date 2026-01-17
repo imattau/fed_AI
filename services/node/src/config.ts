@@ -8,6 +8,11 @@ export type NodeConfig = {
   port: number;
   capacityMaxConcurrent: number;
   capacityCurrentLoad: number;
+  maxPromptBytes?: number;
+  maxTokens?: number;
+  runnerTimeoutMs?: number;
+  sandboxMode?: 'disabled' | 'restricted';
+  sandboxAllowedRunners?: string[];
   requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
@@ -23,5 +28,10 @@ export const defaultNodeConfig: NodeConfig = {
   port: 8081,
   capacityMaxConcurrent: 4,
   capacityCurrentLoad: 0,
+  maxPromptBytes: undefined,
+  maxTokens: undefined,
+  runnerTimeoutMs: undefined,
+  sandboxMode: 'disabled',
+  sandboxAllowedRunners: undefined,
   requirePayment: false,
 };

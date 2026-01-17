@@ -80,6 +80,7 @@ const logRelayCandidates = async (
 const buildConfig = (): NodeConfig => {
   const privateKey = getEnv('NODE_PRIVATE_KEY_PEM');
   const routerPublicKey = getEnv('ROUTER_PUBLIC_KEY_PEM');
+  const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
 
   return {
     ...defaultNodeConfig,
@@ -96,6 +97,11 @@ const buildConfig = (): NodeConfig => {
     capacityCurrentLoad: Number(
       getEnv('NODE_CAPACITY_LOAD') ?? defaultNodeConfig.capacityCurrentLoad,
     ),
+    maxPromptBytes: parseNumber(getEnv('NODE_MAX_PROMPT_BYTES')),
+    maxTokens: parseNumber(getEnv('NODE_MAX_TOKENS')),
+    runnerTimeoutMs: parseNumber(getEnv('NODE_RUNNER_TIMEOUT_MS')),
+    sandboxMode: (getEnv('NODE_SANDBOX_MODE') as NodeConfig['sandboxMode']) ?? 'disabled',
+    sandboxAllowedRunners: sandboxAllowedRunners ?? undefined,
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : undefined,
@@ -108,6 +114,7 @@ const buildRunner = (config: NodeConfig): Runner => {
     return new HttpRunner({
       baseUrl: runnerUrl,
       defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName,
+      timeoutMs: config.runnerTimeoutMs,
     });
   }
   return new MockRunner();
@@ -115,6 +122,13 @@ const buildRunner = (config: NodeConfig): Runner => {
 
 const start = (): void => {
   const config = buildConfig();
+  if (
+    config.sandboxMode === 'restricted' &&
+    config.sandboxAllowedRunners &&
+    !config.sandboxAllowedRunners.includes(config.runnerName)
+  ) {
+    throw new Error(`runner ${config.runnerName} not allowed by sandbox policy`);
+  }
   const runner = buildRunner(config);
   const service = createNodeService(config, runner);
   const server = createNodeHttpServer(service, config);
@@ -159,7 +173,7 @@ const startHeartbeat = async (service: ReturnType<typeof createNodeService>, con
       endpoint: config.endpoint,
       capacity: {
         maxConcurrent: config.capacityMaxConcurrent,
-        currentLoad: config.capacityCurrentLoad,
+        currentLoad: config.capacityCurrentLoad + service.inFlight,
       },
       capabilities,
     };

@@ -5,10 +5,11 @@ import type { Runner } from './runners/types';
 export type NodeService = {
   config: NodeConfig;
   runner: Runner;
+  inFlight: number;
 };
 
 export const createNodeService = (config: NodeConfig, runner: Runner): NodeService => {
-  return { config, runner };
+  return { config, runner, inFlight: 0 };
 };
 
 export const handleInference = async (

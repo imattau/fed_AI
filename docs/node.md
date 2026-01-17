@@ -56,6 +56,8 @@ Configuration
 - Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`.
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
+- Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`.
+- Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
 - Payments: `NODE_REQUIRE_PAYMENT`.
 
 ## Relay discovery
@@ -64,3 +66,14 @@ Configuration
 - Support the same overrides: `NODE_RELAY_BOOTSTRAP`, `NODE_RELAY_AGGREGATORS`, `NODE_RELAY_TRUST`, `NODE_RELAY_MIN_SCORE`, and `NODE_RELAY_MAX_RESULTS`.
 - Logs snapshot the top few relays at startup so operators can validate the choices before connecting to routers or relays.
 - The manifest generation process embeds this discovery snapshot (under `relay_discovery`) so routers can audit exactly which relays were considered and when.
+
+## Completion checklist
+
+- [ ] Enforce sandbox policy (resource caps, allowlists, runner isolation per adapter). (Partial: runner allowlist supported.)
+- [x] Enforce capacity limits and in-flight tracking for `/infer`.
+- [x] Enforce prompt size and token limits at the node boundary.
+- [ ] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
+- [ ] Wire secure runner spawning/IPC with restricted environment and file system access.
+- [ ] Define and document production payment flows (LN invoices, keysend, receipt verification).
+- [ ] Add node runbook steps for production deployment and key rotation.
+- [ ] Add soak tests covering runner timeouts, backpressure, and payment-required scenarios.
