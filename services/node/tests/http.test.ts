@@ -23,8 +23,8 @@ import type {
 } from '@fed-ai/protocol';
 import type { NodeConfig } from '../src/config';
 
-const startServer = async (config: NodeConfig) => {
-  const service = createNodeService(config, new MockRunner());
+const startServer = async (config: NodeConfig, runner = new MockRunner()) => {
+  const service = createNodeService(config, runner);
   const server = createNodeHttpServer(service, config);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address() as AddressInfo;
@@ -428,6 +428,71 @@ test('node /infer enforces max request bytes', async () => {
   });
 
   assert.equal(response.status, 413);
+  server.close();
+});
+
+test('node /infer enforces max runtime budget', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    maxInferenceMs: 10,
+    requirePayment: false,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: routerKeys.publicKey,
+  };
+
+  const slowRunner = {
+    listModels: async () => [],
+    infer: async () =>
+      new Promise<InferenceResponse>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              requestId: 'req-timeout',
+              modelId: 'mock-model',
+              output: 'late',
+              usage: { inputTokens: 1, outputTokens: 1 },
+              latencyMs: 50,
+            }),
+          50,
+        ),
+      ),
+    estimate: async () => ({ latencyEstimateMs: 50 }),
+    health: async () => ({ ok: true }),
+  };
+
+  const { server, baseUrl } = await startServer(config, slowRunner);
+  const payload: InferenceRequest = {
+    requestId: 'req-timeout',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(payload, 'nonce-timeout', Date.now(), routerKeyId),
+    routerKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 504);
   server.close();
 });
 

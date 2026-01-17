@@ -173,7 +173,14 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         service.inFlight += 1;
         inFlightRegistered = true;
 
-        const response = await service.runner.infer(envelope.payload);
+        const response = config.maxInferenceMs
+          ? await Promise.race([
+              service.runner.infer(envelope.payload),
+              new Promise<InferenceResponse>((_, reject) =>
+                setTimeout(() => reject(new Error('runner-timeout')), config.maxInferenceMs),
+              ),
+            ])
+          : await service.runner.infer(envelope.payload);
         const responseEnvelope = signEnvelope(
           buildEnvelope(response, randomUUID(), Date.now(), config.keyId),
           config.privateKey,
@@ -199,6 +206,9 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
 
         return respond(200, { response: responseEnvelope, metering: meteringEnvelope });
       } catch (error) {
+        if (error instanceof Error && error.message === 'runner-timeout') {
+          return respond(504, { error: 'runner-timeout' });
+        }
         return respond(500, { error: 'internal-error' });
       } finally {
         if (inFlightRegistered) {

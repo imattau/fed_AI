@@ -58,7 +58,7 @@ Configuration
 - Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`, `ROUTER_KEY_ID`.
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
-- Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`, `NODE_MAX_REQUEST_BYTES`.
+- Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`, `NODE_MAX_REQUEST_BYTES`, `NODE_MAX_RUNTIME_MS`.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
 - Sandbox endpoints: `NODE_SANDBOX_ALLOWED_ENDPOINTS` (prefix allowlist).
 - Payments: `NODE_REQUIRE_PAYMENT`.
@@ -76,6 +76,7 @@ Configuration
 - [x] Enforce capacity limits and in-flight tracking for `/infer`.
 - [x] Enforce prompt size and token limits at the node boundary.
 - [x] Enforce total request size limits at the HTTP boundary.
+- [x] Enforce max runtime budget for runner calls.
 - [x] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
 - [ ] Wire secure runner spawning/IPC with restricted environment and file system access.
 - [ ] Define and document production payment flows (LN invoices, keysend, receipt verification).

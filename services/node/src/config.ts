@@ -16,6 +16,7 @@ export type NodeConfig = {
   sandboxAllowedRunners?: string[];
   sandboxAllowedEndpoints?: string[];
   maxRequestBytes?: number;
+  maxInferenceMs?: number;
   requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
@@ -38,5 +39,6 @@ export const defaultNodeConfig: NodeConfig = {
   sandboxAllowedRunners: undefined,
   sandboxAllowedEndpoints: undefined,
   maxRequestBytes: undefined,
+  maxInferenceMs: undefined,
   requirePayment: false,
 };
