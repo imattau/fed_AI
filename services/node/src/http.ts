@@ -113,6 +113,9 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         if (config.maxTokens !== undefined && envelope.payload.maxTokens > config.maxTokens) {
           return respond(400, { error: 'max-tokens-exceeded' });
         }
+        if (config.routerKeyId && envelope.keyId !== config.routerKeyId) {
+          return respond(401, { error: 'router-key-id-mismatch' });
+        }
         if (!config.routerPublicKey) {
           return respond(500, { error: 'router-public-key-missing' });
         }

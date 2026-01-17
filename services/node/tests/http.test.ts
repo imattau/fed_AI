@@ -127,6 +127,51 @@ test('node /infer validates signatures and returns signed response', async () =>
   server.close();
 });
 
+test('node /infer rejects when router key id mismatches', async () => {
+  const nodeKeys = generateKeyPairSync('ed25519');
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    routerKeyId,
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    requirePayment: false,
+    privateKey: nodeKeys.privateKey,
+    routerPublicKey: routerKeys.publicKey,
+  };
+
+  const { server, baseUrl } = await startServer(config);
+  const payload: InferenceRequest = {
+    requestId: 'req-key-id',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(payload, 'nonce-key-id', Date.now(), 'router-key-override'),
+    routerKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/infer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 401);
+  server.close();
+});
+
 test('node /infer requires payment when configured', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');

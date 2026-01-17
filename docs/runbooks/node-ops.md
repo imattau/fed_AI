@@ -15,6 +15,7 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_PORT`: listen port.
 - `ROUTER_ENDPOINT`: router base URL for registration and heartbeat.
 - `ROUTER_PUBLIC_KEY_PEM`: router public key (PEM or 32-byte hex).
+- `ROUTER_KEY_ID`: router public key ID (hex) to enforce key-id match.
 
 ## Optional configuration
 

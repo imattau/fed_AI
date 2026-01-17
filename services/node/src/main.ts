@@ -83,6 +83,7 @@ const logRelayCandidates = async (
 const buildConfig = (): NodeConfig => {
   const privateKey = getEnv('NODE_PRIVATE_KEY_PEM');
   const routerPublicKey = getEnv('ROUTER_PUBLIC_KEY_PEM');
+  const routerKeyId = getEnv('ROUTER_KEY_ID');
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
 
@@ -92,6 +93,7 @@ const buildConfig = (): NodeConfig => {
     keyId: getEnv('NODE_KEY_ID') ?? defaultNodeConfig.keyId,
     endpoint: getEnv('NODE_ENDPOINT') ?? defaultNodeConfig.endpoint,
     routerEndpoint: getEnv('ROUTER_ENDPOINT') ?? defaultNodeConfig.routerEndpoint,
+    routerKeyId: routerKeyId ?? undefined,
     heartbeatIntervalMs: Number(getEnv('NODE_HEARTBEAT_MS') ?? defaultNodeConfig.heartbeatIntervalMs),
     runnerName: getEnv('NODE_RUNNER') ?? defaultNodeConfig.runnerName,
     port: Number(getEnv('NODE_PORT') ?? 8081),
