@@ -32,6 +32,8 @@ Runner selection
 - Set `NODE_RUNNER=http` plus `NODE_RUNNER_URL` to point at an HTTP-capable inference backend (for example a llama.cpp REST adapter).
 - The HTTP runner expects `/models`, `/infer`, `/estimate`, and `/health` endpoints that accept JSON payloads and respond with `InferenceResponse`-shaped objects.
 - Use `NODE_MODEL_ID` to override the default reported model ID for capability advertisements.
+- `NODE_RUNNER=llama_cpp` targets a llama.cpp server; set `NODE_LLAMA_CPP_URL` (or `NODE_RUNNER_URL`) and ensure `/completion` is available.
+- `NODE_RUNNER=vllm` targets a vLLM server (OpenAI-compatible); set `NODE_VLLM_URL` (or `NODE_RUNNER_URL`) and ensure `/v1/completions` is available.
 
 Rules
 - Runners communicate via process spawn, IPC, or HTTP.
@@ -58,6 +60,7 @@ Configuration
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
 - Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
+- Sandbox endpoints: `NODE_SANDBOX_ALLOWED_ENDPOINTS` (prefix allowlist).
 - Payments: `NODE_REQUIRE_PAYMENT`.
 
 ## Relay discovery
@@ -72,7 +75,7 @@ Configuration
 - [ ] Enforce sandbox policy (resource caps, allowlists, runner isolation per adapter). (Partial: runner allowlist supported.)
 - [x] Enforce capacity limits and in-flight tracking for `/infer`.
 - [x] Enforce prompt size and token limits at the node boundary.
-- [ ] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
+- [x] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
 - [ ] Wire secure runner spawning/IPC with restricted environment and file system access.
 - [ ] Define and document production payment flows (LN invoices, keysend, receipt verification).
 - [ ] Add node runbook steps for production deployment and key rotation.

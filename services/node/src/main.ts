@@ -5,9 +5,12 @@ import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createNodeService } from './server';
 import { defaultNodeConfig, NodeConfig } from './config';
 import { HttpRunner } from './runners/http';
+import { LlamaCppRunner } from './runners/llama_cpp';
 import { MockRunner } from './runners/mock';
+import { VllmRunner } from './runners/vllm';
 import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
+import { enforceSandboxPolicy } from './sandbox/policy';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -81,6 +84,7 @@ const buildConfig = (): NodeConfig => {
   const privateKey = getEnv('NODE_PRIVATE_KEY_PEM');
   const routerPublicKey = getEnv('ROUTER_PUBLIC_KEY_PEM');
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
+  const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
 
   return {
     ...defaultNodeConfig,
@@ -102,6 +106,7 @@ const buildConfig = (): NodeConfig => {
     runnerTimeoutMs: parseNumber(getEnv('NODE_RUNNER_TIMEOUT_MS')),
     sandboxMode: (getEnv('NODE_SANDBOX_MODE') as NodeConfig['sandboxMode']) ?? 'disabled',
     sandboxAllowedRunners: sandboxAllowedRunners ?? undefined,
+    sandboxAllowedEndpoints: sandboxAllowedEndpoints ?? undefined,
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : undefined,
@@ -109,11 +114,43 @@ const buildConfig = (): NodeConfig => {
 };
 
 const buildRunner = (config: NodeConfig): Runner => {
+  const ensureEndpointAllowed = (baseUrl: string): void => {
+    if (config.sandboxMode !== 'restricted') {
+      return;
+    }
+    if (!config.sandboxAllowedEndpoints || config.sandboxAllowedEndpoints.length === 0) {
+      return;
+    }
+    const allowed = config.sandboxAllowedEndpoints.some((entry) => baseUrl.startsWith(entry));
+    if (!allowed) {
+      throw new Error('sandbox-endpoint-not-allowed');
+    }
+  };
+
   if (config.runnerName === 'http') {
     const runnerUrl = getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
+    ensureEndpointAllowed(runnerUrl);
     return new HttpRunner({
       baseUrl: runnerUrl,
       defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName,
+      timeoutMs: config.runnerTimeoutMs,
+    });
+  }
+  if (config.runnerName === 'llama_cpp') {
+    const runnerUrl = getEnv('NODE_LLAMA_CPP_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
+    ensureEndpointAllowed(runnerUrl);
+    return new LlamaCppRunner({
+      baseUrl: runnerUrl,
+      defaultModelId: getEnv('NODE_MODEL_ID') ?? 'llama-model',
+      timeoutMs: config.runnerTimeoutMs,
+    });
+  }
+  if (config.runnerName === 'vllm') {
+    const runnerUrl = getEnv('NODE_VLLM_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
+    ensureEndpointAllowed(runnerUrl);
+    return new VllmRunner({
+      baseUrl: runnerUrl,
+      defaultModelId: getEnv('NODE_MODEL_ID') ?? 'vllm-model',
       timeoutMs: config.runnerTimeoutMs,
     });
   }
@@ -122,12 +159,9 @@ const buildRunner = (config: NodeConfig): Runner => {
 
 const start = (): void => {
   const config = buildConfig();
-  if (
-    config.sandboxMode === 'restricted' &&
-    config.sandboxAllowedRunners &&
-    !config.sandboxAllowedRunners.includes(config.runnerName)
-  ) {
-    throw new Error(`runner ${config.runnerName} not allowed by sandbox policy`);
+  const sandboxCheck = enforceSandboxPolicy(config);
+  if (!sandboxCheck.ok) {
+    throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
   }
   const runner = buildRunner(config);
   const service = createNodeService(config, runner);

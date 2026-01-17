@@ -13,6 +13,7 @@ export type NodeConfig = {
   runnerTimeoutMs?: number;
   sandboxMode?: 'disabled' | 'restricted';
   sandboxAllowedRunners?: string[];
+  sandboxAllowedEndpoints?: string[];
   requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
@@ -33,5 +34,6 @@ export const defaultNodeConfig: NodeConfig = {
   runnerTimeoutMs: undefined,
   sandboxMode: 'disabled',
   sandboxAllowedRunners: undefined,
+  sandboxAllowedEndpoints: undefined,
   requirePayment: false,
 };

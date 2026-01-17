@@ -21,6 +21,8 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_RUNNER`: `mock` (default) or `http`.
 - `NODE_RUNNER_URL`: HTTP runner base URL.
 - `NODE_MODEL_ID`: override reported model ID for capability ads.
+- `NODE_LLAMA_CPP_URL`: llama.cpp base URL (when `NODE_RUNNER=llama_cpp`).
+- `NODE_VLLM_URL`: vLLM base URL (when `NODE_RUNNER=vllm`).
 - `NODE_HEARTBEAT_MS`: heartbeat interval in ms.
 - `NODE_CAPACITY_MAX`: max concurrent jobs.
 - `NODE_CAPACITY_LOAD`: initial load hint.
@@ -29,6 +31,7 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_RUNNER_TIMEOUT_MS`: abort runner HTTP calls after this timeout.
 - `NODE_SANDBOX_MODE`: `disabled` (default) or `restricted` to enforce allowlists.
 - `NODE_SANDBOX_ALLOWED_RUNNERS`: comma-separated list of allowed runner names when restricted.
+- `NODE_SANDBOX_ALLOWED_ENDPOINTS`: comma-separated list of allowed base URL prefixes for HTTP-based runners.
 - `NODE_REQUIRE_PAYMENT`: `true|false` to require receipts.
 - `NODE_RELAY_BOOTSTRAP`: comma-separated relay URLs.
 - `NODE_RELAY_AGGREGATORS`: comma-separated relay directory endpoints.
