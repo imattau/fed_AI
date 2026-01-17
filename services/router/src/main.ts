@@ -1,12 +1,13 @@
 import { parsePrivateKey } from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
-import { createRouterService } from './server';
+import { createRouterService, hydrateRouterService } from './server';
 import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from './config';
 import { createRouterHttpServer } from './http';
 import { publishFederation } from './federation/publisher';
 import { discoverFederationPeers } from './federation/discovery';
 import { logInfo, logWarn } from './logging';
 import { loadRouterState, startRouterStatePersistence } from './state';
+import { createPostgresRouterStore } from './storage/postgres';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -95,6 +96,8 @@ const buildConfig = (): RouterConfig => {
   const paymentInvoiceUrl = getEnv('ROUTER_LN_INVOICE_URL');
   const paymentInvoiceTimeoutMs = parseNumber(getEnv('ROUTER_LN_INVOICE_TIMEOUT_MS'));
   const statePersistIntervalMs = parseNumber(getEnv('ROUTER_STATE_PERSIST_MS'));
+  const dbUrl = getEnv('ROUTER_DB_URL');
+  const dbSsl = (getEnv('ROUTER_DB_SSL') ?? 'false').toLowerCase() === 'true';
 
   return {
     ...defaultRouterConfig,
@@ -129,6 +132,7 @@ const buildConfig = (): RouterConfig => {
       : undefined,
     statePath: getEnv('ROUTER_STATE_PATH'),
     statePersistIntervalMs,
+    db: dbUrl ? { url: dbUrl, ssl: dbSsl } : undefined,
     relayAdmission: buildRelayAdmissionPolicy(),
     federation: {
       enabled: (getEnv('ROUTER_FEDERATION_ENABLED') ?? 'false').toLowerCase() === 'true',
@@ -151,10 +155,20 @@ const buildConfig = (): RouterConfig => {
   };
 };
 
-const start = (): void => {
+const start = async (): Promise<void> => {
   const config = buildConfig();
-  const service = createRouterService(config);
-  loadRouterState(service, config.statePath);
+  const store = config.db ? await createPostgresRouterStore(config.db) : undefined;
+  const service = createRouterService(config, store);
+  if (store) {
+    try {
+      const snapshot = await store.load();
+      hydrateRouterService(service, snapshot);
+    } catch (error) {
+      logWarn('[router] failed to hydrate store snapshot', error);
+    }
+  } else {
+    loadRouterState(service, config.statePath);
+  }
   const server = createRouterHttpServer(service, config);
 
   server.listen(config.port);
@@ -180,4 +194,4 @@ const start = (): void => {
   }
 };
 
-start();
+void start();

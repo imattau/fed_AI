@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type {
   Envelope,
@@ -80,11 +81,11 @@ const buildSnapshot = (service: RouterService): RouterStateSnapshot => ({
   },
 });
 
-const persistSnapshot = (snapshot: RouterStateSnapshot, filePath: string): void => {
-  mkdirSync(dirname(filePath), { recursive: true });
+const persistSnapshot = async (snapshot: RouterStateSnapshot, filePath: string): Promise<void> => {
+  await mkdir(dirname(filePath), { recursive: true });
   const tmpPath = `${filePath}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(snapshot));
-  renameSync(tmpPath, filePath);
+  await writeFile(tmpPath, JSON.stringify(snapshot));
+  await rename(tmpPath, filePath);
 };
 
 export const loadRouterState = (service: RouterService, filePath?: string): void => {
@@ -169,13 +170,26 @@ export const startRouterStatePersistence = (
   if (!filePath) {
     return;
   }
+  let inFlight = false;
+  let queued = false;
   const persist = () => {
-    try {
-      const snapshot = buildSnapshot(service);
-      persistSnapshot(snapshot, filePath);
-    } catch (error) {
-      logWarn('[router] failed to persist state', error);
+    if (inFlight) {
+      queued = true;
+      return;
     }
+    inFlight = true;
+    const snapshot = buildSnapshot(service);
+    persistSnapshot(snapshot, filePath)
+      .catch((error) => {
+        logWarn('[router] failed to persist state', error);
+      })
+      .finally(() => {
+        inFlight = false;
+        if (queued) {
+          queued = false;
+          persist();
+        }
+      });
   };
   persist();
   setInterval(persist, intervalMs);

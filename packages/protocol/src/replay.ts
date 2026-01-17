@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { Envelope } from './types';
 
@@ -42,17 +43,24 @@ export class InMemoryNonceStore implements NonceStore {
 
 type FileNonceStoreOptions = {
   persistIntervalMs?: number;
+  cleanupIntervalMs?: number;
 };
 
 export class FileNonceStore implements NonceStore {
   private nonces = new Map<string, number>();
   private filePath: string;
   private persistIntervalMs: number;
+  private cleanupIntervalMs: number;
   private lastPersistMs = 0;
+  private lastCleanupMs = 0;
+  private persistTimer: NodeJS.Timeout | null = null;
+  private persistInFlight = false;
+  private persistQueued = false;
 
   constructor(filePath: string, options: FileNonceStoreOptions = {}) {
     this.filePath = filePath;
     this.persistIntervalMs = options.persistIntervalMs ?? 1000;
+    this.cleanupIntervalMs = options.cleanupIntervalMs ?? 1000;
     this.load();
   }
 
@@ -62,16 +70,21 @@ export class FileNonceStore implements NonceStore {
 
   add(nonce: string, ts: number): void {
     this.nonces.set(nonce, ts);
-    this.persistIfNeeded();
+    this.schedulePersist();
   }
 
   cleanup(cutoffTs: number): void {
+    const nowMs = Date.now();
+    if (nowMs - this.lastCleanupMs < this.cleanupIntervalMs) {
+      return;
+    }
+    this.lastCleanupMs = nowMs;
     for (const [nonce, ts] of this.nonces.entries()) {
       if (ts < cutoffTs) {
         this.nonces.delete(nonce);
       }
     }
-    this.persistIfNeeded();
+    this.schedulePersist();
   }
 
   private load(): void {
@@ -90,25 +103,41 @@ export class FileNonceStore implements NonceStore {
     }
   }
 
-  private persistIfNeeded(): void {
-    const nowMs = Date.now();
-    if (nowMs - this.lastPersistMs < this.persistIntervalMs) {
+  private schedulePersist(): void {
+    if (this.persistTimer) {
+      this.persistQueued = true;
       return;
     }
-    this.lastPersistMs = nowMs;
-    this.persist();
+    this.persistQueued = false;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persist();
+    }, this.persistIntervalMs);
   }
 
-  private persist(): void {
+  private async persist(): Promise<void> {
+    if (this.persistInFlight) {
+      this.persistQueued = true;
+      return;
+    }
+    this.persistInFlight = true;
     const entries: Record<string, number> = {};
     for (const [nonce, ts] of this.nonces.entries()) {
       entries[nonce] = ts;
     }
     const payload = JSON.stringify({ entries });
-    mkdirSync(dirname(this.filePath), { recursive: true });
     const tmpPath = `${this.filePath}.tmp`;
-    writeFileSync(tmpPath, payload);
-    renameSync(tmpPath, this.filePath);
+    try {
+      await mkdir(dirname(this.filePath), { recursive: true });
+      await writeFile(tmpPath, payload);
+      await rename(tmpPath, this.filePath);
+    } finally {
+      this.lastPersistMs = Date.now();
+      this.persistInFlight = false;
+      if (this.persistQueued) {
+        this.schedulePersist();
+      }
+    }
   }
 }
 

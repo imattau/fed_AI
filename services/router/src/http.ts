@@ -68,6 +68,13 @@ import { estimatePrice } from './scheduler/score';
 import { logWarn } from './logging';
 import { verifyPaymentReceipt } from './payments/verify';
 import { requestInvoice } from './payments/invoice';
+import {
+  recordManifest,
+  recordManifestAdmission,
+  recordPaymentReceipt,
+  recordPaymentRequest,
+  registerNode,
+} from './server';
 import { discoverFederationPeers } from './federation/discovery';
 import { runAuctionAndAward } from './federation/publisher';
 import {
@@ -330,6 +337,17 @@ const applyManifestWeights = (service: RouterService): NodeDescriptor[] => {
       ),
     };
   });
+};
+
+const getWeightedNodes = (service: RouterService): NodeDescriptor[] => {
+  const nowMs = Date.now();
+  const cache = service.weightedNodesCache;
+  if (cache && nowMs - cache.computedAtMs < 1000) {
+    return cache.nodes;
+  }
+  const weighted = applyManifestWeights(service);
+  service.weightedNodesCache = { computedAtMs: nowMs, nodes: weighted };
+  return weighted;
 };
 
 const rankCandidateNodes = (nodes: NodeDescriptor[], request: QuoteRequest): NodeDescriptor[] => {
@@ -760,8 +778,7 @@ export const createRouterHttpServer = (
           lastHeartbeatMs: Date.now(),
         };
 
-        service.nodes = service.nodes.filter((node) => node.nodeId !== updated.nodeId);
-        service.nodes.push(updated);
+        await registerNode(service, updated);
 
         return sendJson(res, 200, { ok: true });
       } catch (error) {
@@ -788,9 +805,8 @@ export const createRouterHttpServer = (
 
         const admissionPolicy = config.relayAdmission ?? defaultRelayAdmissionPolicy;
         const admission = assessRelayDiscoverySnapshot(manifest.relay_discovery, admissionPolicy);
-        service.manifestAdmissions.set(manifest.id, admission);
-
-        service.manifests.set(manifest.id, manifest);
+        await recordManifestAdmission(service, manifest.id, admission);
+        await recordManifest(service, manifest);
         return sendJson(res, 200, { ok: true });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
@@ -1648,7 +1664,7 @@ export const createRouterHttpServer = (
         }
 
         const selection = selectNode({
-          nodes: filterActiveNodes(service, applyManifestWeights(service)),
+          nodes: filterActiveNodes(service, getWeightedNodes(service)),
           request: envelope.payload,
         });
 
@@ -1751,7 +1767,7 @@ export const createRouterHttpServer = (
           return respond(400, { error: verification.error });
         }
 
-        service.paymentReceipts.set(key, envelope);
+        await recordPaymentReceipt(service, key, envelope);
         return respond(200, { ok: true });
       } catch (error) {
         return respond(500, { error: 'internal-error' });
@@ -1808,7 +1824,7 @@ export const createRouterHttpServer = (
         };
 
         const selection = selectNode({
-          nodes: filterActiveNodes(service, applyManifestWeights(service)),
+          nodes: filterActiveNodes(service, getWeightedNodes(service)),
           request: requestEstimate,
         });
 
@@ -1955,7 +1971,7 @@ export const createRouterHttpServer = (
                     },
                   };
 
-            service.paymentRequests.set(paymentRequestKey, paymentRequest);
+            await recordPaymentRequest(service, paymentRequestKey, paymentRequest);
             paymentRequests.inc();
 
             const paymentEnvelope = signEnvelope(
@@ -1977,7 +1993,7 @@ export const createRouterHttpServer = (
         }
 
         const candidates = rankCandidateNodes(
-          filterActiveNodes(service, applyManifestWeights(service)),
+          filterActiveNodes(service, getWeightedNodes(service)),
           requestEstimate,
         );
 

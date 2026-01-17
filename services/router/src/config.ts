@@ -11,6 +11,7 @@ export type RouterConfig = {
   paymentVerification?: PaymentVerificationConfig;
   statePath?: string;
   statePersistIntervalMs?: number;
+  db?: RouterDbConfig;
   relayAdmission?: RelayAdmissionPolicy;
   federation?: RouterFederationConfig;
 };
@@ -31,6 +32,11 @@ export type PaymentVerificationConfig = {
 export type PaymentInvoiceConfig = {
   url: string;
   timeoutMs?: number;
+};
+
+export type RouterDbConfig = {
+  url: string;
+  ssl?: boolean;
 };
 
 export type RelayAdmissionPolicy = {

@@ -1,10 +1,19 @@
-import type { Envelope, InferenceRequest, InferenceResponse, NodeDescriptor } from '@fed-ai/protocol';
+import type {
+  Envelope,
+  InferenceRequest,
+  InferenceResponse,
+  NodeDescriptor,
+  PaymentReceipt,
+  PaymentRequest,
+} from '@fed-ai/protocol';
 import {
   createStakeStore,
   StakeStore,
 } from './accounting/staking';
 import type { RouterConfig } from './config';
 import { selectNode } from './scheduler';
+import type { RouterStore, RouterStoreSnapshot } from './storage/types';
+import type { NodeManifest } from '@fed-ai/manifest';
 
 export type RouterService = {
   config: RouterConfig;
@@ -27,6 +36,8 @@ export type RouterService = {
       lastSuccessMs: number;
     }
   >;
+  weightedNodesCache?: { computedAtMs: number; nodes: NodeDescriptor[] };
+  store?: RouterStore;
   federation: {
     capabilities: import('@fed-ai/protocol').RouterCapabilityProfile | null;
     priceSheets: Map<string, import('@fed-ai/protocol').RouterPriceSheet>;
@@ -70,7 +81,7 @@ export type RouterService = {
   };
 };
 
-export const createRouterService = (config: RouterConfig): RouterService => {
+export const createRouterService = (config: RouterConfig, store?: RouterStore): RouterService => {
   return {
     config,
     nodes: [],
@@ -83,6 +94,7 @@ export const createRouterService = (config: RouterConfig): RouterService => {
     stakeStore: createStakeStore(),
     nodeCooldown: new Map(),
     nodeHealth: new Map(),
+    store,
     federation: {
       capabilities: null,
       priceSheets: new Map(),
@@ -99,9 +111,68 @@ export const createRouterService = (config: RouterConfig): RouterService => {
   };
 };
 
-export const registerNode = (service: RouterService, node: NodeDescriptor): void => {
+export const hydrateRouterService = (service: RouterService, snapshot: RouterStoreSnapshot): void => {
+  service.nodes = snapshot.nodes;
+  service.paymentRequests = new Map(snapshot.paymentRequests.map((entry) => [entry.key, entry.request]));
+  service.paymentReceipts = new Map(snapshot.paymentReceipts.map((entry) => [entry.key, entry.receipt]));
+  service.manifests = new Map(snapshot.manifests.map((manifest) => [manifest.id, manifest]));
+  service.manifestAdmissions = new Map(
+    snapshot.manifestAdmissions.map((entry) => [
+      entry.nodeId,
+      { eligible: entry.eligible, reason: entry.reason },
+    ]),
+  );
+};
+
+export const registerNode = async (service: RouterService, node: NodeDescriptor): Promise<void> => {
   service.nodes = service.nodes.filter((existing) => existing.nodeId !== node.nodeId);
   service.nodes.push(node);
+  if (service.store) {
+    await service.store.saveNode(node);
+  }
+};
+
+export const recordPaymentRequest = async (
+  service: RouterService,
+  key: string,
+  request: PaymentRequest,
+): Promise<void> => {
+  service.paymentRequests.set(key, request);
+  if (service.store) {
+    await service.store.savePaymentRequest(key, request);
+  }
+};
+
+export const recordPaymentReceipt = async (
+  service: RouterService,
+  key: string,
+  receipt: Envelope<PaymentReceipt>,
+): Promise<void> => {
+  service.paymentReceipts.set(key, receipt);
+  if (service.store) {
+    await service.store.savePaymentReceipt(key, receipt);
+  }
+};
+
+export const recordManifest = async (
+  service: RouterService,
+  manifest: NodeManifest,
+): Promise<void> => {
+  service.manifests.set(manifest.id, manifest);
+  if (service.store) {
+    await service.store.saveManifest(manifest);
+  }
+};
+
+export const recordManifestAdmission = async (
+  service: RouterService,
+  nodeId: string,
+  admission: { eligible: boolean; reason?: string },
+): Promise<void> => {
+  service.manifestAdmissions.set(nodeId, admission);
+  if (service.store) {
+    await service.store.saveManifestAdmission(nodeId, admission);
+  }
 };
 
 export const selectNodeForRequest = (service: RouterService, request: InferenceRequest): NodeDescriptor | null => {

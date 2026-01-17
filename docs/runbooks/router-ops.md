@@ -23,6 +23,8 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
 - `ROUTER_LN_INVOICE_URL`: HTTP endpoint to generate Lightning invoices.
 - `ROUTER_LN_INVOICE_TIMEOUT_MS`: invoice generation timeout in ms.
+- `ROUTER_DB_URL`: Postgres connection string for router persistence.
+- `ROUTER_DB_SSL`: `true|false` to enable SSL for Postgres.
 - `ROUTER_TLS_CERT_PATH`: TLS cert path for HTTPS.
 - `ROUTER_TLS_KEY_PATH`: TLS key path for HTTPS.
 - `ROUTER_TLS_CA_PATH`: optional CA bundle for mTLS.

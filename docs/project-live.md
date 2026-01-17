@@ -60,6 +60,8 @@ Phase 7 - Optional extensions
 - [x] Production hardening: settlement verification and state storage.
 - [x] Scheduling upgrades (latency + job types) and protocol alignment.
 - [x] Router invoice generation hook for Lightning-backed invoices (replaces mock when configured).
+- [x] Router store backed by Postgres for nodes, payments, and manifests (configurable).
+- [x] Performance hardening: async persistence, nonce store debouncing, scheduler cache.
 
 ## Upcoming tasks
 

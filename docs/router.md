@@ -38,6 +38,7 @@ Configuration
 - Payments: `ROUTER_REQUIRE_PAYMENT`.
 - Lightning verification: `ROUTER_LN_VERIFY_URL`, `ROUTER_LN_VERIFY_TIMEOUT_MS`, `ROUTER_LN_REQUIRE_PREIMAGE`.
 - Lightning invoice generation: `ROUTER_LN_INVOICE_URL`, `ROUTER_LN_INVOICE_TIMEOUT_MS`.
+- Database: `ROUTER_DB_URL`, `ROUTER_DB_SSL`.
 - Replay protection: `ROUTER_NONCE_STORE_PATH` to persist replay nonces across restarts.
 - TLS: `ROUTER_TLS_CERT_PATH`, `ROUTER_TLS_KEY_PATH`, `ROUTER_TLS_CA_PATH`, `ROUTER_TLS_REQUIRE_CLIENT_CERT`.
 - Persistence: `ROUTER_STATE_PATH`, `ROUTER_STATE_PERSIST_MS`.
