@@ -40,6 +40,10 @@ docker compose down -v
 
 Open `http://localhost:3000` and send a prompt.
 
+Ports:
+- Router: `http://localhost:18080`
+- llama.cpp: `http://localhost:18085`
+
 ## Notes
 
 - The example chat server signs requests locally and forwards them to the router.

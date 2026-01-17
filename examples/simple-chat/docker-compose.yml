@@ -27,7 +27,7 @@ services:
     volumes:
       - keys:/keys:ro
     ports:
-      - "8080:8080"
+      - "18080:8080"
 
   node:
     build:
@@ -75,7 +75,7 @@ services:
     volumes:
       - ./models:/models:ro
     ports:
-      - "8085:8080"
+      - "18085:8080"
 
   chat:
     image: node:20-bookworm-slim
