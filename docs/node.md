@@ -75,6 +75,7 @@ Configuration
 - [ ] Enforce sandbox policy (resource caps, allowlists, runner isolation per adapter). (Partial: runner allowlist supported.)
 - [x] Enforce capacity limits and in-flight tracking for `/infer`.
 - [x] Enforce prompt size and token limits at the node boundary.
+- [x] Enforce total request size limits at the HTTP boundary.
 - [x] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
 - [ ] Wire secure runner spawning/IPC with restricted environment and file system access.
 - [ ] Define and document production payment flows (LN invoices, keysend, receipt verification).
