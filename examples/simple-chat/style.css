@@ -31,6 +31,51 @@ header p {
   color: #5a6074;
 }
 
+header .wallet {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #f1f4ff;
+  color: #1f2b55;
+  font-size: 14px;
+}
+
+.tabs {
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid #e6e8f0;
+  padding-bottom: 8px;
+}
+
+.tab-button {
+  border: none;
+  background: transparent;
+  padding: 10px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #5a6074;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-button.active {
+  color: #1a1a1a;
+  border-color: #1f6feb;
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tab-panel.active {
+  display: flex;
+}
+
 .chat {
   border: 1px solid #e6e8f0;
   background: #fbfbfe;
@@ -98,6 +143,52 @@ footer {
   font-size: 14px;
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  padding: 16px;
+  border-radius: 12px;
+  background: #f8f9ff;
+  border: 1px solid #e2e6f2;
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.node-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.node-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #e6e8f0;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.node-card h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.status-ok {
+  color: #0f5132;
+}
+
+.status-warn {
+  color: #8a3b12;
+}
+
 @media (max-width: 700px) {
   .shell {
     margin: 16px;
@@ -105,5 +196,9 @@ footer {
 
   .chat {
     height: 300px;
+  }
+
+  .tabs {
+    flex-wrap: wrap;
   }
 }

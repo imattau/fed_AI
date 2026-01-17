@@ -14,7 +14,7 @@ import {
 } from '@fed-ai/protocol';
 import { createNodeService } from '../src/server';
 import { createNodeHttpServer } from '../src/http';
-import { MockRunner } from '../src/runners/mock';
+import { MockRunner } from './helpers/mock-runner';
 import type {
   Envelope,
   InferenceRequest,

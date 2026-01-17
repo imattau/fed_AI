@@ -5,9 +5,12 @@ const { randomUUID, generateKeyPairSync, sign } = require('node:crypto');
 const path = require('node:path');
 
 const routerUrl = process.env.ROUTER_URL ?? 'http://localhost:8080';
-const modelId = process.env.MODEL_ID ?? 'tinyllama';
+const defaultModelId = process.env.MODEL_ID ?? 'auto';
 const maxTokens = Number(process.env.MAX_TOKENS ?? 128);
 const port = Number(process.env.PORT ?? 3000);
+const initialWalletSats = Number(process.env.WALLET_SATS ?? 2500);
+
+let walletBalanceSats = Number.isFinite(initialWalletSats) ? initialWalletSats : 0;
 
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
@@ -68,6 +71,15 @@ const postJson = async (url, body) => {
   return response;
 };
 
+const fetchJson = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(detail || `request-failed:${response.status}`);
+  }
+  return response.json();
+};
+
 const issuePaymentReceipt = (payment, clientKeyId, clientPrivateKey) => {
   const receipt = {
     requestId: payment.requestId,
@@ -89,6 +101,44 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && req.url === '/style.css') {
     return serveFile(res, path.join(__dirname, 'style.css'), 'text/css; charset=utf-8');
+  }
+  if (req.method === 'GET' && req.url === '/api/wallet') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ sats: walletBalanceSats }));
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/api/router') {
+    try {
+      const health = await fetchJson(`${routerUrl}/health`);
+      const nodes = await fetchJson(`${routerUrl}/nodes`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ health, nodes }));
+    } catch (error) {
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'router-unavailable',
+          details: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/api/nodes') {
+    try {
+      const nodes = await fetchJson(`${routerUrl}/nodes`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(nodes));
+    } catch (error) {
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'nodes-unavailable',
+          details: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return;
   }
 
   if (req.method === 'POST' && req.url === '/api/infer') {
@@ -119,7 +169,7 @@ const server = http.createServer(async (req, res) => {
 
     const request = {
       requestId: randomUUID(),
-      modelId,
+      modelId: defaultModelId,
       prompt,
       maxTokens,
     };
@@ -140,6 +190,19 @@ const server = http.createServer(async (req, res) => {
         clientKeyId,
         clientKeys.privateKey,
       );
+      if (walletBalanceSats < payment.amountSats) {
+        res.writeHead(402, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: 'insufficient-balance',
+            walletSats: walletBalanceSats,
+            requiredSats: payment.amountSats,
+          }),
+        );
+        return;
+      }
+      walletBalanceSats -= payment.amountSats;
+
       const receiptResponse = await postJson(
         `${routerUrl}/payment-receipt`,
         receiptEnvelope,
@@ -162,7 +225,7 @@ const server = http.createServer(async (req, res) => {
       const retryPayload = await retryResponse.json();
       const output = retryPayload?.response?.payload?.output ?? '';
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ output }));
+      res.end(JSON.stringify({ output, walletSats: walletBalanceSats }));
       return;
     }
 
@@ -175,7 +238,7 @@ const server = http.createServer(async (req, res) => {
     const payload = await response.json();
     const output = payload?.response?.payload?.output ?? '';
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ output }));
+    res.end(JSON.stringify({ output, walletSats: walletBalanceSats }));
     return;
   }
 

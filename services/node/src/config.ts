@@ -1,3 +1,5 @@
+import type { RouterJobType } from '@fed-ai/protocol';
+
 export type NodeConfig = {
   nodeId: string;
   keyId: string;
@@ -20,6 +22,24 @@ export type NodeConfig = {
   requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
+  nonceStorePath?: string;
+  tls?: NodeTlsConfig;
+  paymentVerification?: PaymentVerificationConfig;
+  capabilityJobTypes?: RouterJobType[];
+  capabilityLatencyMs?: number;
+};
+
+export type NodeTlsConfig = {
+  certPath: string;
+  keyPath: string;
+  caPath?: string;
+  requireClientCert?: boolean;
+};
+
+export type PaymentVerificationConfig = {
+  url: string;
+  timeoutMs?: number;
+  requirePreimage?: boolean;
 };
 
 export const defaultNodeConfig: NodeConfig = {
@@ -28,7 +48,7 @@ export const defaultNodeConfig: NodeConfig = {
   endpoint: 'http://localhost:8081',
   routerEndpoint: 'http://localhost:8080',
   heartbeatIntervalMs: 10_000,
-  runnerName: 'mock',
+  runnerName: 'http',
   port: 8081,
   capacityMaxConcurrent: 4,
   capacityCurrentLoad: 0,
@@ -41,4 +61,9 @@ export const defaultNodeConfig: NodeConfig = {
   maxRequestBytes: undefined,
   maxInferenceMs: undefined,
   requirePayment: false,
+  nonceStorePath: undefined,
+  tls: undefined,
+  paymentVerification: undefined,
+  capabilityJobTypes: undefined,
+  capabilityLatencyMs: undefined,
 };

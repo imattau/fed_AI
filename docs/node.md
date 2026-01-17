@@ -10,10 +10,11 @@ Responsibilities
 - Collect and sign metering data.
 - Advertise capabilities via heartbeat.
 - Use Nostr-compatible keys for node identity and signing.
-- Service is independently deployable and exposes `/health` and `/infer`.
+- Service is independently deployable and exposes `/health`, `/status`, and `/infer`.
 
 Heartbeat
 - Nodes periodically sign and send `NodeDescriptor` updates to the router.
+- Nodes can include optional `jobTypes` and `latencyEstimateMs` in advertised capabilities.
 
 Payments
 - When configured to require payment, `/infer` requires a client-signed `PaymentReceipt` envelope.
@@ -28,7 +29,7 @@ Runner interface
 - `health()`
 
 Runner selection
-- Nodes default to the `mock` runner for fast local testing.
+- Nodes default to the `http` runner for external inference backends.
 - Set `NODE_RUNNER=http` plus `NODE_RUNNER_URL` to point at an HTTP-capable inference backend (for example a llama.cpp REST adapter).
 - The HTTP runner expects `/models`, `/infer`, `/estimate`, and `/health` endpoints that accept JSON payloads and respond with `InferenceResponse`-shaped objects.
 - Use `NODE_MODEL_ID` to override the default reported model ID for capability advertisements.
@@ -45,6 +46,7 @@ Rules
 Observability
 - `/metrics` exposes Prometheus counters and histograms such as `node_inference_requests_total` and `node_payment_receipt_failures_total`.
 - The node wraps `/infer` with OpenTelemetry spans to tie inference handling into distributed traces.
+- Node logs are redacted by default to avoid leaking prompt/output data or secrets.
 
 Metering
 - Track tokens in/out, wall time, bytes, model ID.
@@ -62,6 +64,10 @@ Configuration
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
 - Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`, `NODE_MAX_REQUEST_BYTES`, `NODE_MAX_RUNTIME_MS`.
+- Capability hints: `NODE_JOB_TYPES` (comma-separated RouterJobType values), `NODE_LATENCY_ESTIMATE_MS`.
+- Lightning verification: `NODE_LN_VERIFY_URL`, `NODE_LN_VERIFY_TIMEOUT_MS`, `NODE_LN_REQUIRE_PREIMAGE`.
+- TLS: `NODE_TLS_CERT_PATH`, `NODE_TLS_KEY_PATH`, `NODE_TLS_CA_PATH`, `NODE_TLS_REQUIRE_CLIENT_CERT`.
+- Replay protection: `NODE_NONCE_STORE_PATH` to persist replay nonces across restarts.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
 - Sandbox endpoints: `NODE_SANDBOX_ALLOWED_ENDPOINTS` (prefix allowlist).
 - When `NODE_SANDBOX_MODE=restricted`, set explicit limits (`NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_MAX_REQUEST_BYTES`) or the node will refuse to start.

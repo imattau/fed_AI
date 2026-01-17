@@ -13,6 +13,9 @@ services:
       ROUTER_ID: router-1
       ROUTER_ENDPOINT: http://router:8080
       ROUTER_PORT: 8080
+      ROUTER_REQUIRE_PAYMENT: "true"
+      ROUTER_LN_INVOICE_URL: http://ln-adapter:4000/invoice
+      ROUTER_LN_VERIFY_URL: http://ln-adapter:4000/verify
     command: ["pnpm", "--filter", "@fed-ai/router", "dev"]
     working_dir: /app
     volumes:
@@ -31,12 +34,28 @@ services:
       NODE_ENDPOINT: http://node:8081
       NODE_PORT: 8081
       ROUTER_ENDPOINT: http://router:8080
+      NODE_REQUIRE_PAYMENT: "true"
+      NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
     command: ["pnpm", "--filter", "@fed-ai/node", "dev"]
     working_dir: /app
     volumes:
       - ..:/app
     depends_on:
       - router
+      - ln-adapter
+  ln-adapter:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ../tools/ln-adapter:/app
+    environment:
+      LN_ADAPTER_PORT: 4000
+      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-lnbits}
+      LNBITS_URL: ${LNBITS_URL}
+      LNBITS_API_KEY: ${LNBITS_API_KEY}
+      LND_REST_URL: ${LND_REST_URL}
+      LND_MACAROON_HEX: ${LND_MACAROON_HEX}
+    command: ["node", "server.js"]
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -49,6 +68,7 @@ services:
     depends_on:
       - router
       - node
+      - ln-adapter
   grafana:
     image: grafana/grafana:latest
     ports:

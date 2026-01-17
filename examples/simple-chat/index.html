@@ -11,15 +11,51 @@
       <header>
         <h1>fed_AI Simple Chat</h1>
         <p>Local demo: browser → chat server → router → node → tiny LLM</p>
+        <div class="wallet">
+          <span>Mock wallet</span>
+          <strong id="wallet-sats">-- sats</strong>
+        </div>
       </header>
-      <section id="chat" class="chat"></section>
-      <form id="chat-form" class="composer">
-        <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
-        <button type="submit">Send</button>
-      </form>
-      <footer>
-        <span id="status">Ready</span>
-      </footer>
+      <nav class="tabs">
+        <button class="tab-button active" data-tab="client">Client</button>
+        <button class="tab-button" data-tab="router">Router</button>
+        <button class="tab-button" data-tab="node">Node</button>
+      </nav>
+      <section id="tab-client" class="tab-panel active">
+        <section id="chat" class="chat"></section>
+        <form id="chat-form" class="composer">
+          <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+        <footer>
+          <span id="status">Ready</span>
+        </footer>
+      </section>
+      <section id="tab-router" class="tab-panel">
+        <div class="dashboard-grid">
+          <div class="card">
+            <h3>Router status</h3>
+            <p id="router-health">Checking...</p>
+          </div>
+          <div class="card">
+            <h3>Nodes</h3>
+            <p>
+              <span id="router-active">0</span> active /
+              <span id="router-total">0</span> total
+            </p>
+          </div>
+        </div>
+        <div id="router-nodes" class="node-list"></div>
+      </section>
+      <section id="tab-node" class="tab-panel">
+        <div class="dashboard-grid">
+          <div class="card">
+            <h3>Node overview</h3>
+            <p id="node-summary">Checking...</p>
+          </div>
+        </div>
+        <div id="node-list" class="node-list"></div>
+      </section>
     </main>
     <script src="/app.js"></script>
   </body>

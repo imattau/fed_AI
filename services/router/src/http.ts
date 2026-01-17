@@ -1,8 +1,11 @@
 import http, { IncomingMessage, ServerResponse } from 'node:http';
+import https from 'node:https';
+import { readFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   buildEnvelope,
   checkReplay,
+  FileNonceStore,
   InMemoryNonceStore,
   parsePublicKey,
   signEnvelope,
@@ -34,6 +37,7 @@ import {
 import { RelayDiscoverySnapshot, verifyManifest } from '@fed-ai/manifest';
 import { effectiveStakeUnits, recordCommit, recordSlash } from './accounting/staking';
 import type {
+  Capability,
   Envelope,
   InferenceRequest,
   InferenceResponse,
@@ -60,6 +64,10 @@ import type { NodeManifest } from '@fed-ai/manifest';
 import { defaultRelayAdmissionPolicy, RelayAdmissionPolicy, RouterConfig } from './config';
 import type { RouterService } from './server';
 import { scoreNode, selectNode } from './scheduler';
+import { estimatePrice } from './scheduler/score';
+import { logWarn } from './logging';
+import { verifyPaymentReceipt } from './payments/verify';
+import { requestInvoice } from './payments/invoice';
 import { discoverFederationPeers } from './federation/discovery';
 import { runAuctionAndAward } from './federation/publisher';
 import {
@@ -335,6 +343,43 @@ const rankCandidateNodes = (nodes: NodeDescriptor[], request: QuoteRequest): Nod
   return scored.map((entry) => entry.node);
 };
 
+const pickCapabilityForRequest = (
+  node: NodeDescriptor,
+  request: QuoteRequest,
+): Capability | null => {
+  if (!node.capabilities || node.capabilities.length === 0) {
+    return null;
+  }
+  const matchesJobType = (capability: Capability): boolean => {
+    if (!request.jobType) {
+      return true;
+    }
+    if (!capability.jobTypes || capability.jobTypes.length === 0) {
+      return false;
+    }
+    return capability.jobTypes.includes(request.jobType);
+  };
+  if (request.modelId !== 'auto') {
+    return (
+      node.capabilities.find(
+        (capability) =>
+          capability.modelId === request.modelId && matchesJobType(capability),
+      ) ?? null
+    );
+  }
+  let best: { cap: Capability; price: number } | null = null;
+  for (const capability of node.capabilities) {
+    if (!matchesJobType(capability)) {
+      continue;
+    }
+    const price = estimatePrice(capability, request);
+    if (!best || price < best.price) {
+      best = { cap: capability, price };
+    }
+  }
+  return best?.cap ?? null;
+};
+
 const readJsonBody = async (
   req: IncomingMessage,
 ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
@@ -491,8 +536,14 @@ const canBidForRfb = (
   return { ok: true, priceSheet };
 };
 
-export const createRouterHttpServer = (service: RouterService, config: RouterConfig): http.Server => {
-  const nonceStore = new InMemoryNonceStore();
+export const createRouterHttpServer = (
+  service: RouterService,
+  config: RouterConfig,
+): http.Server => {
+  const nonceStore = config.nonceStorePath
+    ? new FileNonceStore(config.nonceStorePath)
+    : new InMemoryNonceStore();
+  const startedAtMs = Date.now();
   const federationPeers = discoverFederationPeers(
     config.federation?.peers,
     config.federation?.discovery?.bootstrapPeers,
@@ -637,9 +688,37 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
     return { ok: true, body: { response: body.response, metering: body.metering } };
   };
 
-  return http.createServer(async (req, res) => {
+  const handler = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'GET' && req.url === '/status') {
+      const activeNodes = filterActiveNodes(service, service.nodes);
+      return sendJson(res, 200, {
+        ok: true,
+        uptimeMs: Date.now() - startedAtMs,
+        nodes: {
+          total: service.nodes.length,
+          active: activeNodes.length,
+        },
+        payments: {
+          requests: service.paymentRequests.size,
+          receipts: service.paymentReceipts.size,
+        },
+        federation: {
+          enabled: config.federation?.enabled ?? false,
+          paymentRequests: service.federationPaymentRequests.size,
+          paymentReceipts: service.federationPaymentReceipts.size,
+        },
+        stake: {
+          commits: service.stakeStore.commits.size,
+          slashes: service.stakeStore.slashes.size,
+        },
+        state: {
+          persistenceEnabled: Boolean(config.statePath),
+        },
+      });
     }
 
     if (req.method === 'GET' && req.url === '/metrics') {
@@ -1151,7 +1230,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
             markNodeFailure(service, targetNode.nodeId);
             if (reason) {
               accountingFailures.inc({ reason });
-              console.warn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
+              logWarn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
             }
             return { ok: false, status, body };
           };
@@ -1663,6 +1742,15 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return respond(400, { error: 'invoice-mismatch' });
         }
 
+        const verification = await verifyPaymentReceipt(
+          envelope.payload,
+          config.paymentVerification,
+        );
+        if (!verification.ok) {
+          paymentReceiptFailures.inc();
+          return respond(400, { error: verification.error });
+        }
+
         service.paymentReceipts.set(key, envelope);
         return respond(200, { ok: true });
       } catch (error) {
@@ -1710,15 +1798,18 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return respond(500, { error: 'router-private-key-missing' });
         }
 
+        const requestEstimate: QuoteRequest = {
+          requestId: envelope.payload.requestId,
+          modelId: envelope.payload.modelId,
+          maxTokens: envelope.payload.maxTokens,
+          inputTokensEstimate: envelope.payload.prompt.length,
+          outputTokensEstimate: envelope.payload.maxTokens,
+          jobType: envelope.payload.jobType,
+        };
+
         const selection = selectNode({
           nodes: filterActiveNodes(service, applyManifestWeights(service)),
-          request: {
-            requestId: envelope.payload.requestId,
-            modelId: envelope.payload.modelId,
-            maxTokens: envelope.payload.maxTokens,
-            inputTokensEstimate: envelope.payload.prompt.length,
-            outputTokensEstimate: envelope.payload.maxTokens,
-          },
+          request: requestEstimate,
         });
 
         const node = selection.selected;
@@ -1731,6 +1822,15 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           }
           return respond(503, { error: selection.reason ?? offload.error ?? 'no-nodes-available' });
         }
+
+        const selectedCapability = pickCapabilityForRequest(node, requestEstimate);
+        if (!selectedCapability) {
+          return respond(503, { error: 'no-capable-nodes' });
+        }
+        const resolvedRequest: InferenceRequest = {
+          ...envelope.payload,
+          modelId: selectedCapability.modelId,
+        };
 
         const attemptNode = async (
           targetNode: NodeDescriptor,
@@ -1748,7 +1848,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
             markNodeFailure(service, targetNode.nodeId);
             if (reason) {
               accountingFailures.inc({ reason });
-              console.warn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
+              logWarn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
             }
             return { ok: false, status, body };
           };
@@ -1816,18 +1916,28 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           const storedReceipt = service.paymentReceipts.get(paymentRequestKey);
 
           if (!storedReceipt) {
-            const capability = node.capabilities.find(
-              (item) => item.modelId === envelope.payload.modelId,
-            );
-            if (!capability) {
-              return respond(503, { error: 'no-capable-nodes' });
+            if (!config.paymentInvoice) {
+              return respond(503, { error: 'invoice-provider-required' });
             }
-
             const total =
-              capability.pricing.inputRate * envelope.payload.prompt.length +
-              capability.pricing.outputRate * envelope.payload.maxTokens;
+              selectedCapability.pricing.inputRate * envelope.payload.prompt.length +
+              selectedCapability.pricing.outputRate * envelope.payload.maxTokens;
 
             const now = Date.now();
+            const invoiceResult = await requestInvoice(
+              {
+                requestId: envelope.payload.requestId,
+                payeeId,
+                amountSats: Math.max(1, Math.round(total)),
+              },
+              config.paymentInvoice,
+            );
+            if (!invoiceResult.ok) {
+              return respond(502, { error: invoiceResult.error });
+            }
+            const invoice = invoiceResult.invoice.invoice;
+            const paymentHash = invoiceResult.invoice.paymentHash;
+            const expiresAtMs = invoiceResult.invoice.expiresAtMs ?? now + PAYMENT_WINDOW_MS;
             const existingRequest = service.paymentRequests.get(paymentRequestKey);
             const paymentRequest: PaymentRequest =
               existingRequest && existingRequest.expiresAtMs > now
@@ -1837,10 +1947,11 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
                     payeeType,
                     payeeId,
                     amountSats: Math.max(1, Math.round(total)),
-                    invoice: `lnbc-mock-${envelope.payload.requestId}`,
-                    expiresAtMs: now + PAYMENT_WINDOW_MS,
+                    invoice,
+                    expiresAtMs,
+                    paymentHash,
                     metadata: {
-                      currency: capability.pricing.currency,
+                      currency: selectedCapability.pricing.currency,
                     },
                   };
 
@@ -1855,7 +1966,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
             return respond(402, { error: 'payment-required', payment: paymentEnvelope });
           }
 
-          const requestPayload = { ...envelope.payload, paymentReceipts: [storedReceipt] };
+          const requestPayload = { ...resolvedRequest, paymentReceipts: [storedReceipt] };
           const attempt = await attemptNode(node, requestPayload);
           if (!attempt.ok) {
             respond(attempt.status, attempt.body);
@@ -1867,19 +1978,21 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
 
         const candidates = rankCandidateNodes(
           filterActiveNodes(service, applyManifestWeights(service)),
-          {
-            requestId: envelope.payload.requestId,
-            modelId: envelope.payload.modelId,
-            maxTokens: envelope.payload.maxTokens,
-            inputTokensEstimate: envelope.payload.prompt.length,
-            outputTokensEstimate: envelope.payload.maxTokens,
-          },
+          requestEstimate,
         );
 
         let lastFailure: { status: number; body: { error: string; details?: string[] } } | null =
           null;
         for (const candidate of candidates) {
-          const result = await attemptNode(candidate, envelope.payload);
+          const capability = pickCapabilityForRequest(candidate, requestEstimate);
+          if (!capability) {
+            continue;
+          }
+          const candidatePayload: InferenceRequest = {
+            ...envelope.payload,
+            modelId: capability.modelId,
+          };
+          const result = await attemptNode(candidate, candidatePayload);
           if (result.ok) {
             respond(200, result.body);
             return;
@@ -1908,5 +2021,22 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
     }
 
     return sendJson(res, 404, { error: 'not-found' });
-  });
+  };
+
+  if (config.tls) {
+    const tlsOptions: https.ServerOptions = {
+      key: readFileSync(config.tls.keyPath),
+      cert: readFileSync(config.tls.certPath),
+    };
+    if (config.tls.caPath) {
+      tlsOptions.ca = readFileSync(config.tls.caPath);
+    }
+    if (config.tls.requireClientCert) {
+      tlsOptions.requestCert = true;
+      tlsOptions.rejectUnauthorized = true;
+    }
+    return https.createServer(tlsOptions, handler);
+  }
+
+  return http.createServer(handler);
 };

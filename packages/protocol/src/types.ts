@@ -18,6 +18,8 @@ export type Capability = {
     outputRate: number;
     currency: string;
   };
+  latencyEstimateMs?: number;
+  jobTypes?: RouterJobType[];
 };
 
 export type ModelInfo = {
@@ -47,6 +49,7 @@ export type QuoteRequest = {
   maxTokens: number;
   inputTokensEstimate: number;
   outputTokensEstimate: number;
+  jobType?: RouterJobType;
   constraints?: {
     regions?: string[];
     minTrustScore?: number;
@@ -95,6 +98,7 @@ export type InferenceRequest = {
   maxTokens: number;
   temperature?: number;
   topP?: number;
+  jobType?: RouterJobType;
   metadata?: Record<string, string>;
   paymentReceipts?: Envelope<PaymentReceipt>[];
 };

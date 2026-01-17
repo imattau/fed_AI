@@ -31,6 +31,7 @@ Nostr alignment
 Payments
 - Settlement is peer-to-peer over Lightning from day one; routers coordinate requirements but never custody funds.
 - Clients can capture router-issued invoices (404) and produce signed receipts using `fedai receipt`, then call `fedai infer ... --receipts receipt.json` so nodes always see the verified proof.
+- Lightning adapters generate invoices and verify settlement for router/node flows.
 
 Control plane
 - Routing, scheduling, metering, trust, protocol enforcement.

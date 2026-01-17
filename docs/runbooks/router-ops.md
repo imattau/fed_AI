@@ -17,6 +17,18 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 ## Optional configuration
 
 - `ROUTER_REQUIRE_PAYMENT`: `true|false` to enforce payment receipts before inference.
+- `ROUTER_NONCE_STORE_PATH`: file path for persisted replay nonces.
+- `ROUTER_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
+- `ROUTER_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
+- `ROUTER_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
+- `ROUTER_LN_INVOICE_URL`: HTTP endpoint to generate Lightning invoices.
+- `ROUTER_LN_INVOICE_TIMEOUT_MS`: invoice generation timeout in ms.
+- `ROUTER_TLS_CERT_PATH`: TLS cert path for HTTPS.
+- `ROUTER_TLS_KEY_PATH`: TLS key path for HTTPS.
+- `ROUTER_TLS_CA_PATH`: optional CA bundle for mTLS.
+- `ROUTER_TLS_REQUIRE_CLIENT_CERT`: `true|false` to require client certs.
+- `ROUTER_STATE_PATH`: file path for persisting router state across restarts.
+- `ROUTER_STATE_PERSIST_MS`: interval (ms) between state snapshots (default 5000).
 - `ROUTER_FEDERATION_ENABLED`: `true|false` to enable federation endpoints.
 - `ROUTER_FEDERATION_ENDPOINT`: public federation base URL.
 - `ROUTER_FEDERATION_MAX_SPEND_MSAT`: optional spend cap for offloads.
@@ -49,6 +61,7 @@ docker compose -f infra/docker-compose.yml up router
 ## Health checks
 
 - `GET /health` should return `{ "ok": true }`.
+- `GET /status` should return `{ "ok": true }` plus node/payment counts.
 - `GET /metrics` exposes Prometheus metrics.
 - Federation endpoints should return `200` when enabled: `/federation/caps`, `/federation/price`, `/federation/status`.
 - Self-publishing endpoints return signed messages when enabled: `/federation/self/caps`, `/federation/self/price`, `/federation/self/status`.
@@ -78,6 +91,7 @@ Tracing:
 - Confirm relay discovery logs include expected sources and counts.
 - Verify `/quote` and `/infer` return signed envelopes.
 - Confirm payment enforcement matches `ROUTER_REQUIRE_PAYMENT`.
+- If `ROUTER_REQUIRE_PAYMENT=true`, confirm `ROUTER_LN_INVOICE_URL` is configured and reachable.
 - Ensure accounting failures are visible via `router_accounting_failures_total`.
 
 ## Troubleshooting

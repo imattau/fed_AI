@@ -1,5 +1,5 @@
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
-import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
+import type { Runner, RunnerEstimate, RunnerHealth } from '../../src/runners/types';
 
 const DEFAULT_MODEL: ModelInfo = {
   id: 'mock-model',
@@ -8,9 +8,23 @@ const DEFAULT_MODEL: ModelInfo = {
   contextWindow: 4096,
 };
 
+type MockRunnerOptions = {
+  modelId?: string;
+};
+
 export class MockRunner implements Runner {
+  private model: ModelInfo;
+
+  constructor(options: MockRunnerOptions = {}) {
+    const modelId = options.modelId ?? DEFAULT_MODEL.id;
+    this.model = {
+      ...DEFAULT_MODEL,
+      id: modelId,
+    };
+  }
+
   async listModels(): Promise<ModelInfo[]> {
-    return [DEFAULT_MODEL];
+    return [this.model];
   }
 
   async infer(request: InferenceRequest): Promise<InferenceResponse> {

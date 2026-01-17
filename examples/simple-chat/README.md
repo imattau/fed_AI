@@ -1,6 +1,6 @@
 # Simple Chat Example
 
-This example spins up a tiny web chat client, a router, a node, and a llama.cpp-backed tiny LLM inside Docker. It also exercises the mock Lightning payment flow.
+This example spins up a tiny web chat client, a router, two nodes (LLM + CPU-only), a Lightning adapter, and a llama.cpp-backed tiny LLM inside Docker. It also exercises the Lightning payment flow.
 
 ## Prereqs
 
@@ -32,13 +32,37 @@ docker compose down -v
 ```
 
 Open `http://localhost:3000` and send a prompt.
+The router will auto-select between the LLM node and the CPU-only node.
+Use the Router and Node tabs to view a lightweight status dashboard.
 
 Ports:
 - Router: `http://localhost:18080`
 - llama.cpp: `http://localhost:18085`
+- Lightning adapter: `http://localhost:4000`
+
+## Lightning adapter configuration
+
+The compose stack includes `tools/ln-adapter`, which can talk to LNbits or LND.
+
+Set one of the following before running:
+
+```bash
+export LN_ADAPTER_BACKEND=lnbits
+export LNBITS_URL=https://lnbits.example.com
+export LNBITS_API_KEY=your_api_key
+```
+
+Or for LND REST:
+
+```bash
+export LN_ADAPTER_BACKEND=lnd
+export LND_REST_URL=https://lnd.example.com:8080
+export LND_MACAROON_HEX=your_hex_macaroon
+```
 
 ## Notes
 
 - The example chat server signs requests locally and forwards them to the router.
 - The server issues a mock payment receipt against the router's payment request, then retries the inference call.
-- Adjust `MAX_TOKENS`, `MODEL_ID`, or `PORT` for the chat server with env vars in `docker-compose.yml`.
+- A mock wallet balance is displayed in the UI and decremented after each payment.
+- Adjust `MAX_TOKENS`, `MODEL_ID`, `WALLET_SATS`, or `PORT` for the chat server with env vars in `docker-compose.yml`.

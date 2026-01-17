@@ -10,7 +10,7 @@ Responsibilities
 - Node selection and dispatch.
 - Metering aggregation.
 - Use Nostr-compatible keys for verifying node envelopes.
-- Service is independently deployable and exposes `/health`, `/register-node`, `/manifest`, `/quote`, `/infer`, and `/payment-receipt`.
+- Service is independently deployable and exposes `/health`, `/status`, `/register-node`, `/manifest`, `/quote`, `/infer`, and `/payment-receipt`.
 
 Health tracking
 - Router tracks `lastHeartbeatMs` and filters stale nodes during selection.
@@ -25,15 +25,22 @@ Payments
 - CLI `fedai receipt` can turn a saved `PaymentRequest` into a signed receipt and optionally post it to `/payment-receipt`.
 - Router verifies proofs and attaches stored `PaymentReceipt` envelopes when forwarding requests to nodes.
 - Router never holds or forwards funds; it only orchestrates requirements and verification.
+- When `ROUTER_REQUIRE_PAYMENT=true`, an invoice provider must be configured via `ROUTER_LN_INVOICE_URL`.
 
 Observability
 - `/metrics` exposes Prometheus-friendly metrics such as `router_inference_requests_total` and latency histograms.
 - The router instruments `/infer` and `/payment-receipt` with OpenTelemetry spans (`router.infer`, `router.paymentReceipt`) so traces can correlate ingestion, payment verification, and node dispatch.
 - Accounting failures surface as `router_accounting_failures_total` with reason labels for metering/signature issues.
+- Router logs are redacted by default to avoid leaking prompt/output data or secrets.
 
 Configuration
 - Core: `ROUTER_ID`, `ROUTER_KEY_ID`, `ROUTER_PRIVATE_KEY_PEM`, `ROUTER_ENDPOINT`, `ROUTER_PORT`.
 - Payments: `ROUTER_REQUIRE_PAYMENT`.
+- Lightning verification: `ROUTER_LN_VERIFY_URL`, `ROUTER_LN_VERIFY_TIMEOUT_MS`, `ROUTER_LN_REQUIRE_PREIMAGE`.
+- Lightning invoice generation: `ROUTER_LN_INVOICE_URL`, `ROUTER_LN_INVOICE_TIMEOUT_MS`.
+- Replay protection: `ROUTER_NONCE_STORE_PATH` to persist replay nonces across restarts.
+- TLS: `ROUTER_TLS_CERT_PATH`, `ROUTER_TLS_KEY_PATH`, `ROUTER_TLS_CA_PATH`, `ROUTER_TLS_REQUIRE_CLIENT_CERT`.
+- Persistence: `ROUTER_STATE_PATH`, `ROUTER_STATE_PERSIST_MS`.
 - Federation: `ROUTER_FEDERATION_ENABLED`, `ROUTER_FEDERATION_ENDPOINT`, `ROUTER_FEDERATION_MAX_SPEND_MSAT`, `ROUTER_FEDERATION_MAX_OFFLOADS`, `ROUTER_FEDERATION_MAX_PL`, `ROUTER_FEDERATION_PEERS`, `ROUTER_FEDERATION_PUBLISH_INTERVAL_MS`, `ROUTER_FEDERATION_DISCOVERY`, `ROUTER_FEDERATION_BOOTSTRAP_PEERS`.
 - Relay discovery: `ROUTER_RELAY_BOOTSTRAP`, `ROUTER_RELAY_AGGREGATORS`, `ROUTER_RELAY_TRUST`, `ROUTER_RELAY_MIN_SCORE`, `ROUTER_RELAY_MAX_RESULTS`.
 - Relay snapshot admission: `ROUTER_RELAY_SNAPSHOT_REQUIRED`, `ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS`.
@@ -58,6 +65,7 @@ Selection inputs
 - Current load
 - Capacity
 - Trust score
+- Job type compatibility (when `InferenceRequest.jobType` is set)
 - Observed performance bonus (bounded) and reliability penalties.
 
 Scheduling guarantees

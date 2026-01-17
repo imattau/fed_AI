@@ -19,7 +19,7 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 
 ## Optional configuration
 
-- `NODE_RUNNER`: `mock` (default) or `http`.
+- `NODE_RUNNER`: `http` (default), `llama_cpp`, `vllm`, `openai`, `anthropic`, or `cpu`.
 - `NODE_RUNNER_URL`: HTTP runner base URL.
 - `NODE_MODEL_ID`: override reported model ID for capability ads.
 - `NODE_LLAMA_CPP_URL`: llama.cpp base URL (when `NODE_RUNNER=llama_cpp`).
@@ -40,6 +40,16 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_RUNNER_TIMEOUT_MS`: abort runner HTTP calls after this timeout.
 - `NODE_MAX_REQUEST_BYTES`: reject requests above this total payload size.
 - `NODE_MAX_RUNTIME_MS`: abort runner inference after this timeout.
+- `NODE_JOB_TYPES`: comma-separated RouterJobType values for capability ads.
+- `NODE_LATENCY_ESTIMATE_MS`: static latency estimate for capability ads.
+- `NODE_NONCE_STORE_PATH`: file path for persisted replay nonces.
+- `NODE_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
+- `NODE_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
+- `NODE_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
+- `NODE_TLS_CERT_PATH`: TLS cert path for HTTPS.
+- `NODE_TLS_KEY_PATH`: TLS key path for HTTPS.
+- `NODE_TLS_CA_PATH`: optional CA bundle for mTLS.
+- `NODE_TLS_REQUIRE_CLIENT_CERT`: `true|false` to require client certs.
 - `NODE_SANDBOX_MODE`: `disabled` (default) or `restricted` to enforce allowlists.
 - `NODE_SANDBOX_ALLOWED_RUNNERS`: comma-separated list of allowed runner names when restricted.
 - `NODE_SANDBOX_ALLOWED_ENDPOINTS`: comma-separated list of allowed base URL prefixes for HTTP-based runners.
@@ -67,6 +77,7 @@ docker compose -f infra/docker-compose.yml up node
 ## Health checks
 
 - `GET /health` should return `{ "ok": true }`.
+- `GET /status` should return `{ "ok": true }` plus runner health and capacity.
 - `GET /metrics` exposes Prometheus metrics.
 
 ## Observability

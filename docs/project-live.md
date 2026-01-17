@@ -57,6 +57,9 @@ Phase 7 - Optional extensions
 
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
+- [x] Production hardening: settlement verification and state storage.
+- [x] Scheduling upgrades (latency + job types) and protocol alignment.
+- [x] Router invoice generation hook for Lightning-backed invoices (replaces mock when configured).
 
 ## Upcoming tasks
 
@@ -156,6 +159,12 @@ Phase 7 - Optional extensions
 - [x] Auction orchestration helper (RFB → BID → AWARD) added with tests.
 - [x] Federation job settlement tracking added (requests + receipts).
 - [x] Deployment runbook added for non-local environments.
+- [x] File-backed replay nonce store added for router/node (configurable via env).
+- [x] Core mock runner removed from production code; retained only in tests.
+- [x] TLS/mTLS config hooks added for router/node HTTP servers.
+- [x] Default redacted logging utilities wired into router/node.
+- [x] Lightning verification hook added for router/node payment receipt acceptance.
+- [x] Scheduler now accounts for capability latency estimates and job type compatibility.
 
 ## Scratchpad
 

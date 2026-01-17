@@ -25,11 +25,14 @@ const [,, outputPath = '/keys/keys.env'] = process.argv;
 
 const router = generateKeyPairSync('ed25519');
 const nodeKey = generateKeyPairSync('ed25519');
+const nodeCpuKey = generateKeyPairSync('ed25519');
 
 const routerPublic = exportPublicKeyHex(router.publicKey);
 const routerPrivate = exportPrivateKeyHex(router.privateKey);
 const nodePublic = exportPublicKeyHex(nodeKey.publicKey);
 const nodePrivate = exportPrivateKeyHex(nodeKey.privateKey);
+const nodeCpuPublic = exportPublicKeyHex(nodeCpuKey.publicKey);
+const nodeCpuPrivate = exportPrivateKeyHex(nodeCpuKey.privateKey);
 
 const lines = [
   `ROUTER_KEY_ID=${routerPublic}`,
@@ -37,6 +40,8 @@ const lines = [
   `ROUTER_PUBLIC_KEY_PEM=${routerPublic}`,
   `NODE_KEY_ID=${nodePublic}`,
   `NODE_PRIVATE_KEY_PEM=${nodePrivate}`,
+  `NODE2_KEY_ID=${nodeCpuPublic}`,
+  `NODE2_PRIVATE_KEY_PEM=${nodeCpuPrivate}`,
 ];
 
 fs.mkdirSync(require('node:path').dirname(outputPath), { recursive: true });

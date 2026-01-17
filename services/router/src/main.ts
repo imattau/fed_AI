@@ -5,6 +5,8 @@ import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from '
 import { createRouterHttpServer } from './http';
 import { publishFederation } from './federation/publisher';
 import { discoverFederationPeers } from './federation/discovery';
+import { logInfo, logWarn } from './logging';
+import { loadRouterState, startRouterStatePersistence } from './state';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -73,17 +75,26 @@ const logRelayCandidates = async (
   try {
     const relays = await discoverRelays(options);
     const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
-    console.log(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
+    logInfo(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
   } catch (error) {
-    console.warn(
-      `[${role}] relay discovery failed`,
-      error instanceof Error ? error.message : String(error),
-    );
+    logWarn(`[${role}] relay discovery failed`, error);
   }
 };
 
 const buildConfig = (): RouterConfig => {
   const privateKey = getEnv('ROUTER_PRIVATE_KEY_PEM');
+  const tlsCertPath = getEnv('ROUTER_TLS_CERT_PATH');
+  const tlsKeyPath = getEnv('ROUTER_TLS_KEY_PATH');
+  const tlsCaPath = getEnv('ROUTER_TLS_CA_PATH');
+  const tlsRequireClientCert =
+    (getEnv('ROUTER_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
+  const paymentVerifyUrl = getEnv('ROUTER_LN_VERIFY_URL');
+  const paymentVerifyTimeoutMs = parseNumber(getEnv('ROUTER_LN_VERIFY_TIMEOUT_MS'));
+  const paymentRequirePreimage =
+    (getEnv('ROUTER_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
+  const paymentInvoiceUrl = getEnv('ROUTER_LN_INVOICE_URL');
+  const paymentInvoiceTimeoutMs = parseNumber(getEnv('ROUTER_LN_INVOICE_TIMEOUT_MS'));
+  const statePersistIntervalMs = parseNumber(getEnv('ROUTER_STATE_PERSIST_MS'));
 
   return {
     ...defaultRouterConfig,
@@ -92,7 +103,32 @@ const buildConfig = (): RouterConfig => {
     endpoint: getEnv('ROUTER_ENDPOINT') ?? defaultRouterConfig.endpoint,
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
+    nonceStorePath: getEnv('ROUTER_NONCE_STORE_PATH'),
     requirePayment: (getEnv('ROUTER_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
+    tls:
+      tlsCertPath && tlsKeyPath
+        ? {
+            certPath: tlsCertPath,
+            keyPath: tlsKeyPath,
+            caPath: tlsCaPath ?? undefined,
+            requireClientCert: tlsRequireClientCert,
+          }
+        : undefined,
+    paymentVerification: paymentVerifyUrl
+      ? {
+          url: paymentVerifyUrl,
+          timeoutMs: paymentVerifyTimeoutMs,
+          requirePreimage: paymentRequirePreimage,
+        }
+      : undefined,
+    paymentInvoice: paymentInvoiceUrl
+      ? {
+          url: paymentInvoiceUrl,
+          timeoutMs: paymentInvoiceTimeoutMs,
+        }
+      : undefined,
+    statePath: getEnv('ROUTER_STATE_PATH'),
+    statePersistIntervalMs,
     relayAdmission: buildRelayAdmissionPolicy(),
     federation: {
       enabled: (getEnv('ROUTER_FEDERATION_ENABLED') ?? 'false').toLowerCase() === 'true',
@@ -118,9 +154,11 @@ const buildConfig = (): RouterConfig => {
 const start = (): void => {
   const config = buildConfig();
   const service = createRouterService(config);
+  loadRouterState(service, config.statePath);
   const server = createRouterHttpServer(service, config);
 
   server.listen(config.port);
+  startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);
   void logRelayCandidates('router', buildDiscoveryOptions());
 
   const discoveredPeers = discoverFederationPeers(
@@ -134,10 +172,7 @@ const start = (): void => {
       try {
         await publishFederation(service, config, peerUrls);
       } catch (error) {
-        console.warn(
-          '[router] federation publish failed',
-          error instanceof Error ? error.message : String(error),
-        );
+        logWarn('[router] federation publish failed', error);
       }
     };
     void publish();

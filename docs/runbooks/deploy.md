@@ -26,6 +26,8 @@ Required environment:
 Recommended environment:
 
 - `ROUTER_REQUIRE_PAYMENT`
+- `ROUTER_LN_INVOICE_URL`
+- `ROUTER_LN_VERIFY_URL`
 - `ROUTER_RELAY_*` overrides
 - `ROUTER_RELAY_SNAPSHOT_REQUIRED`
 - `ROUTER_FEDERATION_ENABLED`
@@ -47,6 +49,7 @@ Recommended environment:
 - `NODE_RUNNER`
 - `NODE_RUNNER_URL`
 - `NODE_REQUIRE_PAYMENT`
+- `NODE_LN_VERIFY_URL`
 - `NODE_RELAY_*` overrides
 
 ## Smoke checks

@@ -1,18 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { buildEnvelope, parsePrivateKey, parsePublicKey, signEnvelope } from '@fed-ai/protocol';
-import type { Capability, NodeDescriptor } from '@fed-ai/protocol';
+import type { Capability, ModelInfo, NodeDescriptor } from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createNodeService } from './server';
 import { defaultNodeConfig, NodeConfig } from './config';
 import { HttpRunner } from './runners/http';
 import { LlamaCppRunner } from './runners/llama_cpp';
-import { MockRunner } from './runners/mock';
 import { OpenAiRunner } from './runners/openai';
 import { AnthropicRunner } from './runners/anthropic';
 import { VllmRunner } from './runners/vllm';
+import { CpuStatsRunner } from './runners/cpu';
 import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
 import { enforceSandboxPolicy } from './sandbox/policy';
+import { logInfo, logWarn } from './logging';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -24,6 +25,25 @@ const parseList = (value?: string): string[] | undefined => {
     ?.split(',')
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+};
+
+const JOB_TYPES = new Set([
+  'EMBEDDING',
+  'RERANK',
+  'CLASSIFY',
+  'MODERATE',
+  'TOOL_CALL',
+  'SUMMARISE',
+  'GEN_CHUNK',
+]);
+
+const parseJobTypes = (value?: string): NodeConfig['capabilityJobTypes'] => {
+  const entries = parseList(value);
+  if (!entries || entries.length === 0) {
+    return undefined;
+  }
+  const filtered = entries.filter((entry) => JOB_TYPES.has(entry));
+  return filtered.length > 0 ? (filtered as NodeConfig['capabilityJobTypes']) : undefined;
 };
 
 /** Convert optional trust-score overrides into the expected map shape. */
@@ -73,12 +93,9 @@ const logRelayCandidates = async (
   try {
     const relays = await discoverRelays(options);
     const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
-    console.log(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
+    logInfo(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
   } catch (error) {
-    console.warn(
-      `[${role}] relay discovery failed`,
-      error instanceof Error ? error.message : String(error),
-    );
+    logWarn(`[${role}] relay discovery failed`, error);
   }
 };
 
@@ -86,6 +103,15 @@ const buildConfig = (): NodeConfig => {
   const privateKey = getEnv('NODE_PRIVATE_KEY_PEM');
   const routerPublicKey = getEnv('ROUTER_PUBLIC_KEY_PEM');
   const routerKeyId = getEnv('ROUTER_KEY_ID');
+  const tlsCertPath = getEnv('NODE_TLS_CERT_PATH');
+  const tlsKeyPath = getEnv('NODE_TLS_KEY_PATH');
+  const tlsCaPath = getEnv('NODE_TLS_CA_PATH');
+  const tlsRequireClientCert =
+    (getEnv('NODE_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
+  const paymentVerifyUrl = getEnv('NODE_LN_VERIFY_URL');
+  const paymentVerifyTimeoutMs = parseNumber(getEnv('NODE_LN_VERIFY_TIMEOUT_MS'));
+  const paymentRequirePreimage =
+    (getEnv('NODE_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
 
@@ -116,6 +142,25 @@ const buildConfig = (): NodeConfig => {
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : undefined,
+    nonceStorePath: getEnv('NODE_NONCE_STORE_PATH'),
+    capabilityJobTypes: parseJobTypes(getEnv('NODE_JOB_TYPES')),
+    capabilityLatencyMs: parseNumber(getEnv('NODE_LATENCY_ESTIMATE_MS'), true),
+    tls:
+      tlsCertPath && tlsKeyPath
+        ? {
+            certPath: tlsCertPath,
+            keyPath: tlsKeyPath,
+            caPath: tlsCaPath ?? undefined,
+            requireClientCert: tlsRequireClientCert,
+          }
+        : undefined,
+    paymentVerification: paymentVerifyUrl
+      ? {
+          url: paymentVerifyUrl,
+          timeoutMs: paymentVerifyTimeoutMs,
+          requirePreimage: paymentRequirePreimage,
+        }
+      : undefined,
   };
 };
 
@@ -185,7 +230,10 @@ const buildRunner = (config: NodeConfig): Runner => {
       timeoutMs: config.runnerTimeoutMs,
     });
   }
-  return new MockRunner();
+  if (config.runnerName === 'cpu') {
+    return new CpuStatsRunner(getEnv('NODE_MODEL_ID') ?? 'cpu-stats');
+  }
+  throw new Error(`unsupported-runner:${config.runnerName}`);
 };
 
 const start = (): void => {
@@ -203,36 +251,69 @@ const start = (): void => {
 
   if (config.privateKey) {
     void startHeartbeat(service, config).catch((error) => {
-      console.warn('heartbeat-start-failed', error instanceof Error ? error.message : String(error));
+      logWarn('heartbeat-start-failed', error);
     });
   } else {
-    console.warn('heartbeat-disabled: node private key missing');
+    logWarn('heartbeat-disabled: node private key missing');
   }
 };
 
 start();
 
-const buildCapabilities = async (runner: Runner): Promise<Capability[]> => {
+async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Capability[]> {
   // Pricing is a placeholder until node pricing configuration is wired in.
-  const models = await runner.listModels();
-  return models.map((model) => ({
-    modelId: model.id,
-    contextWindow: model.contextWindow,
-    maxTokens: model.contextWindow,
-    pricing: {
-      unit: 'token',
-      inputRate: 0,
-      outputRate: 0,
-      currency: 'USD',
+  const fallbackModelId = getEnv('NODE_MODEL_ID') ?? 'default-model';
+  const fallbackContextWindow = config.maxTokens ?? 4096;
+  let models: ModelInfo[] = [];
+
+  try {
+    models = await runner.listModels();
+  } catch {
+    models = [];
+  }
+
+  const normalized = models
+    .filter((model) => Boolean(model?.id))
+    .map((model) => ({
+      modelId: model.id ?? fallbackModelId,
+      contextWindow: model.contextWindow ?? fallbackContextWindow,
+      maxTokens: model.contextWindow ?? fallbackContextWindow,
+      pricing: {
+        unit: 'token',
+        inputRate: 0,
+        outputRate: 0,
+        currency: 'USD',
+      },
+      latencyEstimateMs: config.capabilityLatencyMs,
+      jobTypes: config.capabilityJobTypes,
+    }));
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return [
+    {
+      modelId: fallbackModelId,
+      contextWindow: fallbackContextWindow,
+      maxTokens: fallbackContextWindow,
+      pricing: {
+        unit: 'token',
+        inputRate: 0,
+        outputRate: 0,
+        currency: 'USD',
+      },
+      latencyEstimateMs: config.capabilityLatencyMs,
+      jobTypes: config.capabilityJobTypes,
     },
-  }));
-};
+  ];
+}
 
 async function startHeartbeat(
   service: ReturnType<typeof createNodeService>,
   config: NodeConfig,
 ) {
-  const capabilities = await buildCapabilities(service.runner);
+  const capabilities = await buildCapabilities(service.runner, config);
 
   const sendHeartbeat = async (): Promise<void> => {
     const descriptor: NodeDescriptor = {
@@ -256,13 +337,22 @@ async function startHeartbeat(
     );
 
     try {
-      await fetch(`${config.routerEndpoint}/register-node`, {
+      const response = await fetch(`${config.routerEndpoint}/register-node`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(envelope),
       });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        logWarn('heartbeat-rejected', {
+          status: response.status,
+          detail: detail.trim() ? detail.trim() : 'no-body',
+        });
+      } else {
+        logInfo('heartbeat-sent', { nodeId: descriptor.nodeId });
+      }
     } catch (error) {
-      console.warn('heartbeat-send-failed', error instanceof Error ? error.message : String(error));
+      logWarn('heartbeat-send-failed', error);
     }
   };
 

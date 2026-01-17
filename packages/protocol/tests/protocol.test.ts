@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   buildEnvelope,
   checkReplay,
   DEFAULT_REPLAY_WINDOW_MS,
+  FileNonceStore,
   InMemoryNonceStore,
   signEnvelope,
   validateEnvelope,
@@ -53,6 +57,19 @@ test('checkReplay enforces nonce and timestamp window', () => {
   const lateResult = checkReplay(lateEnvelope, store, { nowMs: now });
   assert.equal(lateResult.ok, false);
   assert.equal(lateResult.error, 'ts-out-of-window');
+});
+
+test('FileNonceStore persists nonces across restarts', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fed-ai-replay-'));
+  const filePath = join(dir, 'nonces.json');
+
+  const store = new FileNonceStore(filePath, { persistIntervalMs: 0 });
+  store.add('nonce-file-1', Date.now());
+
+  const reloaded = new FileNonceStore(filePath, { persistIntervalMs: 0 });
+  assert.equal(reloaded.has('nonce-file-1'), true);
+
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('validateEnvelope validates payloads', () => {

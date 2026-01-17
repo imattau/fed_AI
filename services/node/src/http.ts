@@ -1,8 +1,11 @@
 import http, { IncomingMessage, ServerResponse } from 'node:http';
+import https from 'node:https';
+import { readFileSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import {
   buildEnvelope,
   checkReplay,
+  FileNonceStore,
   InMemoryNonceStore,
   parsePublicKey,
   signEnvelope,
@@ -20,6 +23,7 @@ import type {
 } from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
+import { verifyPaymentReceipt } from './payments/verify';
 import {
   nodeInferenceDuration,
   nodeInferenceRequests,
@@ -67,11 +71,36 @@ const hashPrompt = (prompt: string): string => {
 };
 
 export const createNodeHttpServer = (service: NodeService, config: NodeConfig): http.Server => {
-  const nonceStore = new InMemoryNonceStore();
+  const nonceStore = config.nonceStorePath
+    ? new FileNonceStore(config.nonceStorePath)
+    : new InMemoryNonceStore();
+  const startedAtMs = Date.now();
 
-  return http.createServer(async (req, res) => {
+  const handler = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
+    }
+
+    if (req.method === 'GET' && req.url === '/status') {
+      const health = await service.runner.health();
+      return sendJson(res, 200, {
+        ok: true,
+        uptimeMs: Date.now() - startedAtMs,
+        nodeId: config.nodeId,
+        runner: {
+          name: config.runnerName,
+          health,
+        },
+        inFlight: service.inFlight,
+        capacity: {
+          maxConcurrent: config.capacityMaxConcurrent,
+          currentLoad: config.capacityCurrentLoad + service.inFlight,
+        },
+        payments: {
+          requirePayment: config.requirePayment,
+          verificationEnabled: Boolean(config.paymentVerification),
+        },
+      });
     }
 
     if (req.method === 'GET' && req.url === '/metrics') {
@@ -145,22 +174,31 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
             return respond(400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
           }
 
-          const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
-          if (receipt.payload.amountSats < 1) {
-            nodeReceiptFailures.inc();
-            return respond(400, { error: 'payment-amount-invalid' });
-          }
+        const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
+        if (receipt.payload.amountSats < 1) {
+          nodeReceiptFailures.inc();
+          return respond(400, { error: 'payment-amount-invalid' });
+        }
           if (receipt.payload.requestId !== envelope.payload.requestId) {
             nodeReceiptFailures.inc();
             return respond(400, { error: 'payment-request-mismatch' });
           }
 
-          const clientKey = parsePublicKey(receipt.keyId);
-          if (!verifyEnvelope(receipt, clientKey)) {
-            nodeReceiptFailures.inc();
-            return respond(401, { error: 'invalid-payment-receipt-signature' });
-          }
+        const clientKey = parsePublicKey(receipt.keyId);
+        if (!verifyEnvelope(receipt, clientKey)) {
+          nodeReceiptFailures.inc();
+          return respond(401, { error: 'invalid-payment-receipt-signature' });
         }
+
+        const verification = await verifyPaymentReceipt(
+          receipt.payload,
+          config.paymentVerification,
+        );
+        if (!verification.ok) {
+          nodeReceiptFailures.inc();
+          return respond(400, { error: verification.error });
+        }
+      }
 
         if (!config.privateKey) {
           return respond(500, { error: 'node-private-key-missing' });
@@ -221,5 +259,22 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
     }
 
     return sendJson(res, 404, { error: 'not-found' });
-  });
+  };
+
+  if (config.tls) {
+    const tlsOptions: https.ServerOptions = {
+      key: readFileSync(config.tls.keyPath),
+      cert: readFileSync(config.tls.certPath),
+    };
+    if (config.tls.caPath) {
+      tlsOptions.ca = readFileSync(config.tls.caPath);
+    }
+    if (config.tls.requireClientCert) {
+      tlsOptions.requestCert = true;
+      tlsOptions.rejectUnauthorized = true;
+    }
+    return https.createServer(tlsOptions, handler);
+  }
+
+  return http.createServer(handler);
 };

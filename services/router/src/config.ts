@@ -4,9 +4,33 @@ export type RouterConfig = {
   endpoint: string;
   port: number;
   privateKey?: import('node:crypto').KeyObject;
+  nonceStorePath?: string;
   requirePayment: boolean;
+  tls?: RouterTlsConfig;
+  paymentInvoice?: PaymentInvoiceConfig;
+  paymentVerification?: PaymentVerificationConfig;
+  statePath?: string;
+  statePersistIntervalMs?: number;
   relayAdmission?: RelayAdmissionPolicy;
   federation?: RouterFederationConfig;
+};
+
+export type RouterTlsConfig = {
+  certPath: string;
+  keyPath: string;
+  caPath?: string;
+  requireClientCert?: boolean;
+};
+
+export type PaymentVerificationConfig = {
+  url: string;
+  timeoutMs?: number;
+  requirePreimage?: boolean;
+};
+
+export type PaymentInvoiceConfig = {
+  url: string;
+  timeoutMs?: number;
 };
 
 export type RelayAdmissionPolicy = {

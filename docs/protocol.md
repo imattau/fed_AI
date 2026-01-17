@@ -67,7 +67,12 @@ Payment lifecycle
 - Router coordinates payment requirements and returns invoice details (from nodes and optionally routers).
 - Client pays Lightning invoices directly to the payees and returns a signed `PaymentReceipt` envelope.
 - Router verifies payment proofs without custody and records settlement; node validates the receipt before executing inference when required.
-- The receipt is forwarded as `InferenceRequest.paymentReceipt` for pay-before-work flows.
+- The receipt is forwarded as `InferenceRequest.paymentReceipts` for pay-before-work flows.
+
+Scheduling hints
+- `Capability.jobTypes` can advertise which job types a model supports (e.g. `CLASSIFY`, `EMBEDDING`).
+- `Capability.latencyEstimateMs` can advertise expected latency for that capability.
+- `InferenceRequest.jobType` and `QuoteRequest.jobType` allow routers to route by job type when provided.
 
 ## Replay protection
 

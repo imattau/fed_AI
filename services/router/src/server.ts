@@ -113,6 +113,7 @@ export const selectNodeForRequest = (service: RouterService, request: InferenceR
       maxTokens: request.maxTokens,
       inputTokensEstimate: request.prompt.length,
       outputTokensEstimate: request.maxTokens,
+      jobType: request.jobType,
     },
   });
 

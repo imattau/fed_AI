@@ -69,6 +69,8 @@ const capabilitySchema: z.ZodType<Capability> = z.object({
   contextWindow: z.number(),
   maxTokens: z.number(),
   pricing: pricingSchema,
+  latencyEstimateMs: z.number().optional(),
+  jobTypes: z.array(routerJobTypeSchema).optional(),
 });
 
 const modelInfoSchema: z.ZodType<ModelInfo> = z.object({
@@ -98,6 +100,7 @@ const quoteRequestSchema: z.ZodType<QuoteRequest> = z.object({
   maxTokens: z.number(),
   inputTokensEstimate: z.number(),
   outputTokensEstimate: z.number(),
+  jobType: routerJobTypeSchema.optional(),
   constraints: z
     .object({
       regions: z.array(z.string()).optional(),
@@ -462,6 +465,7 @@ const inferenceRequestSchema: z.ZodType<InferenceRequest> = z.object({
   maxTokens: z.number(),
   temperature: z.number().optional(),
   topP: z.number().optional(),
+  jobType: routerJobTypeSchema.optional(),
   metadata: z.record(z.string()).optional(),
   paymentReceipts: z.array(envelopeSchema(paymentReceiptSchema)).optional(),
 });
