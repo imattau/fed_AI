@@ -1,37 +1,30 @@
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
-type LlamaCppRunnerOptions = {
+type AnthropicRunnerOptions = {
   baseUrl: string;
   defaultModelId?: string;
   timeoutMs?: number;
   apiKey?: string;
 };
 
-type ModelListResponse = {
-  models?: ModelInfo[];
+type AnthropicResponse = {
+  content?: Array<{ text?: string }>;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
 };
 
-type LlamaCompletionResponse = {
-  content?: string;
-  completion?: string;
-  choices?: Array<{ text?: string }>;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  tokens_predicted?: number;
-  tokens_evaluated?: number;
-  timings?: { total_ms?: number };
-};
-
-export class LlamaCppRunner implements Runner {
+export class AnthropicRunner implements Runner {
   private baseUrl: string;
   private defaultModelId: string;
   private timeoutMs?: number;
   private apiKey?: string;
 
-  constructor(options: LlamaCppRunnerOptions) {
+  constructor(options: AnthropicRunnerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
-    this.defaultModelId = options.defaultModelId ?? 'llama-model';
+    this.defaultModelId = options.defaultModelId ?? 'claude-3-haiku-20240307';
     this.timeoutMs = options.timeoutMs;
     this.apiKey = options.apiKey;
   }
@@ -43,7 +36,8 @@ export class LlamaCppRunner implements Runner {
   private buildHeaders(extra?: HeadersInit): HeadersInit {
     return {
       'content-type': 'application/json',
-      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+      'anthropic-version': '2023-06-01',
+      ...(this.apiKey ? { 'x-api-key': this.apiKey } : {}),
       ...(extra ?? {}),
     };
   }
@@ -64,21 +58,13 @@ export class LlamaCppRunner implements Runner {
     });
 
     if (!response.ok) {
-      throw new Error(`runner-llama-cpp ${response.status} ${response.statusText}`);
+      throw new Error(`runner-anthropic ${response.status} ${response.statusText}`);
     }
 
     return (await response.json()) as T;
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    try {
-      const payload = await this.fetchJson<ModelListResponse>('/models', { method: 'GET' });
-      if (payload.models && payload.models.length > 0) {
-        return payload.models;
-      }
-    } catch {
-      // fall back to defaults when models endpoint is unavailable
-    }
     return [
       {
         id: this.defaultModelId,
@@ -88,53 +74,30 @@ export class LlamaCppRunner implements Runner {
   }
 
   async infer(request: InferenceRequest): Promise<InferenceResponse> {
-    const payload = await this.fetchJson<LlamaCompletionResponse>('/completion', {
+    const payload = await this.fetchJson<AnthropicResponse>('/v1/messages', {
       method: 'POST',
       body: JSON.stringify({
-        prompt: request.prompt,
-        n_predict: request.maxTokens,
-        temperature: request.temperature ?? 0.7,
-        top_p: request.topP ?? 0.95,
+        model: request.modelId ?? this.defaultModelId,
+        max_tokens: request.maxTokens,
+        messages: [{ role: 'user', content: request.prompt }],
       }),
     });
 
-    const output =
-      payload.content ??
-      payload.completion ??
-      payload.choices?.[0]?.text ??
-      '';
-    const inputTokens = payload.prompt_eval_count ?? payload.tokens_evaluated ?? request.prompt.length;
-    const outputTokens = payload.eval_count ?? payload.tokens_predicted ?? output.length;
-    const latencyMs = payload.timings?.total_ms ?? 0;
-
+    const output = payload.content?.[0]?.text ?? '';
     return {
       requestId: request.requestId,
       modelId: request.modelId ?? this.defaultModelId,
       output,
       usage: {
-        inputTokens,
-        outputTokens,
+        inputTokens: payload.usage?.input_tokens ?? request.prompt.length,
+        outputTokens: payload.usage?.output_tokens ?? output.length,
       },
-      latencyMs,
+      latencyMs: 0,
     };
   }
 
   async estimate(_request: InferenceRequest): Promise<RunnerEstimate> {
-    try {
-      const payload = await this.fetchJson<{ costEstimate?: number; latencyEstimateMs?: number }>(
-        '/estimate',
-        {
-          method: 'POST',
-          body: JSON.stringify(_request),
-        },
-      );
-      return {
-        costEstimate: payload.costEstimate,
-        latencyEstimateMs: payload.latencyEstimateMs,
-      };
-    } catch {
-      return { latencyEstimateMs: 50 };
-    }
+    return { latencyEstimateMs: 50 };
   }
 
   async health(): Promise<RunnerHealth> {
@@ -143,7 +106,7 @@ export class LlamaCppRunner implements Runner {
       const timeout = this.timeoutMs
         ? setTimeout(() => controller?.abort(), this.timeoutMs)
         : null;
-      const response = await fetch(this.buildUrl('/health'), {
+      const response = await fetch(this.buildUrl('/v1/models'), {
         method: 'GET',
         signal: controller?.signal,
         headers: this.buildHeaders(),

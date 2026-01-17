@@ -1,39 +1,47 @@
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
-type LlamaCppRunnerOptions = {
+type OpenAiRunnerOptions = {
   baseUrl: string;
   defaultModelId?: string;
   timeoutMs?: number;
   apiKey?: string;
+  mode?: 'chat' | 'completion';
 };
 
-type ModelListResponse = {
-  models?: ModelInfo[];
+type OpenAiModelsResponse = {
+  data?: Array<{ id: string }>;
 };
 
-type LlamaCompletionResponse = {
-  content?: string;
-  completion?: string;
+type OpenAiCompletionResponse = {
   choices?: Array<{ text?: string }>;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  tokens_predicted?: number;
-  tokens_evaluated?: number;
-  timings?: { total_ms?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
 };
 
-export class LlamaCppRunner implements Runner {
+type OpenAiChatResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+};
+
+export class OpenAiRunner implements Runner {
   private baseUrl: string;
   private defaultModelId: string;
   private timeoutMs?: number;
   private apiKey?: string;
+  private mode: 'chat' | 'completion';
 
-  constructor(options: LlamaCppRunnerOptions) {
+  constructor(options: OpenAiRunnerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
-    this.defaultModelId = options.defaultModelId ?? 'llama-model';
+    this.defaultModelId = options.defaultModelId ?? 'gpt-4o-mini';
     this.timeoutMs = options.timeoutMs;
     this.apiKey = options.apiKey;
+    this.mode = options.mode ?? 'chat';
   }
 
   private buildUrl(path: string): string {
@@ -64,7 +72,7 @@ export class LlamaCppRunner implements Runner {
     });
 
     if (!response.ok) {
-      throw new Error(`runner-llama-cpp ${response.status} ${response.statusText}`);
+      throw new Error(`runner-openai ${response.status} ${response.statusText}`);
     }
 
     return (await response.json()) as T;
@@ -72,9 +80,12 @@ export class LlamaCppRunner implements Runner {
 
   async listModels(): Promise<ModelInfo[]> {
     try {
-      const payload = await this.fetchJson<ModelListResponse>('/models', { method: 'GET' });
-      if (payload.models && payload.models.length > 0) {
-        return payload.models;
+      const payload = await this.fetchJson<OpenAiModelsResponse>('/v1/models', { method: 'GET' });
+      if (payload.data && payload.data.length > 0) {
+        return payload.data.map((entry) => ({
+          id: entry.id,
+          contextWindow: 4096,
+        }));
       }
     } catch {
       // fall back to defaults when models endpoint is unavailable
@@ -88,53 +99,57 @@ export class LlamaCppRunner implements Runner {
   }
 
   async infer(request: InferenceRequest): Promise<InferenceResponse> {
-    const payload = await this.fetchJson<LlamaCompletionResponse>('/completion', {
+    if (this.mode === 'completion') {
+      const payload = await this.fetchJson<OpenAiCompletionResponse>('/v1/completions', {
+        method: 'POST',
+        body: JSON.stringify({
+          model: request.modelId ?? this.defaultModelId,
+          prompt: request.prompt,
+          max_tokens: request.maxTokens,
+          temperature: request.temperature ?? 0.7,
+          top_p: request.topP ?? 0.95,
+        }),
+      });
+
+      const output = payload.choices?.[0]?.text ?? '';
+      return {
+        requestId: request.requestId,
+        modelId: request.modelId ?? this.defaultModelId,
+        output,
+        usage: {
+          inputTokens: payload.usage?.prompt_tokens ?? request.prompt.length,
+          outputTokens: payload.usage?.completion_tokens ?? output.length,
+        },
+        latencyMs: 0,
+      };
+    }
+
+    const payload = await this.fetchJson<OpenAiChatResponse>('/v1/chat/completions', {
       method: 'POST',
       body: JSON.stringify({
-        prompt: request.prompt,
-        n_predict: request.maxTokens,
+        model: request.modelId ?? this.defaultModelId,
+        messages: [{ role: 'user', content: request.prompt }],
+        max_tokens: request.maxTokens,
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 0.95,
       }),
     });
 
-    const output =
-      payload.content ??
-      payload.completion ??
-      payload.choices?.[0]?.text ??
-      '';
-    const inputTokens = payload.prompt_eval_count ?? payload.tokens_evaluated ?? request.prompt.length;
-    const outputTokens = payload.eval_count ?? payload.tokens_predicted ?? output.length;
-    const latencyMs = payload.timings?.total_ms ?? 0;
-
+    const output = payload.choices?.[0]?.message?.content ?? '';
     return {
       requestId: request.requestId,
       modelId: request.modelId ?? this.defaultModelId,
       output,
       usage: {
-        inputTokens,
-        outputTokens,
+        inputTokens: payload.usage?.prompt_tokens ?? request.prompt.length,
+        outputTokens: payload.usage?.completion_tokens ?? output.length,
       },
-      latencyMs,
+      latencyMs: 0,
     };
   }
 
   async estimate(_request: InferenceRequest): Promise<RunnerEstimate> {
-    try {
-      const payload = await this.fetchJson<{ costEstimate?: number; latencyEstimateMs?: number }>(
-        '/estimate',
-        {
-          method: 'POST',
-          body: JSON.stringify(_request),
-        },
-      );
-      return {
-        costEstimate: payload.costEstimate,
-        latencyEstimateMs: payload.latencyEstimateMs,
-      };
-    } catch {
-      return { latencyEstimateMs: 50 };
-    }
+    return { latencyEstimateMs: 50 };
   }
 
   async health(): Promise<RunnerHealth> {
@@ -143,7 +158,7 @@ export class LlamaCppRunner implements Runner {
       const timeout = this.timeoutMs
         ? setTimeout(() => controller?.abort(), this.timeoutMs)
         : null;
-      const response = await fetch(this.buildUrl('/health'), {
+      const response = await fetch(this.buildUrl('/v1/models'), {
         method: 'GET',
         signal: controller?.signal,
         headers: this.buildHeaders(),

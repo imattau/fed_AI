@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
 import {
   buildEnvelope,
   exportPublicKeyHex,
@@ -29,6 +30,14 @@ const startServer = async (config: NodeConfig, runner = new MockRunner()) => {
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const address = server.address() as AddressInfo;
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+};
+
+const closeServer = (server: Server) => {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  return new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
 };
 
 test('node /infer rejects when router public key missing', async () => {
@@ -63,7 +72,7 @@ test('node /infer rejects when router public key missing', async () => {
 
   assert.equal(response.status, 500);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer validates signatures and returns signed response', async () => {
@@ -124,7 +133,7 @@ test('node /infer validates signatures and returns signed response', async () =>
   assert.equal(verifyEnvelope(responseEnvelope, nodeKeys.publicKey), true);
   assert.equal(verifyEnvelope(meteringEnvelope, nodeKeys.publicKey), true);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer rejects when router key id mismatches', async () => {
@@ -169,7 +178,7 @@ test('node /infer rejects when router key id mismatches', async () => {
   });
 
   assert.equal(response.status, 401);
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer requires payment when configured', async () => {
@@ -278,7 +287,7 @@ test('node /infer requires payment when configured', async () => {
 
   assert.equal(paidResponse.status, 200);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer enforces capacity limits', async () => {
@@ -322,7 +331,7 @@ test('node /infer enforces capacity limits', async () => {
   });
 
   assert.equal(response.status, 429);
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer enforces prompt and token limits', async () => {
@@ -383,7 +392,7 @@ test('node /infer enforces prompt and token limits', async () => {
   });
   assert.equal(tokenResponse.status, 400);
 
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer enforces max request bytes', async () => {
@@ -428,7 +437,7 @@ test('node /infer enforces max request bytes', async () => {
   });
 
   assert.equal(response.status, 413);
-  server.close();
+  await closeServer(server);
 });
 
 test('node /infer enforces max runtime budget', async () => {
@@ -493,7 +502,7 @@ test('node /infer enforces max runtime budget', async () => {
   });
 
   assert.equal(response.status, 504);
-  server.close();
+  await closeServer(server);
 });
 
 test('node /metrics exposes Prometheus metrics', async () => {
@@ -518,5 +527,5 @@ test('node /metrics exposes Prometheus metrics', async () => {
   assert.equal(response.status, 200);
   const body = await response.text();
   assert.ok(body.includes('node_inference_requests_total'));
-  server.close();
+  await closeServer(server);
 });

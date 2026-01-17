@@ -37,6 +37,14 @@ export class VllmRunner implements Runner {
     return `${this.baseUrl}${path}`;
   }
 
+  private buildHeaders(extra?: HeadersInit): HeadersInit {
+    return {
+      'content-type': 'application/json',
+      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+      ...(extra ?? {}),
+    };
+  }
+
   private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
     const controller = this.timeoutMs ? new AbortController() : null;
     const timeout = this.timeoutMs
@@ -45,11 +53,7 @@ export class VllmRunner implements Runner {
     const response = await fetch(this.buildUrl(path), {
       ...init,
       signal: controller?.signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
-        ...(init.headers ?? {}),
-      },
+      headers: this.buildHeaders(init.headers),
     }).finally(() => {
       if (timeout) {
         clearTimeout(timeout);
@@ -138,6 +142,7 @@ export class VllmRunner implements Runner {
       const response = await fetch(this.buildUrl('/v1/models'), {
         method: 'GET',
         signal: controller?.signal,
+        headers: this.buildHeaders(),
       }).finally(() => {
         if (timeout) {
           clearTimeout(timeout);

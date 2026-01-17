@@ -4,6 +4,14 @@ import http from 'node:http';
 import path from 'node:path';
 import { AddressInfo } from 'node:net';
 
+const closeServer = (server: http.Server) => {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  return new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+};
+
 const startVllmServer = async () => {
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -13,12 +21,22 @@ const startVllmServer = async () => {
     const body = Buffer.concat(chunks).toString('utf8');
 
     if (req.url === '/v1/models') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: [{ id: 'vllm-test' }] }));
       return;
     }
 
     if (req.url === '/v1/completions') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       const payload = JSON.parse(body) as { prompt: string };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -44,7 +62,7 @@ test('vLLM runner proxies to OpenAI completions endpoint', async () => {
     path.join(process.cwd(), 'src/runners/vllm/index.ts'),
   )) as typeof import('../../src/runners/vllm/index');
   const { server, baseUrl } = await startVllmServer();
-  const runner = new VllmRunner({ baseUrl, defaultModelId: 'vllm-test' });
+  const runner = new VllmRunner({ baseUrl, defaultModelId: 'vllm-test', apiKey: 'test-key' });
 
   const models = await runner.listModels();
   assert.equal(models[0].id, 'vllm-test');
@@ -57,5 +75,5 @@ test('vLLM runner proxies to OpenAI completions endpoint', async () => {
   });
   assert.equal(response.output, 'echo:hi');
 
-  server.close();
+  await closeServer(server);
 });

@@ -24,6 +24,14 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_MODEL_ID`: override reported model ID for capability ads.
 - `NODE_LLAMA_CPP_URL`: llama.cpp base URL (when `NODE_RUNNER=llama_cpp`).
 - `NODE_VLLM_URL`: vLLM base URL (when `NODE_RUNNER=vllm`).
+- `NODE_OPENAI_URL`: OpenAI-compatible base URL (when `NODE_RUNNER=openai`).
+- `NODE_OPENAI_MODE`: `chat` or `completion`.
+- `NODE_ANTHROPIC_URL`: Anthropic base URL (when `NODE_RUNNER=anthropic`).
+- `NODE_RUNNER_API_KEY`: shared API key (used by HTTP/llama/vllm/openai/anthropic runners).
+- `NODE_OPENAI_API_KEY`: override API key for OpenAI-compatible runners.
+- `NODE_VLLM_API_KEY`: override API key for vLLM runner.
+- `NODE_LLAMA_CPP_API_KEY`: override API key for llama.cpp runner.
+- `NODE_ANTHROPIC_API_KEY`: override API key for Anthropic runner.
 - `NODE_HEARTBEAT_MS`: heartbeat interval in ms.
 - `NODE_CAPACITY_MAX`: max concurrent jobs.
 - `NODE_CAPACITY_LOAD`: initial load hint.

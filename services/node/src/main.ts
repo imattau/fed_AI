@@ -7,6 +7,8 @@ import { defaultNodeConfig, NodeConfig } from './config';
 import { HttpRunner } from './runners/http';
 import { LlamaCppRunner } from './runners/llama_cpp';
 import { MockRunner } from './runners/mock';
+import { OpenAiRunner } from './runners/openai';
+import { AnthropicRunner } from './runners/anthropic';
 import { VllmRunner } from './runners/vllm';
 import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
@@ -137,6 +139,7 @@ const buildRunner = (config: NodeConfig): Runner => {
     return new HttpRunner({
       baseUrl: runnerUrl,
       defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName,
+      apiKey: getEnv('NODE_RUNNER_API_KEY'),
       timeoutMs: config.runnerTimeoutMs,
     });
   }
@@ -146,6 +149,7 @@ const buildRunner = (config: NodeConfig): Runner => {
     return new LlamaCppRunner({
       baseUrl: runnerUrl,
       defaultModelId: getEnv('NODE_MODEL_ID') ?? 'llama-model',
+      apiKey: getEnv('NODE_LLAMA_CPP_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
       timeoutMs: config.runnerTimeoutMs,
     });
   }
@@ -155,6 +159,29 @@ const buildRunner = (config: NodeConfig): Runner => {
     return new VllmRunner({
       baseUrl: runnerUrl,
       defaultModelId: getEnv('NODE_MODEL_ID') ?? 'vllm-model',
+      apiKey: getEnv('NODE_VLLM_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
+      timeoutMs: config.runnerTimeoutMs,
+    });
+  }
+  if (config.runnerName === 'openai') {
+    const runnerUrl = getEnv('NODE_OPENAI_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.openai.com';
+    const mode = (getEnv('NODE_OPENAI_MODE') as 'chat' | 'completion' | undefined) ?? 'chat';
+    ensureEndpointAllowed(runnerUrl);
+    return new OpenAiRunner({
+      baseUrl: runnerUrl,
+      defaultModelId: getEnv('NODE_OPENAI_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'gpt-4o-mini',
+      apiKey: getEnv('NODE_OPENAI_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
+      timeoutMs: config.runnerTimeoutMs,
+      mode,
+    });
+  }
+  if (config.runnerName === 'anthropic') {
+    const runnerUrl = getEnv('NODE_ANTHROPIC_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.anthropic.com';
+    ensureEndpointAllowed(runnerUrl);
+    return new AnthropicRunner({
+      baseUrl: runnerUrl,
+      defaultModelId: getEnv('NODE_ANTHROPIC_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'claude-3-haiku-20240307',
+      apiKey: getEnv('NODE_ANTHROPIC_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
       timeoutMs: config.runnerTimeoutMs,
     });
   }

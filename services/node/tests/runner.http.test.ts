@@ -5,6 +5,14 @@ import path from 'node:path';
 import { AddressInfo } from 'node:net';
 import type { InferenceRequest } from '@fed-ai/protocol';
 
+const closeServer = (server: http.Server) => {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  return new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+};
+
 const startStubRunner = async () => {
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -14,24 +22,44 @@ const startStubRunner = async () => {
     const body = Buffer.concat(chunks).toString('utf8');
 
     if (req.url === '/models') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ models: [{ id: 'llama-test', contextWindow: 1024, maxTokens: 512 }] }));
       return;
     }
 
     if (req.url === '/health') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;
     }
 
     if (req.url === '/estimate') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ costEstimate: 0.1, latencyEstimateMs: 42 }));
       return;
     }
 
     if (req.url === '/infer') {
+      if (req.headers.authorization !== 'Bearer test-key') {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
       const payload: InferenceRequest = JSON.parse(body);
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -60,7 +88,7 @@ test('http runner proxies to model server', async () => {
     path.join(process.cwd(), 'src/runners/http/index.ts'),
   )) as typeof import('../../src/runners/http/index');
   const { server, baseUrl } = await startStubRunner();
-  const runner = new HttpRunner({ baseUrl, defaultModelId: 'llama-test' });
+  const runner = new HttpRunner({ baseUrl, defaultModelId: 'llama-test', apiKey: 'test-key' });
 
   const models = await runner.listModels();
   assert.equal(models.length, 1);
@@ -86,5 +114,5 @@ test('http runner proxies to model server', async () => {
   assert.equal(response.output, 'echo:hello world');
   assert.equal(response.usage.inputTokens, 11);
 
-  server.close();
+  await closeServer(server);
 });

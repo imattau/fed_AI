@@ -12,7 +12,7 @@ const closeServer = (server: http.Server) => {
   );
 };
 
-const startLlamaServer = async () => {
+const startOpenAiServer = async () => {
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -20,42 +20,29 @@ const startLlamaServer = async () => {
     }
     const body = Buffer.concat(chunks).toString('utf8');
 
-    if (req.url === '/models') {
+    if (req.url === '/v1/models') {
       if (req.headers.authorization !== 'Bearer test-key') {
         res.writeHead(401);
         res.end();
         return;
       }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: [{ id: 'llama-test', contextWindow: 2048 }] }));
+      res.end(JSON.stringify({ data: [{ id: 'openai-test' }] }));
       return;
     }
 
-    if (req.url === '/health') {
+    if (req.url === '/v1/chat/completions') {
       if (req.headers.authorization !== 'Bearer test-key') {
         res.writeHead(401);
         res.end();
         return;
       }
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-
-    if (req.url === '/completion') {
-      if (req.headers.authorization !== 'Bearer test-key') {
-        res.writeHead(401);
-        res.end();
-        return;
-      }
-      const payload = JSON.parse(body) as { prompt: string };
+      const payload = JSON.parse(body) as { messages: Array<{ content: string }> };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
-          content: `echo:${payload.prompt}`,
-          prompt_eval_count: 3,
-          eval_count: 2,
-          timings: { total_ms: 12 },
+          choices: [{ message: { content: `echo:${payload.messages[0].content}` } }],
+          usage: { prompt_tokens: 3, completion_tokens: 2 },
         }),
       );
       return;
@@ -70,22 +57,24 @@ const startLlamaServer = async () => {
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 };
 
-test('llama.cpp runner proxies to completion endpoint', async () => {
-  const { LlamaCppRunner } = (await import(
-    path.join(process.cwd(), 'src/runners/llama_cpp/index.ts'),
-  )) as typeof import('../../src/runners/llama_cpp/index');
-  const { server, baseUrl } = await startLlamaServer();
-  const runner = new LlamaCppRunner({ baseUrl, defaultModelId: 'llama-test', apiKey: 'test-key' });
+test('openai runner proxies to chat completions endpoint', async () => {
+  const { OpenAiRunner } = (await import(
+    path.join(process.cwd(), 'src/runners/openai/index.ts'),
+  )) as typeof import('../../src/runners/openai/index');
+  const { server, baseUrl } = await startOpenAiServer();
+  const runner = new OpenAiRunner({
+    baseUrl,
+    defaultModelId: 'openai-test',
+    apiKey: 'test-key',
+    mode: 'chat',
+  });
 
   const models = await runner.listModels();
-  assert.equal(models[0].id, 'llama-test');
-
-  const health = await runner.health();
-  assert.equal(health.ok, true);
+  assert.equal(models[0].id, 'openai-test');
 
   const response = await runner.infer({
-    requestId: 'req-llama',
-    modelId: 'llama-test',
+    requestId: 'req-openai',
+    modelId: 'openai-test',
     prompt: 'hi',
     maxTokens: 16,
   });

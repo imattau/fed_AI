@@ -2,7 +2,9 @@ import { Counter, collectDefaultMetrics, Histogram, Registry } from 'prom-client
 import { trace } from '@opentelemetry/api';
 
 export const nodeRegistry = new Registry();
-collectDefaultMetrics({ register: nodeRegistry });
+if (process.env.NODE_ENV !== 'test') {
+  collectDefaultMetrics({ register: nodeRegistry });
+}
 
 export const nodeInferenceRequests = new Counter({
   name: 'node_inference_requests_total',

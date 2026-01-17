@@ -34,6 +34,8 @@ Runner selection
 - Use `NODE_MODEL_ID` to override the default reported model ID for capability advertisements.
 - `NODE_RUNNER=llama_cpp` targets a llama.cpp server; set `NODE_LLAMA_CPP_URL` (or `NODE_RUNNER_URL`) and ensure `/completion` is available.
 - `NODE_RUNNER=vllm` targets a vLLM server (OpenAI-compatible); set `NODE_VLLM_URL` (or `NODE_RUNNER_URL`) and ensure `/v1/completions` is available.
+- `NODE_RUNNER=openai` targets OpenAI-compatible APIs (OpenAI, Grok, DeepSeek); set `NODE_OPENAI_URL` + `NODE_OPENAI_API_KEY` and optionally `NODE_OPENAI_MODE=chat|completion`.
+- `NODE_RUNNER=anthropic` targets Claude via Anthropic; set `NODE_ANTHROPIC_URL` + `NODE_ANTHROPIC_API_KEY`.
 
 Rules
 - Runners communicate via process spawn, IPC, or HTTP.
@@ -57,6 +59,7 @@ Configuration
 - Core: `NODE_ID`, `NODE_KEY_ID`, `NODE_PRIVATE_KEY_PEM`, `NODE_ENDPOINT`, `NODE_PORT`.
 - Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`, `ROUTER_KEY_ID`.
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
+- Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
 - Limits: `NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_RUNNER_TIMEOUT_MS`, `NODE_MAX_REQUEST_BYTES`, `NODE_MAX_RUNTIME_MS`.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
@@ -79,6 +82,7 @@ Configuration
 - [x] Enforce total request size limits at the HTTP boundary.
 - [x] Enforce max runtime budget for runner calls.
 - [x] Implement real runner adapters (llama.cpp, vLLM) with health and estimate support.
+- [x] Provide OpenAI-compatible and Anthropic adapters for third-party hosted models.
 - [ ] Wire secure runner spawning/IPC with restricted environment and file system access.
 - [ ] Define and document production payment flows (LN invoices, keysend, receipt verification).
 - [ ] Add node runbook steps for production deployment and key rotation.

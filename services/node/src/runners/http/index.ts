@@ -5,6 +5,7 @@ type HttpRunnerOptions = {
   baseUrl: string;
   defaultModelId?: string;
   timeoutMs?: number;
+  apiKey?: string;
 };
 
 type ModelListResponse = {
@@ -23,15 +24,25 @@ export class HttpRunner implements Runner {
   private baseUrl: string;
   private defaultModelId: string;
   private timeoutMs?: number;
+  private apiKey?: string;
 
   constructor(options: HttpRunnerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.defaultModelId = options.defaultModelId ?? 'llama-model';
     this.timeoutMs = options.timeoutMs;
+    this.apiKey = options.apiKey;
   }
 
   private buildUrl(path: string): string {
     return `${this.baseUrl}${path}`;
+  }
+
+  private buildHeaders(extra?: HeadersInit): HeadersInit {
+    return {
+      'content-type': 'application/json',
+      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+      ...(extra ?? {}),
+    };
   }
 
   private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
@@ -42,10 +53,7 @@ export class HttpRunner implements Runner {
     const response = await fetch(this.buildUrl(path), {
       ...init,
       signal: controller?.signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(init.headers ?? {}),
-      },
+      headers: this.buildHeaders(init.headers),
     }).finally(() => {
       if (timeout) {
         clearTimeout(timeout);
@@ -113,6 +121,7 @@ export class HttpRunner implements Runner {
       const response = await fetch(this.buildUrl('/health'), {
         method: 'GET',
         signal: controller?.signal,
+        headers: this.buildHeaders(),
       }).finally(() => {
         if (timeout) {
           clearTimeout(timeout);

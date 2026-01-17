@@ -12,7 +12,7 @@ const closeServer = (server: http.Server) => {
   );
 };
 
-const startLlamaServer = async () => {
+const startAnthropicServer = async () => {
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -20,42 +20,29 @@ const startLlamaServer = async () => {
     }
     const body = Buffer.concat(chunks).toString('utf8');
 
-    if (req.url === '/models') {
-      if (req.headers.authorization !== 'Bearer test-key') {
+    if (req.url === '/v1/models') {
+      if (req.headers['x-api-key'] !== 'test-key') {
         res.writeHead(401);
         res.end();
         return;
       }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: [{ id: 'llama-test', contextWindow: 2048 }] }));
+      res.end(JSON.stringify({ data: [{ id: 'claude-test' }] }));
       return;
     }
 
-    if (req.url === '/health') {
-      if (req.headers.authorization !== 'Bearer test-key') {
+    if (req.url === '/v1/messages') {
+      if (req.headers['x-api-key'] !== 'test-key') {
         res.writeHead(401);
         res.end();
         return;
       }
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-
-    if (req.url === '/completion') {
-      if (req.headers.authorization !== 'Bearer test-key') {
-        res.writeHead(401);
-        res.end();
-        return;
-      }
-      const payload = JSON.parse(body) as { prompt: string };
+      const payload = JSON.parse(body) as { messages: Array<{ content: string }> };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
-          content: `echo:${payload.prompt}`,
-          prompt_eval_count: 3,
-          eval_count: 2,
-          timings: { total_ms: 12 },
+          content: [{ text: `echo:${payload.messages[0].content}` }],
+          usage: { input_tokens: 3, output_tokens: 2 },
         }),
       );
       return;
@@ -70,22 +57,20 @@ const startLlamaServer = async () => {
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 };
 
-test('llama.cpp runner proxies to completion endpoint', async () => {
-  const { LlamaCppRunner } = (await import(
-    path.join(process.cwd(), 'src/runners/llama_cpp/index.ts'),
-  )) as typeof import('../../src/runners/llama_cpp/index');
-  const { server, baseUrl } = await startLlamaServer();
-  const runner = new LlamaCppRunner({ baseUrl, defaultModelId: 'llama-test', apiKey: 'test-key' });
-
-  const models = await runner.listModels();
-  assert.equal(models[0].id, 'llama-test');
-
-  const health = await runner.health();
-  assert.equal(health.ok, true);
+test('anthropic runner proxies to messages endpoint', async () => {
+  const { AnthropicRunner } = (await import(
+    path.join(process.cwd(), 'src/runners/anthropic/index.ts'),
+  )) as typeof import('../../src/runners/anthropic/index');
+  const { server, baseUrl } = await startAnthropicServer();
+  const runner = new AnthropicRunner({
+    baseUrl,
+    defaultModelId: 'claude-test',
+    apiKey: 'test-key',
+  });
 
   const response = await runner.infer({
-    requestId: 'req-llama',
-    modelId: 'llama-test',
+    requestId: 'req-claude',
+    modelId: 'claude-test',
     prompt: 'hi',
     maxTokens: 16,
   });
