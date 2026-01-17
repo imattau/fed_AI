@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createRng,
+  buildEndToEndConfig,
+  runEndToEndSimulation,
   generateNodes,
   generateRequests,
   runPaymentFlowScenario,
@@ -45,4 +47,20 @@ test('runPaymentFlowScenario compares pay-before and pay-after', () => {
   assert.equal(payBefore?.receiptsPerRequest, 1);
   assert.equal(payAfter?.receiptsPerRequest, 2);
   assert.ok(payAfter!.dropRate >= payBefore!.dropRate);
+});
+
+test('runEndToEndSimulation returns report with federation metrics', () => {
+  const base = { nodes: 9, requests: 10, seed: 4 };
+  const config = buildEndToEndConfig(base, {
+    routers: 3,
+    nodesPerRouter: 3,
+    auctionEnabled: true,
+    bidVariance: 0.01,
+  });
+  const report = runEndToEndSimulation(config);
+  assert.equal(report.baseConfig.routers, 3);
+  assert.ok(report.metrics.federation.attempts >= 0);
+  assert.ok(report.metrics.federation.bids >= 0);
+  assert.ok(report.metrics.federation.awards >= 0);
+  assert.equal(report.metrics.totalRequests, 10);
 });

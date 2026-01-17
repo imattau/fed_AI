@@ -18,6 +18,14 @@ import {
   verifyRouterMessage,
   verifyEnvelope,
 } from '@fed-ai/protocol';
+import {
+  publishAward,
+  publishFederation,
+  runFederationAuction,
+  runAuctionAndAward,
+  selectAwardFromBids,
+} from '../src/federation/publisher';
+import { discoverFederationPeers } from '../src/federation/discovery';
 import { signManifest } from '@fed-ai/manifest';
 import { createRouterService } from '../src/server';
 import { createRouterHttpServer } from '../src/http';
@@ -1367,6 +1375,621 @@ test('router federation self caps returns signed message', async () => {
   assert.equal(response.status, 200);
   const body = (await response.json()) as { message: RouterControlMessage<RouterCapabilityProfile> };
   assert.equal(verifyRouterMessage(body.message, routerKeys.publicKey), true);
+
+  server.close();
+});
+
+test('router federation self price returns signed message', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const priceSheet = {
+    routerId: routerKeyId,
+    jobType: 'GEN_CHUNK',
+    unit: 'PER_1K_TOKENS',
+    basePriceMsat: 100,
+    currentSurge: 1,
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+
+  const response = await fetch(`${baseUrl}/federation/self/price`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(priceSheet),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { message: RouterControlMessage<typeof priceSheet> };
+  assert.equal(verifyRouterMessage(body.message, routerKeys.publicKey), true);
+
+  server.close();
+});
+
+test('router federation self status returns signed message', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const status = {
+    routerId: routerKeyId,
+    loadSummary: {
+      queueDepth: 0,
+      p95LatencyMs: 50,
+      cpuPct: 10,
+      ramPct: 20,
+      activeJobs: 0,
+      backpressureState: 'NORMAL',
+    },
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+
+  const response = await fetch(`${baseUrl}/federation/self/status`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(status),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { message: RouterControlMessage<typeof status> };
+  assert.equal(verifyRouterMessage(body.message, routerKeys.publicKey), true);
+
+  server.close();
+});
+
+test('publishFederation posts signed messages to peers', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+      peers: ['http://peer.local'],
+    },
+  };
+
+  const service = createRouterService(config);
+  service.federation.localCapabilities = {
+    routerId: routerKeyId,
+    transportEndpoints: ['http://router:8080'],
+    supportedJobTypes: ['GEN_CHUNK'],
+    resourceLimits: { maxPayloadBytes: 2048, maxTokens: 512, maxConcurrency: 2 },
+    modelCaps: [{ modelId: 'mock-model' }],
+    privacyCaps: { maxLevel: 'PL1' },
+    settlementCaps: { methods: ['invoice'], currency: 'SAT' },
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+  service.federation.localStatus = {
+    routerId: routerKeyId,
+    loadSummary: {
+      queueDepth: 0,
+      p95LatencyMs: 50,
+      cpuPct: 10,
+      ramPct: 20,
+      activeJobs: 0,
+      backpressureState: 'NORMAL',
+    },
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  };
+  service.federation.localPriceSheets.set('GEN_CHUNK', {
+    routerId: routerKeyId,
+    jobType: 'GEN_CHUNK',
+    unit: 'PER_1K_TOKENS',
+    basePriceMsat: 100,
+    currentSurge: 1,
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+  });
+
+  const calls: Array<{ url: string; message: RouterControlMessage<unknown> }> = [];
+  const fetcher = async (url: string, init?: { body?: unknown }) => {
+    calls.push({ url, message: JSON.parse(String(init?.body)) as RouterControlMessage<unknown> });
+    return new Response(null, { status: 200 });
+  };
+
+  const results = await publishFederation(service, config, ['http://peer.local'], fetcher);
+  assert.equal(results.length, 3);
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(verifyRouterMessage(call.message, routerKeys.publicKey), true);
+  }
+});
+
+test('discoverFederationPeers deduplicates and normalizes', () => {
+  const peers = discoverFederationPeers(
+    ['http://peer.local/', 'http://peer.local'],
+    ['http://bootstrap.local/'],
+  );
+  assert.equal(peers.length, 2);
+  assert.equal(peers[0].url, 'http://peer.local');
+  assert.equal(peers[1].url, 'http://bootstrap.local');
+});
+
+test('runFederationAuction collects bid responses', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const rfb: RouterControlMessage<import('@fed-ai/protocol').RouterRfbPayload> = {
+    type: 'RFB',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'rfb-1',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: {
+      jobId: 'job-1',
+      jobType: 'GEN_CHUNK',
+      privacyLevel: 'PL1',
+      sizeEstimate: { tokens: 10 },
+      deadlineMs: Date.now() + 1000,
+      maxPriceMsat: 1000,
+      validationMode: 'HASH_ONLY',
+      jobHash: 'hash',
+    },
+    sig: '',
+  };
+
+  const fetcher = async () =>
+    new Response(
+      JSON.stringify({
+        bid: {
+          type: 'BID',
+          version: '0.1',
+          routerId: routerKeyId,
+          messageId: 'bid-1',
+          timestamp: Date.now(),
+          expiry: Date.now() + 60_000,
+          payload: {
+            jobId: 'job-1',
+            priceMsat: 900,
+            etaMs: 100,
+            capacityToken: 'cap',
+            bidHash: 'hash',
+          },
+          sig: 'sig',
+        },
+      }),
+      { status: 200 },
+    );
+
+  const result = await runFederationAuction(config, ['http://peer.local'], rfb, fetcher);
+  assert.equal(result.bids.length, 1);
+  assert.equal(result.jobId, 'job-1');
+  assert.equal(result.bids[0].peer, 'http://peer.local');
+});
+
+test('publishAward posts award to peer', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const award: RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload> = {
+    type: 'AWARD',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'award-1',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: {
+      jobId: 'job-1',
+      winnerRouterId: 'peer-1',
+      acceptedPriceMsat: 1000,
+      awardExpiry: Date.now() + 10_000,
+      awardHash: 'hash',
+    },
+    sig: 'sig',
+  };
+
+  const fetcher = async (url: string) => new Response(null, { status: url.endsWith('/award') ? 200 : 500 });
+  const result = await publishAward(config, 'http://peer.local', award, fetcher);
+  assert.equal(result.ok, true);
+});
+
+test('selectAwardFromBids builds signed award', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const rfb: RouterControlMessage<import('@fed-ai/protocol').RouterRfbPayload> = {
+    type: 'RFB',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'rfb-2',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: {
+      jobId: 'job-2',
+      jobType: 'GEN_CHUNK',
+      privacyLevel: 'PL1',
+      sizeEstimate: { tokens: 10 },
+      deadlineMs: Date.now() + 1000,
+      maxPriceMsat: 1000,
+      validationMode: 'HASH_ONLY',
+      jobHash: 'hash-2',
+    },
+    sig: '',
+  };
+
+  const bids: RouterControlMessage<import('@fed-ai/protocol').RouterBidPayload>[] = [
+    {
+      type: 'BID',
+      version: '0.1',
+      routerId: 'peer-1',
+      messageId: 'bid-2',
+      timestamp: Date.now(),
+      expiry: Date.now() + 60_000,
+      payload: {
+        jobId: 'job-2',
+        priceMsat: 900,
+        etaMs: 100,
+        capacityToken: 'cap',
+        bidHash: 'hash-2',
+      },
+      sig: '',
+    },
+  ];
+
+  const award = selectAwardFromBids(config, rfb, bids, 'peer-1');
+  assert.ok(award);
+  assert.equal(verifyRouterMessage(award!, routerKeys.publicKey), true);
+});
+
+test('runAuctionAndAward publishes award to winning peer', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const rfb: RouterControlMessage<import('@fed-ai/protocol').RouterRfbPayload> = {
+    type: 'RFB',
+    version: '0.1',
+    routerId: routerKeyId,
+    messageId: 'rfb-3',
+    timestamp: Date.now(),
+    expiry: Date.now() + 60_000,
+    payload: {
+      jobId: 'job-3',
+      jobType: 'GEN_CHUNK',
+      privacyLevel: 'PL1',
+      sizeEstimate: { tokens: 10 },
+      deadlineMs: Date.now() + 1000,
+      maxPriceMsat: 1000,
+      validationMode: 'HASH_ONLY',
+      jobHash: 'hash-3',
+    },
+    sig: '',
+  };
+
+  let awardPosted = false;
+  const fetcher = async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/federation/rfb')) {
+      return new Response(
+        JSON.stringify({
+          bid: {
+            type: 'BID',
+            version: '0.1',
+            routerId: 'peer-1',
+            messageId: 'bid-3',
+            timestamp: Date.now(),
+            expiry: Date.now() + 60_000,
+            payload: {
+              jobId: 'job-3',
+              priceMsat: 800,
+              etaMs: 90,
+              capacityToken: 'cap',
+              bidHash: 'hash-3',
+            },
+            sig: 'sig',
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith('/federation/award')) {
+      awardPosted = true;
+      return new Response(null, { status: 200 });
+    }
+    return new Response(null, { status: 404 });
+  };
+
+  const result = await runAuctionAndAward(config, ['http://peer.local'], rfb, fetcher);
+  assert.ok(result.award);
+  assert.equal(awardPosted, true);
+});
+
+test('router federation payment request returns signed payment request', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const workerKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const receipt: RouterReceipt = {
+    jobId: 'job-2',
+    requestRouterId: routerKeyId,
+    workerRouterId: workerKeyId,
+    inputHash: 'input-hash',
+    outputHash: 'output-hash',
+    usage: { tokens: 10, runtimeMs: 5 },
+    priceMsat: 2000,
+    status: 'OK',
+    startedAtMs: Date.now(),
+    finishedAtMs: Date.now(),
+    receiptId: 'receipt-2',
+    sig: '',
+  };
+  const signedReceipt = signRouterReceipt(receipt, workerKeys.privateKey);
+
+  const response = await fetch(`${baseUrl}/federation/payment-request`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedReceipt),
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { payment: Envelope<PaymentRequest> };
+  const validation = validateEnvelope(body.payment, validatePaymentRequest);
+  assert.equal(validation.ok, true);
+
+  server.close();
+});
+
+test('router federation payment receipt accepts signed receipt', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const workerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const { server, baseUrl } = await startRouter(config);
+
+  const receipt: RouterReceipt = {
+    jobId: 'job-3',
+    requestRouterId: routerKeyId,
+    workerRouterId: workerKeyId,
+    inputHash: 'input-hash',
+    outputHash: 'output-hash',
+    usage: { tokens: 10, runtimeMs: 5 },
+    priceMsat: 2000,
+    status: 'OK',
+    startedAtMs: Date.now(),
+    finishedAtMs: Date.now(),
+    receiptId: 'receipt-3',
+    sig: '',
+  };
+  const signedReceipt = signRouterReceipt(receipt, workerKeys.privateKey);
+
+  const paymentRequestResponse = await fetch(`${baseUrl}/federation/payment-request`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedReceipt),
+  });
+  assert.equal(paymentRequestResponse.status, 200);
+  const paymentBody = (await paymentRequestResponse.json()) as { payment: Envelope<PaymentRequest> };
+
+  const paymentReceipt: PaymentReceipt = {
+    requestId: paymentBody.payment.payload.requestId,
+    payeeType: 'router',
+    payeeId: paymentBody.payment.payload.payeeId,
+    amountSats: paymentBody.payment.payload.amountSats,
+    paidAtMs: Date.now(),
+    invoice: paymentBody.payment.payload.invoice,
+  };
+  const signedPaymentReceipt = signEnvelope(
+    buildEnvelope(paymentReceipt, 'nonce-pay', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${baseUrl}/federation/payment-receipt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedPaymentReceipt),
+  });
+
+  assert.equal(response.status, 200);
+  server.close();
+});
+
+test('router federation settlement tracks request and receipt', async () => {
+  const routerKeys = generateKeyPairSync('ed25519');
+  const workerKeys = generateKeyPairSync('ed25519');
+  const clientKeys = generateKeyPairSync('ed25519');
+  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+    federation: {
+      enabled: true,
+      endpoint: 'http://localhost:0',
+    },
+  };
+
+  const service = createRouterService(config);
+  const server = createRouterHttpServer(service, config);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const jobId = 'job-4';
+  service.federation.jobs.set(jobId, {
+    submit: {
+      jobId,
+      jobType: 'GEN_CHUNK',
+      privacyLevel: 'PL1',
+      payload: 'encrypted-payload',
+      inputHash: 'input-hash',
+      maxCostMsat: 1000,
+      maxRuntimeMs: 1000,
+      returnEndpoint: 'http://router:8080/federation/job-result',
+    },
+    settlement: {},
+  });
+
+  const receipt: RouterReceipt = {
+    jobId,
+    requestRouterId: routerKeyId,
+    workerRouterId: workerKeyId,
+    inputHash: 'input-hash',
+    outputHash: 'output-hash',
+    usage: { tokens: 10, runtimeMs: 5 },
+    priceMsat: 2000,
+    status: 'OK',
+    startedAtMs: Date.now(),
+    finishedAtMs: Date.now(),
+    receiptId: 'receipt-4',
+    sig: '',
+  };
+  const signedReceipt = signRouterReceipt(receipt, workerKeys.privateKey);
+
+  await fetch(`${baseUrl}/federation/payment-request`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedReceipt),
+  });
+
+  const paymentRequest = service.federation.jobs.get(jobId)?.settlement?.paymentRequest;
+  assert.ok(paymentRequest);
+
+  const paymentReceipt: PaymentReceipt = {
+    requestId: paymentRequest!.requestId,
+    payeeType: 'router',
+    payeeId: paymentRequest!.payeeId,
+    amountSats: paymentRequest!.amountSats,
+    paidAtMs: Date.now(),
+    invoice: paymentRequest!.invoice,
+  };
+  const signedPaymentReceipt = signEnvelope(
+    buildEnvelope(paymentReceipt, 'nonce-pay-2', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  await fetch(`${baseUrl}/federation/payment-receipt`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(signedPaymentReceipt),
+  });
+
+  const storedReceipt = service.federation.jobs.get(jobId)?.settlement?.paymentReceipt;
+  assert.ok(storedReceipt);
 
   server.close();
 });

@@ -713,7 +713,27 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
         }
 
         federationMessages.inc({ type: message.type });
-        return sendJson(res, 200, { ok: true, jobId: message.payload.jobId });
+        const bid: RouterControlMessage<RouterBidPayload> = {
+          type: 'BID',
+          version: '0.1',
+          routerId: config.keyId,
+          messageId: `${config.keyId}:${message.payload.jobId}:${Date.now()}`,
+          timestamp: Date.now(),
+          expiry: message.expiry,
+          payload: {
+            jobId: message.payload.jobId,
+            priceMsat: Math.max(1, Math.round(message.payload.maxPriceMsat * 0.9)),
+            etaMs: 120,
+            capacityToken: `${config.keyId}:${message.payload.jobId}`,
+            bidHash: message.payload.jobHash,
+          },
+          sig: '',
+        };
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+        const signedBid = signRouterMessage(bid, config.privateKey);
+        return sendJson(res, 200, { bid: signedBid });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }
@@ -775,9 +795,13 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
 
+        if (message.payload.winnerRouterId !== config.keyId) {
+          return sendJson(res, 403, { error: 'award-not-for-router' });
+        }
+
         service.federation.awards.set(message.payload.jobId, message.payload);
         federationMessages.inc({ type: message.type });
-        return sendJson(res, 200, { ok: true });
+        return sendJson(res, 200, { ok: true, accepted: true });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }
@@ -803,7 +827,7 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           return sendJson(res, 403, { error: 'privacy-level-not-allowed' });
         }
 
-        service.federation.jobs.set(submit.jobId, { submit });
+        service.federation.jobs.set(submit.jobId, { submit, settlement: {} });
         federationJobs.inc({ stage: 'submit' });
         return sendJson(res, 200, { ok: true, jobId: submit.jobId });
       } catch (error) {
@@ -842,14 +866,123 @@ export const createRouterHttpServer = (service: RouterService, config: RouterCon
           accountingFailures.inc({ reason: 'receipt-signature' });
           return sendJson(res, 401, { error: 'invalid-receipt-signature' });
         }
+        if (
+          config.federation?.maxSpendMsat !== undefined &&
+          result.receipt.priceMsat > config.federation.maxSpendMsat
+        ) {
+          accountingFailures.inc({ reason: 'federation-over-cap' });
+          return sendJson(res, 402, { error: 'federation-over-cap' });
+        }
 
         const existing = service.federation.jobs.get(result.jobId);
         if (!existing) {
           return sendJson(res, 404, { error: 'unknown-job' });
         }
         existing.result = result;
+        existing.settlement = { ...(existing.settlement ?? {}), receipt: result.receipt };
+        service.federationPaymentReceipts.set(result.jobId, result.receipt);
         federationJobs.inc({ stage: 'result' });
         return sendJson(res, 200, { ok: true, jobId: result.jobId });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/payment-request') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        if (!config.privateKey) {
+          return sendJson(res, 500, { error: 'router-private-key-missing' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateRouterReceipt(body.value);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-receipt', details: validation.errors });
+        }
+
+        const receipt = body.value as RouterReceipt;
+        const workerKey = parsePublicKey(receipt.workerRouterId);
+        if (!verifyRouterReceipt(receipt, workerKey)) {
+          return sendJson(res, 401, { error: 'invalid-receipt-signature' });
+        }
+
+        const amountSats = Math.max(1, Math.ceil(receipt.priceMsat / 1000));
+        const paymentRequest: PaymentRequest = {
+          requestId: receipt.jobId,
+          payeeType: 'router',
+          payeeId: receipt.workerRouterId,
+          amountSats,
+          invoice: `lnbc-federation-${receipt.jobId}`,
+          expiresAtMs: Date.now() + PAYMENT_WINDOW_MS,
+          metadata: { federationJobId: receipt.jobId },
+        };
+        service.federationPaymentRequests.set(receipt.jobId, paymentRequest);
+
+        const paymentEnvelope = signEnvelope(
+          buildEnvelope(paymentRequest, receipt.jobId, Date.now(), config.keyId),
+          config.privateKey,
+        );
+        const existing = service.federation.jobs.get(receipt.jobId);
+        if (existing) {
+          existing.settlement = { ...(existing.settlement ?? {}), paymentRequest };
+        }
+
+        return sendJson(res, 200, { payment: paymentEnvelope });
+      } catch (error) {
+        return sendJson(res, 500, { error: 'internal-error' });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/federation/payment-receipt') {
+      try {
+        if (!config.federation?.enabled) {
+          return sendJson(res, 503, { error: 'federation-disabled' });
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+          return sendJson(res, 400, { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validatePaymentReceipt);
+        if (!validation.ok) {
+          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<PaymentReceipt>;
+        const clientKey = parsePublicKey(envelope.keyId);
+        if (!verifyEnvelope(envelope, clientKey)) {
+          return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+
+        const receipt = envelope.payload;
+        if (receipt.payeeType !== 'router') {
+          return sendJson(res, 400, { error: 'invalid-payee-type' });
+        }
+
+        const storedRequest = service.federationPaymentRequests.get(receipt.requestId);
+        if (!storedRequest) {
+          return sendJson(res, 404, { error: 'payment-request-not-found' });
+        }
+        if (storedRequest.amountSats !== receipt.amountSats) {
+          return sendJson(res, 400, { error: 'payment-amount-mismatch' });
+        }
+
+        service.paymentReceipts.set(
+          paymentKey(receipt.requestId, receipt.payeeType, receipt.payeeId),
+          envelope,
+        );
+        service.federationPaymentReceipts.set(receipt.requestId, envelope);
+        const existing = service.federation.jobs.get(receipt.requestId);
+        if (existing) {
+          existing.settlement = { ...(existing.settlement ?? {}), paymentReceipt: envelope };
+        }
+        return sendJson(res, 200, { ok: true });
       } catch (error) {
         return sendJson(res, 500, { error: 'internal-error' });
       }

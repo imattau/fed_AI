@@ -34,7 +34,7 @@ Observability
 Configuration
 - Core: `ROUTER_ID`, `ROUTER_KEY_ID`, `ROUTER_PRIVATE_KEY_PEM`, `ROUTER_ENDPOINT`, `ROUTER_PORT`.
 - Payments: `ROUTER_REQUIRE_PAYMENT`.
-- Federation: `ROUTER_FEDERATION_ENABLED`, `ROUTER_FEDERATION_ENDPOINT`, `ROUTER_FEDERATION_MAX_SPEND_MSAT`, `ROUTER_FEDERATION_MAX_OFFLOADS`, `ROUTER_FEDERATION_MAX_PL`.
+- Federation: `ROUTER_FEDERATION_ENABLED`, `ROUTER_FEDERATION_ENDPOINT`, `ROUTER_FEDERATION_MAX_SPEND_MSAT`, `ROUTER_FEDERATION_MAX_OFFLOADS`, `ROUTER_FEDERATION_MAX_PL`, `ROUTER_FEDERATION_PEERS`, `ROUTER_FEDERATION_PUBLISH_INTERVAL_MS`, `ROUTER_FEDERATION_DISCOVERY`, `ROUTER_FEDERATION_BOOTSTRAP_PEERS`.
 - Relay discovery: `ROUTER_RELAY_BOOTSTRAP`, `ROUTER_RELAY_AGGREGATORS`, `ROUTER_RELAY_TRUST`, `ROUTER_RELAY_MIN_SCORE`, `ROUTER_RELAY_MAX_RESULTS`.
 - Relay snapshot admission: `ROUTER_RELAY_SNAPSHOT_REQUIRED`, `ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS`.
 
@@ -69,6 +69,13 @@ Scheduling guarantees
 - Control-plane endpoints: `/federation/caps`, `/federation/price`, `/federation/status`, `/federation/rfb`, `/federation/bid`, `/federation/award`.
 - Data-plane stubs: `/federation/job-submit`, `/federation/job-result`.
 - Self-publishing helpers: `/federation/self/caps`, `/federation/self/price`, `/federation/self/status` return signed messages.
+- `/federation/rfb` responds with a signed `BID` stub to support auction loops.
+- `/federation/award` rejects awards not targeted to this router and acknowledges accepted awards.
+- `/federation/payment-request` issues a signed `PaymentRequest` for a verified federation receipt.
+- Award selection helpers choose a winner from bids before posting to `/federation/award`.
+- Auction orchestration uses an RFB → BID → AWARD loop with helper utilities.
+- `/federation/payment-receipt` accepts signed payment receipts for federation payment requests.
+- Federation jobs track settlement state for payment requests and receipts.
 - Enable with `ROUTER_FEDERATION_ENABLED=true` and set `ROUTER_FEDERATION_ENDPOINT`.
 
 ## Relay discovery

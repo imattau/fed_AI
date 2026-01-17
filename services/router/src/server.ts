@@ -11,6 +11,8 @@ export type RouterService = {
   nodes: NodeDescriptor[];
   paymentReceipts: Map<string, Envelope<import('@fed-ai/protocol').PaymentReceipt>>;
   paymentRequests: Map<string, import('@fed-ai/protocol').PaymentRequest>;
+  federationPaymentRequests: Map<string, import('@fed-ai/protocol').PaymentRequest>;
+  federationPaymentReceipts: Map<string, Envelope<import('@fed-ai/protocol').PaymentReceipt>>;
   manifests: Map<string, import('@fed-ai/manifest').NodeManifest>;
   manifestAdmissions: Map<string, { eligible: boolean; reason?: string }>;
   stakeStore: StakeStore;
@@ -39,6 +41,10 @@ export type RouterService = {
       {
         submit: import('@fed-ai/protocol').RouterJobSubmit;
         result?: import('@fed-ai/protocol').RouterJobResult;
+        settlement?: {
+          paymentRequest?: import('@fed-ai/protocol').PaymentRequest;
+          paymentReceipt?: Envelope<import('@fed-ai/protocol').PaymentReceipt>;
+        };
       }
     >;
   };
@@ -50,6 +56,8 @@ export const createRouterService = (config: RouterConfig): RouterService => {
     nodes: [],
     paymentReceipts: new Map(),
     paymentRequests: new Map(),
+    federationPaymentRequests: new Map(),
+    federationPaymentReceipts: new Map(),
     manifests: new Map(),
     manifestAdmissions: new Map(),
     stakeStore: createStakeStore(),

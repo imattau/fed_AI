@@ -55,3 +55,4 @@ Audience: coding agents and contributors.
 - Node ops: `docs/runbooks/node-ops.md`
 - CLI: `docs/runbooks/cli.md`
 - Observability: `docs/runbooks/observability.md`
+- Deployment: `docs/runbooks/deploy.md`

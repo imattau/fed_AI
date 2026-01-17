@@ -22,6 +22,10 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_FEDERATION_MAX_SPEND_MSAT`: optional spend cap for offloads.
 - `ROUTER_FEDERATION_MAX_OFFLOADS`: optional max inflight offloads.
 - `ROUTER_FEDERATION_MAX_PL`: max privacy level accepted (`PL0`-`PL3`).
+- `ROUTER_FEDERATION_PEERS`: comma-separated peer URLs for outbound publishing.
+- `ROUTER_FEDERATION_PUBLISH_INTERVAL_MS`: publish interval for federation announcements.
+- `ROUTER_FEDERATION_DISCOVERY`: `true|false` to enable bootstrap peer discovery.
+- `ROUTER_FEDERATION_BOOTSTRAP_PEERS`: comma-separated bootstrap peer URLs.
 - `ROUTER_RELAY_BOOTSTRAP`: comma-separated relay URLs.
 - `ROUTER_RELAY_AGGREGATORS`: comma-separated relay directory endpoints.
 - `ROUTER_RELAY_TRUST`: comma-separated `url=score` entries.
@@ -48,6 +52,10 @@ docker compose -f infra/docker-compose.yml up router
 - `GET /metrics` exposes Prometheus metrics.
 - Federation endpoints should return `200` when enabled: `/federation/caps`, `/federation/price`, `/federation/status`.
 - Self-publishing endpoints return signed messages when enabled: `/federation/self/caps`, `/federation/self/price`, `/federation/self/status`.
+- Outbound publishing requires `ROUTER_FEDERATION_PEERS` and a non-empty local caps/price/status payload.
+- Award acceptance returns `403` when the award target does not match this router.
+- `/federation/payment-request` returns a signed payment request for a verified receipt.
+- `/federation/payment-receipt` accepts a signed payment receipt for federation settlement.
 
 ## Observability
 

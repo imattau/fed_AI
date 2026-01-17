@@ -40,4 +40,10 @@ export type RouterFederationConfig = {
   maxSpendMsat?: number;
   maxOffloads?: number;
   maxPrivacyLevel?: 'PL0' | 'PL1' | 'PL2' | 'PL3';
+  peers?: string[];
+  publishIntervalMs?: number;
+  discovery?: {
+    enabled: boolean;
+    bootstrapPeers?: string[];
+  };
 };

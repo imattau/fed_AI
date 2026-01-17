@@ -64,7 +64,6 @@ Phase 7 - Optional extensions
 - [x] Add router admission checks that verify `relay_discovery` snapshots before promotion.
 - [x] Draft Router Federation Spec v0.1 (router-to-router offload + auctioning, privacy levels, receipts, settlement, and backpressure rules).
 - [x] Phase 6: operator runbooks + observability checklist + CLI ergonomics pass.
-- [ ] Router federation implementation: control-plane message ingestion + signing, data-plane stubs, and tests.
 
 ## Decisions and notes
 
@@ -126,6 +125,7 @@ Phase 7 - Optional extensions
 - [x] Router manifest promotion requires relay discovery snapshots when configured.
 - [x] Router decays manifest trust as performance samples accumulate and applies a bounded performance bonus.
 - [x] Router federation protocol message types and validators added to `packages/protocol`.
+- [x] Router federation implementation: control-plane message ingestion + signing, data-plane stubs, and tests.
 - [x] Phase 5 exit criteria met (graceful degradation + explicit accounting failure visibility).
 - [x] Added operator runbooks for router, node, and CLI usage.
 - [x] CLI ergonomics: added `--out` support for quote/infer and documented usage.
@@ -140,6 +140,17 @@ Phase 7 - Optional extensions
 - [x] Federation metrics and dashboard panels added for control/data-plane activity.
 - [x] Federation alert rules added to Prometheus starter alerts.
 - [x] Self-publishing federation endpoints added for signed caps/price/status messages.
+- [x] Simulator now supports end-to-end scenarios (routers, federation, payments).
+- [x] Federation outbound publishing to peers added with tests.
+- [x] Federation peer discovery (bootstrap + config peers) added with tests.
+- [x] Federation auction loop stubbed with RFB responses and test coverage.
+- [x] Federation award acceptance checks and outbound award helper added with tests.
+- [x] Federation receipt-based payment request endpoint added with tests.
+- [x] Award selection helper added for choosing winners from bids.
+- [x] Federation payment receipt acceptance endpoint added with tests.
+- [x] Auction orchestration helper (RFB → BID → AWARD) added with tests.
+- [x] Federation job settlement tracking added (requests + receipts).
+- [x] Deployment runbook added for non-local environments.
 
 ## Scratchpad
 

@@ -3,6 +3,8 @@ import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createRouterService } from './server';
 import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from './config';
 import { createRouterHttpServer } from './http';
+import { publishFederation } from './federation/publisher';
+import { discoverFederationPeers } from './federation/discovery';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -103,6 +105,12 @@ const buildConfig = (): RouterConfig => {
         | 'PL2'
         | 'PL3'
         | undefined,
+      peers: parseList(getEnv('ROUTER_FEDERATION_PEERS')),
+      publishIntervalMs: parseNumber(getEnv('ROUTER_FEDERATION_PUBLISH_INTERVAL_MS')),
+      discovery: {
+        enabled: (getEnv('ROUTER_FEDERATION_DISCOVERY') ?? 'false').toLowerCase() === 'true',
+        bootstrapPeers: parseList(getEnv('ROUTER_FEDERATION_BOOTSTRAP_PEERS')),
+      },
     },
   };
 };
@@ -114,6 +122,27 @@ const start = (): void => {
 
   server.listen(config.port);
   void logRelayCandidates('router', buildDiscoveryOptions());
+
+  const discoveredPeers = discoverFederationPeers(
+    config.federation?.peers,
+    config.federation?.discovery?.bootstrapPeers,
+  );
+  const peerUrls = discoveredPeers.map((peer) => peer.url);
+  if (config.federation?.enabled && peerUrls.length > 0) {
+    const intervalMs = config.federation.publishIntervalMs ?? 30_000;
+    const publish = async () => {
+      try {
+        await publishFederation(service, config, peerUrls);
+      } catch (error) {
+        console.warn(
+          '[router] federation publish failed',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    };
+    void publish();
+    setInterval(publish, intervalMs);
+  }
 };
 
 start();
