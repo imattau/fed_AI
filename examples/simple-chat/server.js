@@ -59,6 +59,27 @@ const serveFile = async (res, filePath, contentType) => {
   res.end(body);
 };
 
+const postJson = async (url, body) => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return response;
+};
+
+const issuePaymentReceipt = (payment, clientKeyId, clientPrivateKey) => {
+  const receipt = {
+    requestId: payment.requestId,
+    payeeType: payment.payeeType,
+    payeeId: payment.payeeId,
+    amountSats: payment.amountSats,
+    paidAtMs: Date.now(),
+    invoice: payment.invoice,
+  };
+  return signEnvelope(receipt, clientKeyId, clientPrivateKey);
+};
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/') {
     return serveFile(res, path.join(__dirname, 'index.html'), 'text/html; charset=utf-8');
@@ -104,11 +125,47 @@ const server = http.createServer(async (req, res) => {
     };
     const envelope = signEnvelope(request, clientKeyId, clientKeys.privateKey);
 
-    const response = await fetch(`${routerUrl}/infer`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(envelope),
-    });
+    const response = await postJson(`${routerUrl}/infer`, envelope);
+    if (response.status === 402) {
+      const payload = await response.json();
+      const payment = payload?.payment?.payload;
+      if (!payment) {
+        res.writeHead(402, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'payment-required', details: payload }));
+        return;
+      }
+
+      const receiptEnvelope = issuePaymentReceipt(
+        payment,
+        clientKeyId,
+        clientKeys.privateKey,
+      );
+      const receiptResponse = await postJson(
+        `${routerUrl}/payment-receipt`,
+        receiptEnvelope,
+      );
+      if (!receiptResponse.ok) {
+        const errorText = await receiptResponse.text();
+        res.writeHead(receiptResponse.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'payment-receipt-rejected', details: errorText }));
+        return;
+      }
+
+      const retryEnvelope = signEnvelope(request, clientKeyId, clientKeys.privateKey);
+      const retryResponse = await postJson(`${routerUrl}/infer`, retryEnvelope);
+      if (!retryResponse.ok) {
+        const errorText = await retryResponse.text();
+        res.writeHead(retryResponse.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'router-error', details: errorText }));
+        return;
+      }
+      const payload = await retryResponse.json();
+      const output = payload?.response?.payload?.output ?? '';
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output }));
+      return;
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       res.writeHead(response.status, { 'content-type': 'application/json' });

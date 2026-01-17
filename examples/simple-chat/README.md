@@ -1,6 +1,6 @@
 # Simple Chat Example
 
-This example spins up a tiny web chat client, a router, a node, and a llama.cpp-backed tiny LLM.
+This example spins up a tiny web chat client, a router, a node, and a llama.cpp-backed tiny LLM. It also exercises the mock Lightning payment flow.
 
 ## Prereqs
 
@@ -36,14 +36,16 @@ docker run --rm -p 8085:8080 \
 
 This writes `.env` at repo root. Leave it there.
 
-## 4) Start router
+## 4) Start router (payment required)
 
 ```bash
 export $(cat .env | xargs)
-ROUTER_ENDPOINT=http://localhost:8080 pnpm --filter @fed-ai/router dev
+ROUTER_ENDPOINT=http://localhost:8080 \
+ROUTER_REQUIRE_PAYMENT=true \
+pnpm --filter @fed-ai/router dev
 ```
 
-## 5) Start node (llama.cpp runner)
+## 5) Start node (llama.cpp runner, payment required)
 
 ```bash
 export $(cat .env | xargs)
@@ -53,6 +55,7 @@ NODE_MODEL_ID=tinyllama \
 ROUTER_ENDPOINT=http://localhost:8080 \
 ROUTER_PUBLIC_KEY_PEM=$ROUTER_PUBLIC_KEY_PEM \
 ROUTER_KEY_ID=$ROUTER_KEY_ID \
+NODE_REQUIRE_PAYMENT=true \
 pnpm --filter @fed-ai/node dev
 ```
 
@@ -67,4 +70,5 @@ Open `http://localhost:3000` and send a prompt.
 ## Notes
 
 - The example chat server signs requests locally and forwards them to the router.
+- The server issues a mock payment receipt against the router's payment request, then retries the inference call.
 - Adjust `MAX_TOKENS`, `MODEL_ID`, or `PORT` for the chat server with env vars.
