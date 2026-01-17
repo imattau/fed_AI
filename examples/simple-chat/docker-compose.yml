@@ -58,9 +58,9 @@ services:
       - keys:/keys:ro
 
   llama:
-    image: ghcr.io/ggerganov/llama.cpp:${LLAMA_CPP_TAG:-light-1e5a6d088d0f3a967c6e86298a756daec9e8df12}
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
     working_dir: /app
-    entrypoint: ["./server"]
+    entrypoint: ["/app/llama-server"]
     command:
       [
         "-m",

@@ -26,7 +26,7 @@ cd examples/simple-chat
 docker compose up --build
 ```
 
-If the llama.cpp image tag changes, set `LLAMA_CPP_TAG` (default is a `light-*` tag to keep the image small):
+If the llama.cpp image tag changes, set `LLAMA_CPP_TAG` (default is `server` from `ghcr.io/ggml-org/llama.cpp`):
 
 ```bash
 LLAMA_CPP_TAG=full-<tag> docker compose up --build
