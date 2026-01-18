@@ -28,3 +28,4 @@ jobs:
       - run: pnpm -w lint
       - run: pnpm -w test
       - run: pnpm -w build
+      - run: bash tools/scripts/ci-smoke.sh

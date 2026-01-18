@@ -77,6 +77,8 @@ Phase 7 - Optional extensions
   - [x] Add protocol/SDK version bump checks in CI.
   - [x] Add production deployment manifest(s) and usage notes.
   - [x] Add pre-release security review checklist.
+- [x] Phase PR-6: CI integration smoke test.
+  - [x] Add CI smoke script to start compose and run signed inference + payment receipt.
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 - [x] Production hardening: settlement verification and state storage.
