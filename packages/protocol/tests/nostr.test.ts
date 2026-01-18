@@ -1,9 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
   buildRouterControlEvent,
-  exportPrivateKeyHex,
   exportPublicKeyNpub,
   parseRouterControlEvent,
   ROUTER_NOSTR_KINDS,
@@ -11,7 +10,8 @@ import {
 import type { RouterControlMessage, RouterCapabilityProfile } from '../src/types';
 
 test('buildRouterControlEvent and parseRouterControlEvent round-trip', () => {
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = getPublicKey(privateKey);
   const routerId = exportPublicKeyNpub(publicKey);
   const payload: RouterCapabilityProfile = {
     routerId,
@@ -36,7 +36,7 @@ test('buildRouterControlEvent and parseRouterControlEvent round-trip', () => {
     sig: 'unused',
   };
 
-  const event = buildRouterControlEvent(message, exportPrivateKeyHex(privateKey));
+  const event = buildRouterControlEvent(message, privateKey);
   assert.equal(event.kind, ROUTER_NOSTR_KINDS.CAPS_ANNOUNCE);
 
   const parsed = parseRouterControlEvent<RouterCapabilityProfile>(event);

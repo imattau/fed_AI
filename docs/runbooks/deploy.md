@@ -8,7 +8,7 @@ Provide a minimal deployment checklist that keeps security and observability int
 
 ## Before you deploy
 
-- Generate Ed25519 keys per router/node.
+- Generate Nostr secp256k1 keys per router/node.
 - Store private keys in a secret manager (do not bake into images).
 - Decide whether to enforce payment receipts (`ROUTER_REQUIRE_PAYMENT`, `NODE_REQUIRE_PAYMENT`).
 - Configure relay discovery overrides if needed.

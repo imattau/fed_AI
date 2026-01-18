@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
   exportPrivateKeyHex,
   exportPrivateKeyNsec,
@@ -11,7 +11,8 @@ import {
 } from '../src/keys';
 
 test('parsePublicKey accepts npub and hex keys', () => {
-  const { publicKey } = generateKeyPairSync('ed25519');
+  const secret = generateSecretKey();
+  const publicKey = getPublicKey(secret);
   const hex = exportPublicKeyHex(publicKey);
   const npub = exportPublicKeyNpub(publicKey);
 
@@ -23,7 +24,7 @@ test('parsePublicKey accepts npub and hex keys', () => {
 });
 
 test('parsePrivateKey accepts nsec and hex keys', () => {
-  const { privateKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
   const hex = exportPrivateKeyHex(privateKey);
   const nsec = exportPrivateKeyNsec(privateKey);
 

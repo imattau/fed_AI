@@ -204,7 +204,12 @@ services:
       ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS: "1000"
       ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS: "30000"
       NODE_ROUTER_FOLLOW: "ROUTER_KEY_ID"
-    command: ["node", "server.js"]
+    command:
+      [
+        "sh",
+        "-c",
+        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 @noble/curves@1.9.7 @noble/hashes@1.8.0 >/dev/null 2>&1 && node server.js",
+      ]
     depends_on:
       router:
         condition: service_started

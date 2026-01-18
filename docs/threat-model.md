@@ -15,7 +15,7 @@
 - Relay metadata leakage or correlation
 
 ## Mitigations
-- Ed25519 signatures on all envelopes
+- secp256k1 Schnorr signatures on all envelopes
 - Nonce tracking and timestamp windows
 - Signed metering records
 - Key management and rotation

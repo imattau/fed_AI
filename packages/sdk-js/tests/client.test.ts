@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
   buildEnvelope,
   exportPrivateKeyHex,
-  exportPublicKeyHex,
+  exportPublicKeyNpub,
   InferenceRequest,
   MeteringRecord,
   PaymentRequest,
@@ -16,8 +16,9 @@ import {
 import { FedAiClient, PaymentRequiredError } from '../src';
 
 const startRouterStub = async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerPrivate = generateSecretKey();
+  const routerPublic = getPublicKey(routerPrivate);
+  const routerKeyId = exportPublicKeyNpub(routerPublic);
   let inferAttempts = 0;
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -41,7 +42,7 @@ const startRouterStub = async () => {
           Date.now(),
           routerKeyId,
         ),
-        routerKeys.privateKey,
+        routerPrivate,
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ quote: response }));
@@ -60,7 +61,7 @@ const startRouterStub = async () => {
         };
         const envelope = signEnvelope(
           buildEnvelope(payment, 'nonce-pay', Date.now(), routerKeyId),
-          routerKeys.privateKey,
+          routerPrivate,
         );
         res.writeHead(402, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ payment: envelope }));
@@ -80,7 +81,7 @@ const startRouterStub = async () => {
           Date.now(),
           routerKeyId,
         ),
-        routerKeys.privateKey,
+        routerPrivate,
       );
       const metering: MeteringRecord = {
         requestId: payload.requestId,
@@ -96,7 +97,7 @@ const startRouterStub = async () => {
       };
       const meteringEnvelope = signEnvelope(
         buildEnvelope(metering, 'nonce-meter', Date.now(), routerKeyId),
-        routerKeys.privateKey,
+        routerPrivate,
       );
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ response: responseEnvelope, metering: meteringEnvelope }));
@@ -120,11 +121,12 @@ const startRouterStub = async () => {
 
 test('FedAiClient handles quotes and payments', async () => {
   const router = await startRouterStub();
-  const clientKeys = generateKeyPairSync('ed25519');
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
   const client = new FedAiClient({
     routerUrl: router.baseUrl,
-    keyId: exportPublicKeyHex(clientKeys.publicKey),
-    privateKey: exportPrivateKeyHex(clientKeys.privateKey),
+    keyId: exportPublicKeyNpub(clientPublic),
+    privateKey: exportPrivateKeyHex(clientPrivate),
   });
 
   const quoteEnvelope = await client.quote({

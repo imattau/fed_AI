@@ -2,8 +2,11 @@
 const http = require('node:http');
 const { readFile } = require('node:fs/promises');
 const { readFileSync } = require('node:fs');
-const { randomUUID, generateKeyPairSync, sign } = require('node:crypto');
+const { randomUUID } = require('node:crypto');
 const path = require('node:path');
+const { generateSecretKey, getPublicKey, nip19 } = require('nostr-tools');
+const { schnorr } = require('@noble/curves/secp256k1');
+const { sha256 } = require('@noble/hashes/sha256');
 
 const routerUrl = process.env.ROUTER_URL ?? 'http://localhost:8080';
 const defaultModelId = process.env.MODEL_ID ?? 'auto';
@@ -14,16 +17,6 @@ const keysEnvPath = process.env.KEYS_ENV_PATH ?? '/keys/keys.env';
 
 let walletBalanceSats = Number.isFinite(initialWalletSats) ? initialWalletSats : 0;
 let cachedKeys = {};
-
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-
-const exportPublicKeyHex = (key) => {
-  const spki = key.export({ format: 'der', type: 'spki' });
-  if (!spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
-    throw new Error('public key does not match expected Ed25519 DER prefix');
-  }
-  return spki.subarray(ED25519_SPKI_PREFIX.length).toString('hex');
-};
 
 const stableStringify = (value) => {
   if (value === null || typeof value !== 'object') {
@@ -50,9 +43,9 @@ const signEnvelope = (payload, keyId, privateKey) => {
     ts: envelope.ts,
     keyId: envelope.keyId,
   };
-  const data = Buffer.from(stableStringify(signingPayload), 'utf8');
-  const signature = sign(null, data, privateKey);
-  envelope.sig = signature.toString('base64');
+  const data = new TextEncoder().encode(stableStringify(signingPayload));
+  const signature = schnorr.sign(sha256(data), privateKey);
+  envelope.sig = Buffer.from(signature).toString('base64');
   return envelope;
 };
 
@@ -73,8 +66,9 @@ const loadKeysEnv = () => {
 
 loadKeysEnv();
 
-const clientKeys = generateKeyPairSync('ed25519');
-const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+const clientSecret = generateSecretKey();
+const clientPublic = getPublicKey(clientSecret);
+const clientKeyId = nip19.npubEncode(clientPublic);
 
 const serveFile = async (res, filePath, contentType) => {
   const body = await readFile(filePath);
@@ -258,7 +252,7 @@ const server = http.createServer(async (req, res) => {
       prompt,
       maxTokens,
     };
-    const envelope = signEnvelope(request, clientKeyId, clientKeys.privateKey);
+    const envelope = signEnvelope(request, clientKeyId, clientSecret);
 
     const response = await postJson(`${routerUrl}/infer`, envelope);
     if (response.status === 402) {
@@ -273,7 +267,7 @@ const server = http.createServer(async (req, res) => {
       const receiptEnvelope = issuePaymentReceipt(
         payment,
         clientKeyId,
-        clientKeys.privateKey,
+        clientSecret,
       );
       if (walletBalanceSats < payment.amountSats) {
         res.writeHead(402, { 'content-type': 'application/json' });
@@ -299,7 +293,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const retryEnvelope = signEnvelope(request, clientKeyId, clientKeys.privateKey);
+      const retryEnvelope = signEnvelope(request, clientKeyId, clientSecret);
       const retryResponse = await postJson(`${routerUrl}/infer`, retryEnvelope);
       if (!retryResponse.ok) {
         const errorText = await retryResponse.text();

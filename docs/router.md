@@ -34,7 +34,7 @@ Observability
 - Router logs are redacted by default to avoid leaking prompt/output data or secrets.
 
 Configuration
-- Core: `ROUTER_ID`, `ROUTER_KEY_ID` (npub), `ROUTER_PRIVATE_KEY_PEM` or nsec, `ROUTER_ENDPOINT`, `ROUTER_PORT`.
+- Core: `ROUTER_ID`, `ROUTER_KEY_ID` (npub), `ROUTER_PRIVATE_KEY_PEM` (nsec or hex), `ROUTER_ENDPOINT`, `ROUTER_PORT`.
 - Payments: `ROUTER_REQUIRE_PAYMENT`.
 - Lightning verification: `ROUTER_LN_VERIFY_URL`, `ROUTER_LN_VERIFY_TIMEOUT_MS`, `ROUTER_LN_REQUIRE_PREIMAGE`.
 - Lightning invoice generation: `ROUTER_LN_INVOICE_URL`, `ROUTER_LN_INVOICE_TIMEOUT_MS`.

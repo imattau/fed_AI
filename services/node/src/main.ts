@@ -266,7 +266,7 @@ const buildRunner = (config: NodeConfig): Runner => {
   throw new Error(`unsupported-runner:${config.runnerName}`);
 };
 
-const validateNostrIdentity = (keyId: string, privateKey?: import('node:crypto').KeyObject): void => {
+const validateNostrIdentity = (keyId: string, privateKey?: Uint8Array): void => {
   if (!isNostrNpub(keyId)) {
     throw new Error('node keyId must be a Nostr npub');
   }
@@ -281,7 +281,7 @@ const validateNostrIdentity = (keyId: string, privateKey?: import('node:crypto')
 
 const validateRouterIdentity = (
   routerKeyId?: string,
-  routerPublicKey?: import('node:crypto').KeyObject,
+  routerPublicKey?: Uint8Array,
 ): void => {
   if (!routerKeyId) {
     return;
@@ -306,7 +306,7 @@ const validateConfig = (config: NodeConfig): string[] => {
     issues.push('NODE_KEY_ID must be a Nostr npub.');
   }
   if (!config.privateKey) {
-    issues.push('NODE_PRIVATE_KEY_PEM (nsec/PEM/hex) is required to sign heartbeats.');
+    issues.push('NODE_PRIVATE_KEY_PEM (nsec/hex) is required to sign heartbeats.');
   }
   if (!config.routerEndpoint) {
     issues.push('ROUTER_ENDPOINT is required.');

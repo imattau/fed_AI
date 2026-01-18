@@ -108,7 +108,7 @@ Phase 7 - Optional extensions
 - [x] Protocol package tests added with `node:test`.
 - [x] Node and router scaffolds added (runner types, mock runner, scheduler skeleton).
 - [x] Node and router services expose minimal HTTP servers with signed envelope validation.
-- [x] Key parsing utilities added (PEM or 32-byte hex Ed25519).
+- [x] Key parsing utilities added (nsec/npub or 32-byte hex secp256k1).
 - [x] Router node registration now verifies signatures and replay protection.
 - [x] Router inference dispatch endpoint with response and metering verification.
 - [x] Node and router HTTP handlers return structured errors for invalid JSON.

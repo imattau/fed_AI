@@ -10,8 +10,11 @@
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@fed-ai/protocol": "workspace:*",
     "@fed-ai/profiler": "workspace:*",
     "@fed-ai/nostr-relay-discovery": "workspace:*",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "fast-json-stable-stringify": "^2.1.0"
   },
   "devDependencies": {

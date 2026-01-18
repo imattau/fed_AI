@@ -214,7 +214,7 @@ const buildConfig = (): RouterConfig => {
   };
 };
 
-const validateNostrIdentity = (keyId: string, privateKey?: import('node:crypto').KeyObject): void => {
+const validateNostrIdentity = (keyId: string, privateKey?: Uint8Array): void => {
   if (!isNostrNpub(keyId)) {
     throw new Error('router keyId must be a Nostr npub');
   }
@@ -235,7 +235,7 @@ const validateConfig = (config: RouterConfig): string[] => {
     issues.push('ROUTER_KEY_ID must be a Nostr npub.');
   }
   if (!config.privateKey) {
-    issues.push('ROUTER_PRIVATE_KEY_PEM (nsec/PEM/hex) is required to sign envelopes.');
+    issues.push('ROUTER_PRIVATE_KEY_PEM (nsec/hex) is required to sign envelopes.');
   }
   if (!config.endpoint) {
     issues.push('ROUTER_ENDPOINT is required.');

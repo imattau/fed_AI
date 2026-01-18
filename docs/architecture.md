@@ -13,7 +13,7 @@ Compute plane
 
 ## Decentralization and Nostr alignment
 
-- Node identities are Nostr identities (Ed25519 with NIP-19 npub/nsec encoding).
+- Node identities are Nostr identities (secp256k1 with NIP-19 npub/nsec encoding).
 - Control-plane messages are signed and can be relayed over Nostr without payload leakage.
 - Discovery and reputation can be relay-backed while keeping prompts and outputs off relays.
 - Nostr relays are used for discovery and trust signaling; operational traffic is peer-to-peer between client, router, and node (direct HTTP).

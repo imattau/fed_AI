@@ -10,11 +10,11 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 
 - `NODE_ID`: logical node identifier.
 - `NODE_KEY_ID`: public key ID (npub).
-- `NODE_PRIVATE_KEY_PEM`: private key (nsec, PEM, or 32-byte hex).
+- `NODE_PRIVATE_KEY_PEM`: private key (nsec or 32-byte hex).
 - `NODE_ENDPOINT`: public base URL for router callbacks.
 - `NODE_PORT`: listen port.
 - `ROUTER_ENDPOINT`: router base URL for registration and heartbeat.
-- `ROUTER_PUBLIC_KEY_PEM`: router public key (PEM or 32-byte hex, optional if `ROUTER_KEY_ID` is set).
+- `ROUTER_PUBLIC_KEY_PEM`: router public key (npub or 32-byte hex, optional if `ROUTER_KEY_ID` is set).
 - `ROUTER_KEY_ID`: router public key ID (npub) to enforce key-id match.
 
 ## Optional configuration

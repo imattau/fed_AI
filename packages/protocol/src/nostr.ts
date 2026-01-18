@@ -1,14 +1,7 @@
 import { finalizeEvent, getPublicKey, nip19, verifyEvent } from 'nostr-tools';
 import type { Event as NostrEvent } from 'nostr-tools';
-import type { KeyObject } from 'node:crypto';
 import type { RouterControlMessage } from './types';
-import {
-  decodeNpubToHex,
-  decodeNsecToHex,
-  exportPrivateKeyHex,
-  isNostrNpub,
-  isNostrNsec,
-} from './keys';
+import { decodeNsecToHex, isNostrNpub, isNostrNsec } from './keys';
 
 export const ROUTER_NOSTR_KINDS = {
   CAPS_ANNOUNCE: 30020,
@@ -59,10 +52,9 @@ const buildTags = (message: RouterControlMessage<unknown>): string[][] => {
   ];
 };
 
-const toSecretKeyBytes = (privateKey: KeyObject | string): Uint8Array => {
-  if (typeof privateKey !== 'string') {
-    const hex = exportPrivateKeyHex(privateKey);
-    return Buffer.from(hex, 'hex');
+const toSecretKeyBytes = (privateKey: Uint8Array | string): Uint8Array => {
+  if (privateKey instanceof Uint8Array) {
+    return privateKey;
   }
   if (isNostrNsec(privateKey)) {
     return Buffer.from(decodeNsecToHex(privateKey), 'hex');
@@ -72,7 +64,7 @@ const toSecretKeyBytes = (privateKey: KeyObject | string): Uint8Array => {
 
 export const buildRouterControlEvent = <T>(
   message: RouterControlMessage<T>,
-  privateKey: KeyObject | string,
+  privateKey: Uint8Array | string,
 ): NostrEvent => {
   if (!isNostrNpub(message.routerId)) {
     throw new Error('routerId must be a Nostr npub');

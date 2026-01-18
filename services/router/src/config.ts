@@ -3,7 +3,7 @@ export type RouterConfig = {
   keyId: string;
   endpoint: string;
   port: number;
-  privateKey?: import('node:crypto').KeyObject;
+  privateKey?: Uint8Array;
   nonceStorePath?: string;
   nonceStoreUrl?: string;
   maxRequestBytes?: number;

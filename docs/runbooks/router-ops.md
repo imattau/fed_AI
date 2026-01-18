@@ -10,7 +10,7 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 
 - `ROUTER_ID`: logical router identifier.
 - `ROUTER_KEY_ID`: public key ID (npub).
-- `ROUTER_PRIVATE_KEY_PEM`: private key (nsec, PEM, or 32-byte hex).
+- `ROUTER_PRIVATE_KEY_PEM`: private key (nsec or 32-byte hex).
 - `ROUTER_ENDPOINT`: public base URL.
 - `ROUTER_PORT`: listen port.
 

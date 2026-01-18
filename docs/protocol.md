@@ -46,11 +46,11 @@ Envelope<T> {
 
 ## Crypto
 
-- Ed25519 signatures
+- secp256k1 Schnorr signatures
 - `signEnvelope()` and `verifyEnvelope()`
-- Keys are Nostr identities (Ed25519 with NIP-19 npub/nsec encoding)
+- Keys are Nostr identities (secp256k1 with NIP-19 npub/nsec encoding)
 - `keyId` is the Nostr public key (`npub...`)
-- Services accept keys as npub/nsec, PEM, or 32-byte hex
+- Services accept keys as npub/nsec or 32-byte hex
 
 ## Nostr event layer (router federation)
 

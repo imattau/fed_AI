@@ -20,8 +20,8 @@ export type NodeConfig = {
   maxRequestBytes?: number;
   maxInferenceMs?: number;
   requirePayment: boolean;
-  privateKey?: import('node:crypto').KeyObject;
-  routerPublicKey?: import('node:crypto').KeyObject;
+  privateKey?: Uint8Array;
+  routerPublicKey?: Uint8Array;
   routerFollowList?: string[];
   routerMuteList?: string[];
   routerBlockList?: string[];
