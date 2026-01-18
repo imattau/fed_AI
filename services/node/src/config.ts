@@ -40,6 +40,9 @@ export type NodeConfig = {
   paymentVerification?: PaymentVerificationConfig;
   routerFeeMaxBps?: number;
   routerFeeMaxSats?: number;
+  pricingInputSats?: number;
+  pricingOutputSats?: number;
+  pricingUnit?: 'token' | 'second';
   capabilityJobTypes?: RouterJobType[];
   capabilityLatencyMs?: number;
 };
@@ -96,6 +99,9 @@ export const defaultNodeConfig: NodeConfig = {
   paymentVerification: undefined,
   routerFeeMaxBps: 1000,
   routerFeeMaxSats: 1000,
+  pricingInputSats: 0,
+  pricingOutputSats: 0,
+  pricingUnit: 'token',
   capabilityJobTypes: undefined,
   capabilityLatencyMs: undefined,
 };

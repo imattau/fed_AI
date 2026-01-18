@@ -77,6 +77,7 @@ Configuration
 - Capability hints: `NODE_JOB_TYPES` (comma-separated RouterJobType values), `NODE_LATENCY_ESTIMATE_MS`.
 - Lightning verification: `NODE_LN_VERIFY_URL`, `NODE_LN_VERIFY_TIMEOUT_MS`, `NODE_LN_REQUIRE_PREIMAGE`, `NODE_LN_VERIFY_RETRY_MAX_ATTEMPTS`, `NODE_LN_VERIFY_RETRY_MIN_DELAY_MS`, `NODE_LN_VERIFY_RETRY_MAX_DELAY_MS`.
 - Router fee limits: `NODE_ROUTER_FEE_MAX_BPS`, `NODE_ROUTER_FEE_MAX_SATS`.
+- Pricing: `NODE_PRICE_INPUT_SATS`, `NODE_PRICE_OUTPUT_SATS`, `NODE_PRICE_UNIT` (`token|second`, defaults to `token`).
 - TLS: `NODE_TLS_CERT_PATH`, `NODE_TLS_KEY_PATH`, `NODE_TLS_CA_PATH`, `NODE_TLS_REQUIRE_CLIENT_CERT`.
 - Replay protection: `NODE_NONCE_STORE_PATH` to persist replay nonces across restarts.
 - Replay protection (Postgres): `NODE_NONCE_STORE_URL`.

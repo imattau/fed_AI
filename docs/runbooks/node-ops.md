@@ -61,6 +61,9 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_LN_VERIFY_RETRY_MAX_DELAY_MS`: maximum retry delay in ms.
 - `NODE_ROUTER_FEE_MAX_BPS`: maximum router fee basis points accepted in split receipts.
 - `NODE_ROUTER_FEE_MAX_SATS`: maximum router fee sats accepted in split receipts.
+- `NODE_PRICE_INPUT_SATS`: sats per input token (or per unit if `NODE_PRICE_UNIT=second`).
+- `NODE_PRICE_OUTPUT_SATS`: sats per output token (or per unit if `NODE_PRICE_UNIT=second`).
+- `NODE_PRICE_UNIT`: pricing unit (`token` or `second`).
 - `NODE_TLS_CERT_PATH`: TLS cert path for HTTPS.
 - `NODE_TLS_KEY_PATH`: TLS key path for HTTPS.
 - `NODE_TLS_CA_PATH`: optional CA bundle for mTLS.

@@ -142,6 +142,9 @@ const buildConfig = (): NodeConfig => {
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
   const routerFeeMaxBps = parseNumber(getEnv('NODE_ROUTER_FEE_MAX_BPS'));
   const routerFeeMaxSats = parseNumber(getEnv('NODE_ROUTER_FEE_MAX_SATS'));
+  const pricingInputSats = parseNumber(getEnv('NODE_PRICE_INPUT_SATS'));
+  const pricingOutputSats = parseNumber(getEnv('NODE_PRICE_OUTPUT_SATS'));
+  const pricingUnit = getEnv('NODE_PRICE_UNIT') as NodeConfig['pricingUnit'] | undefined;
 
   return {
     ...defaultNodeConfig,
@@ -213,6 +216,9 @@ const buildConfig = (): NodeConfig => {
       : undefined,
     routerFeeMaxBps,
     routerFeeMaxSats,
+    pricingInputSats,
+    pricingOutputSats,
+    pricingUnit,
   };
 };
 
@@ -384,7 +390,9 @@ const start = async (): Promise<void> => {
 void start();
 
 async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Capability[]> {
-  // Pricing is a placeholder until node pricing configuration is wired in.
+  const pricingUnit = config.pricingUnit ?? 'token';
+  const pricingInput = config.pricingInputSats ?? 0;
+  const pricingOutput = config.pricingOutputSats ?? 0;
   const fallbackModelId = getEnv('NODE_MODEL_ID') ?? 'default-model';
   const fallbackContextWindow = config.maxTokens ?? 4096;
   let models: ModelInfo[] = [];
@@ -402,10 +410,10 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
       contextWindow: model.contextWindow ?? fallbackContextWindow,
       maxTokens: model.contextWindow ?? fallbackContextWindow,
       pricing: {
-        unit: 'token',
-        inputRate: 0,
-        outputRate: 0,
-        currency: 'USD',
+        unit: pricingUnit,
+        inputRate: pricingInput,
+        outputRate: pricingOutput,
+        currency: 'SAT',
       },
       latencyEstimateMs: config.capabilityLatencyMs,
       jobTypes: config.capabilityJobTypes,
@@ -421,10 +429,10 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
       contextWindow: fallbackContextWindow,
       maxTokens: fallbackContextWindow,
       pricing: {
-        unit: 'token',
-        inputRate: 0,
-        outputRate: 0,
-        currency: 'USD',
+        unit: pricingUnit,
+        inputRate: pricingInput,
+        outputRate: pricingOutput,
+        currency: 'SAT',
       },
       latencyEstimateMs: config.capabilityLatencyMs,
       jobTypes: config.capabilityJobTypes,
