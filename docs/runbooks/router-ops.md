@@ -97,6 +97,22 @@ Or via Docker Compose:
 docker compose -f infra/docker-compose.yml up router
 ```
 
+## Database migrations
+
+Before first run (or when schema changes), apply SQL migrations:
+
+```
+tools/scripts/db-migrate.sh "$ROUTER_DB_URL" infra/sql/router.sql
+tools/scripts/db-migrate.sh "$ROUTER_NONCE_STORE_URL" infra/sql/router-nonce.sql
+```
+
+## Backups
+
+```
+tools/scripts/db-backup.sh "$ROUTER_DB_URL" backups/router-$(date +%F).sql
+tools/scripts/db-backup.sh "$ROUTER_NONCE_STORE_URL" backups/router-nonce-$(date +%F).sql
+```
+
 ## Health checks
 
 - `GET /health` should return `{ "ok": true }`.

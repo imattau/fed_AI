@@ -3,9 +3,11 @@ import {
   formatEndToEndSummary,
   formatMarkdownSummary,
   formatPricingSummary,
+  formatSoakSummary,
   runEndToEndSimulation,
   runPaymentFlowScenario,
   runPricingSensitivity,
+  runSoakScenario,
   runSimulation,
 } from './lib';
 
@@ -72,9 +74,60 @@ if (scenario === 'pricing') {
     nodeFailureRate: Number(flags['node-failure-rate'] ?? 0.03),
     paymentFailureRate: Number(flags['payment-failure-rate'] ?? 0.02),
     receiptFailureRate: Number(flags['receipt-failure-rate'] ?? 0.01),
+    relayFailureRate: Number(flags['relay-failure-rate'] ?? 0.02),
+    peerFlapRate: Number(flags['peer-flap-rate'] ?? 0.02),
   });
 
   const report = runEndToEndSimulation(endToEndConfig);
+  console.log(JSON.stringify(report, null, 2));
+  console.log('\n---\n');
+  console.log(formatEndToEndSummary(report));
+} else if (scenario === 'soak') {
+  const flags = parseFlags(args.slice(4));
+  const soakConfig = {
+    ...buildEndToEndConfig(config, {
+      routers: Number(flags.routers ?? 3),
+      nodesPerRouter: Number(flags['nodes-per-router'] ?? Math.max(1, Math.floor(nodes / 3))),
+      federationEnabled: (flags.federation ?? 'true') === 'true',
+      auctionEnabled: (flags.auction ?? 'true') === 'true',
+      auctionTimeoutMs: Number(flags['auction-timeout-ms'] ?? 500),
+      bidVariance: Number(flags['bid-variance'] ?? 0.02),
+      paymentFlow: (flags['payment-flow'] as 'pay-before' | 'pay-after') ?? 'pay-before',
+      maxOffloads: Number(flags['max-offloads'] ?? 5),
+      offloadThreshold: Number(flags['offload-threshold'] ?? 0.75),
+      nodeFailureRate: Number(flags['node-failure-rate'] ?? 0.05),
+      paymentFailureRate: Number(flags['payment-failure-rate'] ?? 0.03),
+      receiptFailureRate: Number(flags['receipt-failure-rate'] ?? 0.02),
+      relayFailureRate: Number(flags['relay-failure-rate'] ?? 0.05),
+      peerFlapRate: Number(flags['peer-flap-rate'] ?? 0.05),
+    }),
+    rounds: Number(flags.rounds ?? 5),
+  };
+
+  const report = runSoakScenario(soakConfig);
+  console.log(JSON.stringify(report, null, 2));
+  console.log('\n---\n');
+  console.log(formatSoakSummary(report));
+} else if (scenario === 'chaos') {
+  const flags = parseFlags(args.slice(4));
+  const chaosConfig = buildEndToEndConfig(config, {
+    routers: Number(flags.routers ?? 3),
+    nodesPerRouter: Number(flags['nodes-per-router'] ?? Math.max(1, Math.floor(nodes / 3))),
+    federationEnabled: true,
+    auctionEnabled: true,
+    auctionTimeoutMs: Number(flags['auction-timeout-ms'] ?? 800),
+    bidVariance: Number(flags['bid-variance'] ?? 0.05),
+    paymentFlow: (flags['payment-flow'] as 'pay-before' | 'pay-after') ?? 'pay-before',
+    maxOffloads: Number(flags['max-offloads'] ?? 5),
+    offloadThreshold: Number(flags['offload-threshold'] ?? 0.65),
+    nodeFailureRate: Number(flags['node-failure-rate'] ?? 0.1),
+    paymentFailureRate: Number(flags['payment-failure-rate'] ?? 0.05),
+    receiptFailureRate: Number(flags['receipt-failure-rate'] ?? 0.03),
+    relayFailureRate: Number(flags['relay-failure-rate'] ?? 0.1),
+    peerFlapRate: Number(flags['peer-flap-rate'] ?? 0.1),
+  });
+
+  const report = runEndToEndSimulation(chaosConfig);
   console.log(JSON.stringify(report, null, 2));
   console.log('\n---\n');
   console.log(formatEndToEndSummary(report));

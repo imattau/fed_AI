@@ -31,6 +31,7 @@ Recommended environment:
 - `ROUTER_LN_INVOICE_RETRY_MAX_ATTEMPTS` and `ROUTER_LN_VERIFY_RETRY_MAX_ATTEMPTS` for provider retries
 - `ROUTER_PAYMENT_RECONCILE_INTERVAL_MS` and `ROUTER_PAYMENT_RECONCILE_GRACE_MS` for reconciliation alerts
 - `ROUTER_FEE_ENABLED` and `ROUTER_FEE_BPS` if charging router fees via split invoices
+- Apply `infra/sql/router.sql` and `infra/sql/router-nonce.sql` before startup when using Postgres.
 - `ROUTER_DB_URL`
 - `ROUTER_MAX_REQUEST_BYTES`
 - `ROUTER_*_RETENTION_MS` and `ROUTER_PRUNE_INTERVAL_MS` if you need custom retention windows
@@ -62,6 +63,7 @@ Recommended environment:
 - `NODE_LN_VERIFY_URL`
 - `NODE_LN_VERIFY_RETRY_MAX_ATTEMPTS` for verification retries
 - `NODE_ROUTER_FEE_MAX_BPS` when enforcing router fee caps
+- Apply `infra/sql/node-nonce.sql` before startup when using Postgres nonce storage.
 - `NODE_RELAY_*` overrides
 
 ## Smoke checks

@@ -20,6 +20,8 @@ export type EndToEndConfig = SimulationConfig & {
   nodeFailureRate: number;
   paymentFailureRate: number;
   receiptFailureRate: number;
+  relayFailureRate: number;
+  peerFlapRate: number;
 };
 
 export type SimulationMetrics = {
@@ -42,6 +44,8 @@ export type EndToEndMetrics = SimulationMetrics & {
     bids: number;
     awards: number;
     auctionFailures: number;
+    relayFailures: number;
+    peerFlaps: number;
   };
   payment: {
     flow: PaymentFlowVariant;
@@ -62,6 +66,16 @@ export type EndToEndMetrics = SimulationMetrics & {
 export type EndToEndReport = {
   baseConfig: EndToEndConfig;
   metrics: EndToEndMetrics;
+};
+
+export type SoakConfig = EndToEndConfig & {
+  rounds: number;
+};
+
+export type SoakReport = {
+  baseConfig: SoakConfig;
+  rounds: EndToEndMetrics[];
+  aggregate: EndToEndMetrics;
 };
 
 export type PricingSensitivityResult = {
@@ -427,8 +441,126 @@ export const buildEndToEndConfig = (
   nodeFailureRate: 0.03,
   paymentFailureRate: 0.02,
   receiptFailureRate: 0.01,
+  relayFailureRate: 0.02,
+  peerFlapRate: 0.02,
   ...overrides,
 });
+
+const mergeSoakMetrics = (entries: EndToEndMetrics[]): EndToEndMetrics => {
+  if (entries.length === 0) {
+    return {
+      totalRequests: 0,
+      servedRequests: 0,
+      droppedRequests: 0,
+      dropRate: 0,
+      costPerRequestAvg: 0,
+      p50LatencyMs: 0,
+      p95LatencyMs: 0,
+      nodeUtilization: {},
+      avgLatencyMs: 0,
+      federation: {
+        attempts: 0,
+        success: 0,
+        failed: 0,
+        bids: 0,
+        awards: 0,
+        auctionFailures: 0,
+        relayFailures: 0,
+        peerFlaps: 0,
+      },
+      payment: {
+        flow: 'pay-before',
+        challenges: 0,
+        failures: 0,
+        receiptFailures: 0,
+        receiptsPerRequest: 0,
+      },
+      drops: {
+        noCapacity: 0,
+        nodeFailure: 0,
+        paymentFailure: 0,
+        receiptFailure: 0,
+        federationFailure: 0,
+      },
+    };
+  }
+
+  const aggregate: EndToEndMetrics = {
+    totalRequests: 0,
+    servedRequests: 0,
+    droppedRequests: 0,
+    dropRate: 0,
+    costPerRequestAvg: 0,
+    p50LatencyMs: 0,
+    p95LatencyMs: 0,
+    nodeUtilization: {},
+    avgLatencyMs: 0,
+    federation: {
+      attempts: 0,
+      success: 0,
+      failed: 0,
+      bids: 0,
+      awards: 0,
+      auctionFailures: 0,
+      relayFailures: 0,
+      peerFlaps: 0,
+    },
+    payment: {
+      flow: entries[0].payment.flow,
+      challenges: 0,
+      failures: 0,
+      receiptFailures: 0,
+      receiptsPerRequest: 0,
+    },
+    drops: {
+      noCapacity: 0,
+      nodeFailure: 0,
+      paymentFailure: 0,
+      receiptFailure: 0,
+      federationFailure: 0,
+    },
+  };
+
+  for (const entry of entries) {
+    aggregate.totalRequests += entry.totalRequests;
+    aggregate.servedRequests += entry.servedRequests;
+    aggregate.droppedRequests += entry.droppedRequests;
+    aggregate.costPerRequestAvg += entry.costPerRequestAvg;
+    aggregate.p50LatencyMs += entry.p50LatencyMs;
+    aggregate.p95LatencyMs += entry.p95LatencyMs;
+    aggregate.avgLatencyMs += entry.avgLatencyMs;
+
+    aggregate.federation.attempts += entry.federation.attempts;
+    aggregate.federation.success += entry.federation.success;
+    aggregate.federation.failed += entry.federation.failed;
+    aggregate.federation.bids += entry.federation.bids;
+    aggregate.federation.awards += entry.federation.awards;
+    aggregate.federation.auctionFailures += entry.federation.auctionFailures;
+    aggregate.federation.relayFailures += entry.federation.relayFailures;
+    aggregate.federation.peerFlaps += entry.federation.peerFlaps;
+
+    aggregate.payment.challenges += entry.payment.challenges;
+    aggregate.payment.failures += entry.payment.failures;
+    aggregate.payment.receiptFailures += entry.payment.receiptFailures;
+    aggregate.payment.receiptsPerRequest += entry.payment.receiptsPerRequest;
+
+    aggregate.drops.noCapacity += entry.drops.noCapacity;
+    aggregate.drops.nodeFailure += entry.drops.nodeFailure;
+    aggregate.drops.paymentFailure += entry.drops.paymentFailure;
+    aggregate.drops.receiptFailure += entry.drops.receiptFailure;
+    aggregate.drops.federationFailure += entry.drops.federationFailure;
+  }
+
+  const rounds = entries.length;
+  aggregate.costPerRequestAvg /= rounds;
+  aggregate.p50LatencyMs /= rounds;
+  aggregate.p95LatencyMs /= rounds;
+  aggregate.avgLatencyMs /= rounds;
+  aggregate.payment.receiptsPerRequest /= rounds;
+  aggregate.dropRate = aggregate.totalRequests === 0 ? 0 : aggregate.droppedRequests / aggregate.totalRequests;
+
+  return aggregate;
+};
 
 const adjustMetricsForFlow = (
   base: SimulationMetrics,
@@ -512,6 +644,8 @@ export const runEndToEndSimulation = (config: EndToEndConfig): EndToEndReport =>
     bids: 0,
     awards: 0,
     auctionFailures: 0,
+    relayFailures: 0,
+    peerFlaps: 0,
   };
   const payment = {
     flow: config.paymentFlow,
@@ -530,6 +664,12 @@ export const runEndToEndSimulation = (config: EndToEndConfig): EndToEndReport =>
     let offloaded = false;
     if (shouldOffload) {
       federation.attempts += 1;
+      if (config.relayFailureRate > 0 && rng() < config.relayFailureRate) {
+        federation.failed += 1;
+        federation.relayFailures += 1;
+        drops.federationFailure += 1;
+        continue;
+      }
       let peer: RouterSim | null = null;
       if (config.auctionEnabled) {
         const auction = runAuction(ingressRouter, routers, rng, config.bidVariance);
@@ -547,6 +687,12 @@ export const runEndToEndSimulation = (config: EndToEndConfig): EndToEndReport =>
       }
       if (!peer) {
         federation.failed += 1;
+        drops.federationFailure += 1;
+        continue;
+      }
+      if (config.peerFlapRate > 0 && rng() < config.peerFlapRate) {
+        federation.failed += 1;
+        federation.peerFlaps += 1;
         drops.federationFailure += 1;
         continue;
       }
@@ -652,6 +798,32 @@ export const runEndToEndSimulation = (config: EndToEndConfig): EndToEndReport =>
   };
 };
 
+export const runSoakScenario = (config: SoakConfig): SoakReport => {
+  const rounds: EndToEndMetrics[] = [];
+  for (let i = 0; i < config.rounds; i += 1) {
+    const report = runEndToEndSimulation({ ...config, seed: config.seed + i });
+    rounds.push(report.metrics);
+  }
+  return {
+    baseConfig: config,
+    rounds,
+    aggregate: mergeSoakMetrics(rounds),
+  };
+};
+
+export const formatSoakSummary = (report: SoakReport): string => {
+  const metrics = report.aggregate;
+  return [
+    `# Soak Summary`,
+    `- rounds=${report.baseConfig.rounds}`,
+    `- requests=${metrics.totalRequests}`,
+    `- served=${metrics.servedRequests}`,
+    `- dropped=${metrics.droppedRequests} (${(metrics.dropRate * 100).toFixed(2)}%)`,
+    `- p50=${metrics.p50LatencyMs.toFixed(1)}ms p95=${metrics.p95LatencyMs.toFixed(1)}ms`,
+    `- federation: attempts=${metrics.federation.attempts} relayFail=${metrics.federation.relayFailures} peerFlap=${metrics.federation.peerFlaps}`,
+  ].join('\n');
+};
+
 export const formatEndToEndSummary = (report: EndToEndReport): string => {
   const { metrics } = report;
   return (
@@ -668,6 +840,8 @@ export const formatEndToEndSummary = (report: EndToEndReport): string => {
     `- Federation success: ${metrics.federation.success}\n` +
     `- Federation bids: ${metrics.federation.bids}\n` +
     `- Federation awards: ${metrics.federation.awards}\n` +
+    `- Federation relay failures: ${metrics.federation.relayFailures}\n` +
+    `- Federation peer flaps: ${metrics.federation.peerFlaps}\n` +
     `- Payment flow: ${metrics.payment.flow}\n` +
     `- Payment failures: ${metrics.payment.failures}\n` +
     `- Receipt failures: ${metrics.payment.receiptFailures}\n`

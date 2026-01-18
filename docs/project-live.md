@@ -65,6 +65,10 @@ Phase 7 - Optional extensions
   - [x] Add retries for payment verification checks.
   - [x] Add reconciliation alerts for missing/expired receipts.
   - [x] Add settlement verification tests to CI.
+- [ ] Phase PR-3: reliability and durability (in progress).
+  - [x] Add SQL migrations and backup scripts for router/node Postgres storage.
+  - [x] Add load/soak simulations covering timeouts, backpressure, and offload/auction behavior.
+  - [x] Add chaos-lite scenarios for relay failures and peer flapping.
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 - [x] Production hardening: settlement verification and state storage.

@@ -89,6 +89,18 @@ Or via Docker Compose:
 docker compose -f infra/docker-compose.yml up node
 ```
 
+## Database migrations
+
+```
+tools/scripts/db-migrate.sh "$NODE_NONCE_STORE_URL" infra/sql/node-nonce.sql
+```
+
+## Backups
+
+```
+tools/scripts/db-backup.sh "$NODE_NONCE_STORE_URL" backups/node-nonce-$(date +%F).sql
+```
+
 ## Health checks
 
 - `GET /health` should return `{ "ok": true }`.
