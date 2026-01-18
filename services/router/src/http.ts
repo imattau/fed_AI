@@ -80,6 +80,7 @@ import {
 import { discoverFederationPeers } from './federation/discovery';
 import { runAuctionAndAward } from './federation/publisher';
 import { allowsPrivacyLevel, canBidForRfb, estimateBidPrice } from './federation/logic';
+import type { FederationRateLimiter } from './federation/rate-limit';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -539,6 +540,7 @@ export const createRouterHttpServer = (
   service: RouterService,
   config: RouterConfig,
   nonceStore?: NonceStore,
+  federationRateLimiter?: FederationRateLimiter,
 ): http.Server => {
   const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
@@ -548,6 +550,15 @@ export const createRouterHttpServer = (
     config.federation?.peers,
     config.federation?.discovery?.bootstrapPeers,
   ).map((peer) => peer.url);
+  const getPeerRestriction = (routerId: string): 'blocked' | 'muted' | null => {
+    if (config.federation?.nostrBlockPeers?.includes(routerId)) {
+      return 'blocked';
+    }
+    if (config.federation?.nostrMutePeers?.includes(routerId)) {
+      return 'muted';
+    }
+    return null;
+  };
 
   const attemptFederationOffload = async (
     envelope: Envelope<InferenceRequest>,
@@ -826,6 +837,10 @@ export const createRouterHttpServer = (
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
+        }
 
         service.federation.capabilities = message.payload;
         federationMessages.inc({ type: message.type });
@@ -899,6 +914,10 @@ export const createRouterHttpServer = (
         const publicKey = parsePublicKey(message.routerId);
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
         }
 
         service.federation.priceSheets.set(message.payload.jobType, message.payload);
@@ -974,6 +993,10 @@ export const createRouterHttpServer = (
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
+        }
 
         service.federation.status = message.payload;
         federationMessages.inc({ type: message.type });
@@ -1048,6 +1071,13 @@ export const createRouterHttpServer = (
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
+        }
+        if (federationRateLimiter && !federationRateLimiter.allow(message.routerId, message.type)) {
+          return sendJson(res, 429, { error: 'rate-limited' });
+        }
 
         federationMessages.inc({ type: message.type });
         const eligibility = canBidForRfb(service, config, message.payload);
@@ -1107,6 +1137,13 @@ export const createRouterHttpServer = (
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
         }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
+        }
+        if (federationRateLimiter && !federationRateLimiter.allow(message.routerId, message.type)) {
+          return sendJson(res, 429, { error: 'rate-limited' });
+        }
 
         service.federation.bids.set(message.payload.jobId, message.payload);
         federationMessages.inc({ type: message.type });
@@ -1138,6 +1175,13 @@ export const createRouterHttpServer = (
         const publicKey = parsePublicKey(message.routerId);
         if (!verifyRouterMessage(message, publicKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
+        }
+        const restriction = getPeerRestriction(message.routerId);
+        if (restriction) {
+          return sendJson(res, 403, { error: `peer-${restriction}` });
+        }
+        if (federationRateLimiter && !federationRateLimiter.allow(message.routerId, message.type)) {
+          return sendJson(res, 429, { error: 'rate-limited' });
         }
 
         if (message.payload.winnerRouterId !== config.keyId) {

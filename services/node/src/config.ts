@@ -22,6 +22,9 @@ export type NodeConfig = {
   requirePayment: boolean;
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
+  routerFollowList?: string[];
+  routerMuteList?: string[];
+  routerBlockList?: string[];
   nonceStorePath?: string;
   nonceStoreUrl?: string;
   tls?: NodeTlsConfig;
@@ -64,6 +67,9 @@ export const defaultNodeConfig: NodeConfig = {
   requirePayment: false,
   nonceStorePath: undefined,
   nonceStoreUrl: undefined,
+  routerFollowList: undefined,
+  routerMuteList: undefined,
+  routerBlockList: undefined,
   tls: undefined,
   paymentVerification: undefined,
   capabilityJobTypes: undefined,

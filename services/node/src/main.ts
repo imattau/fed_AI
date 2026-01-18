@@ -38,6 +38,16 @@ const parseList = (value?: string): string[] | undefined => {
     .filter((item) => item.length > 0);
 };
 
+/** Parse comma-separated Nostr npub lists, discarding invalid entries. */
+const parseNpubList = (value?: string): string[] | undefined => {
+  const entries = parseList(value);
+  if (!entries) {
+    return undefined;
+  }
+  const filtered = entries.filter((entry) => isNostrNpub(entry));
+  return filtered.length > 0 ? filtered : undefined;
+};
+
 const JOB_TYPES = new Set([
   'EMBEDDING',
   'RERANK',
@@ -158,6 +168,9 @@ const buildConfig = (): NodeConfig => {
       : routerKeyId
         ? parsePublicKey(routerKeyId)
         : undefined,
+    routerFollowList: parseNpubList(getEnv('NODE_ROUTER_FOLLOW')),
+    routerMuteList: parseNpubList(getEnv('NODE_ROUTER_MUTE')),
+    routerBlockList: parseNpubList(getEnv('NODE_ROUTER_BLOCK')),
     nonceStorePath: getEnv('NODE_NONCE_STORE_PATH'),
     nonceStoreUrl,
     capabilityJobTypes: parseJobTypes(getEnv('NODE_JOB_TYPES')),

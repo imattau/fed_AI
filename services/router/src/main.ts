@@ -17,6 +17,7 @@ import { createPostgresNonceStore } from './storage/postgres-nonce';
 import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol';
 import { pruneRouterState } from './prune';
 import { publishFederationToRelays, startFederationNostr } from './federation/nostr';
+import { createFederationRateLimiter } from './federation/rate-limit';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -28,6 +29,16 @@ const parseList = (value?: string): string[] | undefined => {
     ?.split(',')
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+};
+
+/** Parse comma-separated Nostr npub lists, discarding invalid entries. */
+const parseNpubList = (value?: string): string[] | undefined => {
+  const entries = parseList(value);
+  if (!entries) {
+    return undefined;
+  }
+  const filtered = entries.filter((entry) => isNostrNpub(entry));
+  return filtered.length > 0 ? filtered : undefined;
 };
 
 /** Parse trust-score overrides in the form `url=score,url2=score`. */
@@ -175,6 +186,16 @@ const buildConfig = (): RouterConfig => {
       nostrRelays: parseList(getEnv('ROUTER_FEDERATION_NOSTR_RELAYS')),
       nostrPublishIntervalMs: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_PUBLISH_INTERVAL_MS')),
       nostrSubscribeSinceSeconds: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_SUBSCRIBE_SINCE_SEC')),
+      nostrAllowedPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_ALLOWED_PEERS')),
+      nostrFollowPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_FOLLOW')),
+      nostrMutePeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_MUTE')),
+      nostrBlockPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_BLOCK')),
+      nostrMaxContentBytes: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_MAX_CONTENT_BYTES')),
+      nostrWotEnabled: (getEnv('ROUTER_FEDERATION_NOSTR_WOT') ?? 'false').toLowerCase() === 'true',
+      nostrWotTrustedPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_WOT_TRUSTED')),
+      nostrWotMinScore: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_WOT_MIN_SCORE')),
+      rateLimitMax: parseNumber(getEnv('ROUTER_FEDERATION_RATE_LIMIT_MAX')),
+      rateLimitWindowMs: parseNumber(getEnv('ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS')),
       maxPrivacyLevel: getEnv('ROUTER_FEDERATION_MAX_PL') as
         | 'PL0'
         | 'PL1'
@@ -267,7 +288,8 @@ const start = async (): Promise<void> => {
     }
   }
 
-  const server = createRouterHttpServer(service, config, nonceStore);
+  const federationRateLimiter = createFederationRateLimiter(config.federation);
+  const server = createRouterHttpServer(service, config, nonceStore, federationRateLimiter);
 
   server.listen(config.port);
   startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);
@@ -308,7 +330,7 @@ const start = async (): Promise<void> => {
       }
     }
     if (relayUrls.length > 0 && config.privateKey) {
-      const runtime = startFederationNostr(service, config, relayUrls);
+      const runtime = startFederationNostr(service, config, relayUrls, federationRateLimiter);
       const intervalMs = config.federation.nostrPublishIntervalMs ?? 30_000;
       const publish = async () => {
         try {

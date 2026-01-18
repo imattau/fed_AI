@@ -37,12 +37,22 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_FEDERATION_MAX_SPEND_MSAT`: optional spend cap for offloads.
 - `ROUTER_FEDERATION_MAX_OFFLOADS`: optional max inflight offloads.
 - `ROUTER_FEDERATION_MAX_PL`: max privacy level accepted (`PL0`-`PL3`).
+- `ROUTER_FEDERATION_RATE_LIMIT_MAX`: max inbound federation control messages per peer per window.
+- `ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS`: time window (ms) for inbound federation rate limiting.
 - `ROUTER_FEDERATION_PEERS`: comma-separated peer URLs for outbound publishing.
 - `ROUTER_FEDERATION_PUBLISH_INTERVAL_MS`: publish interval for federation announcements.
 - `ROUTER_FEDERATION_NOSTR`: enable Nostr relay publish/subscribe for federation control-plane.
 - `ROUTER_FEDERATION_NOSTR_RELAYS`: comma-separated Nostr relay URLs (optional; defaults to discovery list).
 - `ROUTER_FEDERATION_NOSTR_PUBLISH_INTERVAL_MS`: publish cadence for caps/price/status events.
 - `ROUTER_FEDERATION_NOSTR_SUBSCRIBE_SINCE_SEC`: history window in seconds when subscribing.
+- `ROUTER_FEDERATION_NOSTR_ALLOWED_PEERS`: optional comma-separated npub allowlist (open by default).
+- `ROUTER_FEDERATION_NOSTR_FOLLOW`: optional comma-separated npub follow list (biases WoT and relay subscriptions).
+- `ROUTER_FEDERATION_NOSTR_MUTE`: optional comma-separated npub mute list (ignored inbound messages).
+- `ROUTER_FEDERATION_NOSTR_BLOCK`: optional comma-separated npub block list (rejected inbound messages).
+- `ROUTER_FEDERATION_NOSTR_WOT`: enable Web-of-Trust scoring for relay events.
+- `ROUTER_FEDERATION_NOSTR_WOT_TRUSTED`: comma-separated npub list of trusted peers for WoT scoring.
+- `ROUTER_FEDERATION_NOSTR_WOT_MIN_SCORE`: minimum WoT score required to accept events.
+- `ROUTER_FEDERATION_NOSTR_MAX_CONTENT_BYTES`: max event content size before JSON parsing.
 - `ROUTER_FEDERATION_DISCOVERY`: `true|false` to enable bootstrap peer discovery.
 - `ROUTER_FEDERATION_BOOTSTRAP_PEERS`: comma-separated bootstrap peer URLs.
 - `ROUTER_RELAY_BOOTSTRAP`: comma-separated relay URLs.

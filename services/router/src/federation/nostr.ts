@@ -26,12 +26,14 @@ import type { RouterService } from '../server';
 import { logInfo, logWarn } from '../logging';
 import { federationMessages } from '../observability';
 import { canBidForRfb, estimateBidPrice } from './logic';
+import type { FederationRateLimiter } from './rate-limit';
 
 useWebSocketImplementation(WebSocket);
 
 export type FederationNostrRuntime = {
   pool: SimplePool;
   relays: string[];
+  peerScores: Map<string, number>;
   close: () => void;
 };
 
@@ -175,9 +177,30 @@ const handleRfb = async (
   await publishEvent(runtime.pool, runtime.relays, event);
 };
 
-const shouldIgnore = (config: RouterConfig, message: RouterControlMessage<unknown>): boolean => {
+const shouldIgnore = (
+  config: RouterConfig,
+  message: RouterControlMessage<unknown>,
+  peerScore?: number,
+): boolean => {
   if (message.routerId === config.keyId) {
     return true;
+  }
+  if (config.federation?.nostrBlockPeers?.includes(message.routerId)) {
+    return true;
+  }
+  if (config.federation?.nostrMutePeers?.includes(message.routerId)) {
+    return true;
+  }
+  if (config.federation?.nostrAllowedPeers?.length) {
+    if (!config.federation.nostrAllowedPeers.includes(message.routerId)) {
+      return true;
+    }
+  }
+  if (config.federation?.nostrWotEnabled) {
+    const minScore = config.federation.nostrWotMinScore ?? 0;
+    if ((peerScore ?? 0) < minScore) {
+      return true;
+    }
   }
   if (message.expiry < Date.now()) {
     return true;
@@ -185,11 +208,40 @@ const shouldIgnore = (config: RouterConfig, message: RouterControlMessage<unknow
   return false;
 };
 
+const withinContentLimit = (config: RouterConfig, event: NostrEvent): boolean => {
+  const limit = config.federation?.nostrMaxContentBytes;
+  if (!limit) {
+    return true;
+  }
+  return Buffer.byteLength(event.content ?? '', 'utf8') <= limit;
+};
+
+const computePeerScore = (
+  runtime: FederationNostrRuntime,
+  config: RouterConfig,
+  routerId: string,
+  eventId: string,
+): number => {
+  const trusted = config.federation?.nostrWotTrustedPeers ?? [];
+  const follow = config.federation?.nostrFollowPeers ?? [];
+  const base = trusted.includes(routerId) ? 5 : follow.includes(routerId) ? 3 : 0;
+  const seenOn = runtime.pool.seenOn.get(eventId);
+  const relayBonus = seenOn ? Math.min(5, seenOn.size) : 0;
+  const score = base + relayBonus;
+  runtime.peerScores.set(routerId, score);
+  return score;
+};
+
 const buildSubscriptionFilter = (config: RouterConfig): Filter => {
   const kinds = Object.values(ROUTER_NOSTR_KINDS);
+  const allowedAuthors = config.federation?.nostrAllowedPeers?.length
+    ? config.federation.nostrAllowedPeers
+    : config.federation?.nostrFollowPeers?.length
+      ? config.federation.nostrFollowPeers
+      : undefined;
   const sinceSeconds = config.federation?.nostrSubscribeSinceSeconds ?? 300;
   const since = Math.floor(Date.now() / 1000) - Math.max(0, sinceSeconds);
-  return { kinds, since };
+  return { kinds, since, authors: allowedAuthors };
 };
 
 const validatePayload = <T>(
@@ -213,22 +265,28 @@ export const startFederationNostr = (
   service: RouterService,
   config: RouterConfig,
   relays: string[],
+  rateLimiter?: FederationRateLimiter,
 ): FederationNostrRuntime => {
   const pool = new SimplePool({ enableReconnect: true });
   const runtime: FederationNostrRuntime = {
     pool,
     relays,
+    peerScores: new Map(),
     close: () => undefined,
   };
   const filter = buildSubscriptionFilter(config);
   const close = pool.subscribe(relays, filter, {
     onevent: async (event) => {
+      if (!withinContentLimit(config, event)) {
+        return;
+      }
       const parsed = parseRouterControlEvent(event);
       if (!parsed.ok) {
         return;
       }
       const message = parsed.message;
-      if (shouldIgnore(config, message)) {
+      const peerScore = computePeerScore(runtime, config, message.routerId, event.id);
+      if (shouldIgnore(config, message, peerScore)) {
         return;
       }
       switch (message.type) {
@@ -257,6 +315,9 @@ export const startFederationNostr = (
           if (!validatePayload(message, validateRouterRfbPayload)) {
             return;
           }
+          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
+            return;
+          }
           await handleRfb(service, config, runtime, message);
           break;
         }
@@ -264,11 +325,17 @@ export const startFederationNostr = (
           if (!validatePayload(message, validateRouterBidPayload)) {
             return;
           }
+          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
+            return;
+          }
           handleBid(service, message);
           break;
         }
         case 'AWARD': {
           if (!validatePayload(message, validateRouterAwardPayload)) {
+            return;
+          }
+          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
             return;
           }
           if ((message.payload as RouterAwardPayload).winnerRouterId !== config.keyId) {

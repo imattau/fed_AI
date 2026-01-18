@@ -36,6 +36,7 @@ Recommended environment:
 - `ROUTER_RELAY_SNAPSHOT_REQUIRED`
 - `ROUTER_FEDERATION_ENABLED`
 - `ROUTER_FEDERATION_NOSTR` and `ROUTER_FEDERATION_NOSTR_RELAYS` when using relays for federation control-plane
+- `ROUTER_FEDERATION_RATE_LIMIT_MAX` and `ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS` for inbound control-plane throttling
 
 ## Node deployment
 

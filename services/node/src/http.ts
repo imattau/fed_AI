@@ -144,6 +144,15 @@ export const createNodeHttpServer = (
         if (!isNostrNpub(envelope.keyId)) {
           return respond(400, { error: 'invalid-key-id' });
         }
+        if (config.routerBlockList?.includes(envelope.keyId)) {
+          return respond(403, { error: 'router-blocked' });
+        }
+        if (config.routerMuteList?.includes(envelope.keyId)) {
+          return respond(403, { error: 'router-muted' });
+        }
+        if (config.routerFollowList?.length && !config.routerFollowList.includes(envelope.keyId)) {
+          return respond(403, { error: 'router-not-followed' });
+        }
         const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
         if (config.maxPromptBytes !== undefined && promptBytes > config.maxPromptBytes) {
           return respond(413, { error: 'prompt-too-large' });

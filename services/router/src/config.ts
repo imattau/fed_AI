@@ -87,6 +87,16 @@ export const defaultRouterConfig: RouterConfig = {
     nostrRelays: undefined,
     nostrPublishIntervalMs: 30_000,
     nostrSubscribeSinceSeconds: 300,
+    nostrAllowedPeers: undefined,
+    nostrFollowPeers: undefined,
+    nostrMutePeers: undefined,
+    nostrBlockPeers: undefined,
+    nostrMaxContentBytes: 16_384,
+    nostrWotEnabled: false,
+    nostrWotTrustedPeers: undefined,
+    nostrWotMinScore: 3,
+    rateLimitMax: 60,
+    rateLimitWindowMs: 10_000,
   },
 };
 
@@ -105,6 +115,16 @@ export type RouterFederationConfig = {
   nostrRelays?: string[];
   nostrPublishIntervalMs?: number;
   nostrSubscribeSinceSeconds?: number;
+  nostrAllowedPeers?: string[];
+  nostrFollowPeers?: string[];
+  nostrMutePeers?: string[];
+  nostrBlockPeers?: string[];
+  nostrMaxContentBytes?: number;
+  nostrWotEnabled?: boolean;
+  nostrWotTrustedPeers?: string[];
+  nostrWotMinScore?: number;
+  rateLimitMax?: number;
+  rateLimitWindowMs?: number;
   discovery?: {
     enabled: boolean;
     bootstrapPeers?: string[];
