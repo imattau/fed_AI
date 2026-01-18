@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v3
         with:
           version: 9
@@ -18,6 +20,11 @@ jobs:
           node-version: lts/*
           cache: pnpm
       - run: pnpm install
+      - run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            export BASE_REF="origin/${{ github.base_ref }}"
+            bash tools/scripts/check-version-bumps.sh
+          fi
       - run: pnpm -w lint
       - run: pnpm -w test
       - run: pnpm -w build

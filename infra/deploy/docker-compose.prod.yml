@@ -1,0 +1,63 @@
+services:
+  router:
+    image: ${ROUTER_IMAGE:-fed-ai/router:latest}
+    environment:
+      ROUTER_PORT: 8080
+      ROUTER_ENDPOINT: ${ROUTER_ENDPOINT}
+      ROUTER_KEY_ID: ${ROUTER_KEY_ID}
+      ROUTER_PRIVATE_KEY_PEM: ${ROUTER_PRIVATE_KEY_PEM}
+      ROUTER_DB_URL: ${ROUTER_DB_URL}
+      ROUTER_DB_SSL: ${ROUTER_DB_SSL:-false}
+      ROUTER_NONCE_STORE_URL: ${ROUTER_NONCE_STORE_URL}
+      ROUTER_REQUIRE_PAYMENT: ${ROUTER_REQUIRE_PAYMENT:-false}
+      ROUTER_LN_INVOICE_URL: ${ROUTER_LN_INVOICE_URL}
+      ROUTER_LN_VERIFY_URL: ${ROUTER_LN_VERIFY_URL}
+    ports:
+      - "${ROUTER_PUBLIC_PORT:-8080}:8080"
+    depends_on:
+      - prometheus
+      - otel
+
+  node:
+    image: ${NODE_IMAGE:-fed-ai/node:latest}
+    environment:
+      NODE_PORT: 8081
+      NODE_ENDPOINT: ${NODE_ENDPOINT}
+      NODE_KEY_ID: ${NODE_KEY_ID}
+      NODE_PRIVATE_KEY_PEM: ${NODE_PRIVATE_KEY_PEM}
+      ROUTER_ENDPOINT: ${ROUTER_ENDPOINT}
+      ROUTER_PUBLIC_KEY_PEM: ${ROUTER_PUBLIC_KEY_PEM}
+      NODE_NONCE_STORE_URL: ${NODE_NONCE_STORE_URL}
+      NODE_REQUIRE_PAYMENT: ${NODE_REQUIRE_PAYMENT:-false}
+      NODE_LN_VERIFY_URL: ${NODE_LN_VERIFY_URL}
+    ports:
+      - "${NODE_PUBLIC_PORT:-8081}:8081"
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
+  otel:
+    image: otel/opentelemetry-collector:0.101.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ../otel/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"

@@ -73,6 +73,10 @@ Phase 7 - Optional extensions
   - [x] Expand dashboards and alert thresholds for payment health.
   - [x] Add correlation IDs to router/node request handling.
   - [x] Finalize incident/rollback runbooks.
+- [x] Phase PR-5: release readiness.
+  - [x] Add protocol/SDK version bump checks in CI.
+  - [x] Add production deployment manifest(s) and usage notes.
+  - [x] Add pre-release security review checklist.
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 - [x] Production hardening: settlement verification and state storage.

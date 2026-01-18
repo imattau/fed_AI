@@ -32,6 +32,7 @@ Recommended environment:
 - `ROUTER_PAYMENT_RECONCILE_INTERVAL_MS` and `ROUTER_PAYMENT_RECONCILE_GRACE_MS` for reconciliation alerts
 - `ROUTER_FEE_ENABLED` and `ROUTER_FEE_BPS` if charging router fees via split invoices
 - Apply `infra/sql/router.sql` and `infra/sql/router-nonce.sql` before startup when using Postgres.
+- `infra/deploy/docker-compose.prod.yml` provides a production-oriented compose manifest.
 - `ROUTER_DB_URL`
 - `ROUTER_MAX_REQUEST_BYTES`
 - `ROUTER_*_RETENTION_MS` and `ROUTER_PRUNE_INTERVAL_MS` if you need custom retention windows
