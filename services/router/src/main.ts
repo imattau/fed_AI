@@ -18,6 +18,7 @@ import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol
 import { pruneRouterState } from './prune';
 import { publishFederationToRelays, startFederationNostr } from './federation/nostr';
 import { createFederationRateLimiter } from './federation/rate-limit';
+import { createRateLimiter } from './rate-limit';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -128,6 +129,11 @@ const buildConfig = (): RouterConfig => {
   const nodeRetentionMs = parseNumber(getEnv('ROUTER_NODE_RETENTION_MS'));
   const pruneIntervalMs = parseNumber(getEnv('ROUTER_PRUNE_INTERVAL_MS'));
   const schedulerTopK = parseNumber(getEnv('ROUTER_SCHEDULER_TOP_K'));
+  const clientAllowList = parseNpubList(getEnv('ROUTER_CLIENT_ALLOWLIST'));
+  const clientBlockList = parseNpubList(getEnv('ROUTER_CLIENT_BLOCKLIST'));
+  const clientMuteList = parseNpubList(getEnv('ROUTER_CLIENT_MUTE'));
+  const rateLimitMax = parseNumber(getEnv('ROUTER_RATE_LIMIT_MAX'));
+  const rateLimitWindowMs = parseNumber(getEnv('ROUTER_RATE_LIMIT_WINDOW_MS'));
 
   return {
     ...defaultRouterConfig,
@@ -144,6 +150,11 @@ const buildConfig = (): RouterConfig => {
     nodeRetentionMs,
     pruneIntervalMs,
     schedulerTopK,
+    clientAllowList,
+    clientBlockList,
+    clientMuteList,
+    rateLimitMax,
+    rateLimitWindowMs,
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     nonceStorePath: getEnv('ROUTER_NONCE_STORE_PATH'),
     nonceStoreUrl,
@@ -291,7 +302,14 @@ const start = async (): Promise<void> => {
   }
 
   const federationRateLimiter = createFederationRateLimiter(config.federation);
-  const server = createRouterHttpServer(service, config, nonceStore, federationRateLimiter);
+  const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
+  const server = createRouterHttpServer(
+    service,
+    config,
+    nonceStore,
+    federationRateLimiter,
+    ingressRateLimiter,
+  );
 
   server.listen(config.port);
   startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);

@@ -173,6 +173,8 @@ const buildConfig = (): NodeConfig => {
     routerFollowList: parseNpubList(getEnv('NODE_ROUTER_FOLLOW')),
     routerMuteList: parseNpubList(getEnv('NODE_ROUTER_MUTE')),
     routerBlockList: parseNpubList(getEnv('NODE_ROUTER_BLOCK')),
+    rateLimitMax: parseNumber(getEnv('NODE_RATE_LIMIT_MAX')),
+    rateLimitWindowMs: parseNumber(getEnv('NODE_RATE_LIMIT_WINDOW_MS')),
     offloadPeers: parseList(getEnv('NODE_OFFLOAD_PEERS')),
     offloadRouter: (getEnv('NODE_OFFLOAD_ROUTER') ?? 'false').toLowerCase() === 'true',
     offloadAuctionEnabled: (getEnv('NODE_OFFLOAD_AUCTION') ?? 'false').toLowerCase() === 'true',

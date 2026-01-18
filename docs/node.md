@@ -69,6 +69,7 @@ Configuration
 - Offload auction: `NODE_OFFLOAD_AUCTION` (`true|false`), `NODE_OFFLOAD_AUCTION_MS` (auction timeout for bids).
 - Offload auction access: `NODE_OFFLOAD_AUCTION_ALLOWLIST` (npub list), `NODE_OFFLOAD_AUCTION_RATE_LIMIT` (requests per minute).
 - Router preferences: `NODE_ROUTER_FOLLOW`, `NODE_ROUTER_MUTE`, `NODE_ROUTER_BLOCK` (npub lists).
+- Rate limits: `NODE_RATE_LIMIT_MAX`, `NODE_RATE_LIMIT_WINDOW_MS`.
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.

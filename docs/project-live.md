@@ -55,6 +55,11 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
+- [ ] Phase PR-1: authZ policy modules and ingress rate limits (in progress).
+  - [x] Add authZ policy helpers for router/node ingress.
+  - [x] Add ingress rate limiting for router/node endpoints.
+  - [x] Add key rotation steps to router/node runbooks.
+  - [x] Map threat-model mitigations to code references.
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 - [x] Production hardening: settlement verification and state storage.
@@ -97,6 +102,62 @@ Phase 7 - Optional extensions
 - Operators can earn revenue without platform lock-in.
 - Routing is explainable, testable, reproducible.
 - Scaling assumptions are validated by simulation.
+
+## Production readiness checklist (draft)
+
+Security and auth
+- [ ] End-to-end authZ policy model for routers and nodes (allowlist + WoT + rate limits).
+- [ ] Key rotation workflows and runbooks (router/node/client keys).
+- [ ] Hardened request validation (schema + size + replay) for all public endpoints.
+- [ ] Threat-model review pass with concrete mitigations mapped to code.
+
+Payments and settlement
+- [ ] Production Lightning invoice integration (LNBits/LND/CLN) with retries + idempotency.
+- [ ] Payment reconciliation + dispute handling runbook.
+- [ ] Signed receipt lifecycle alerts (late/invalid receipts, mismatched invoices).
+
+Reliability and data
+- [ ] Persistent storage for registry, metering, receipts, auctions (migrations + backups).
+- [ ] Load testing + soak testing for node/router (timeouts, backpressure, offload).
+- [ ] Chaos/chaos-lite tests for relay failures and peer flapping.
+
+Observability and ops
+- [ ] Production dashboards and alert thresholds (SLOs for latency, error rate, payment failures).
+- [ ] Structured logging policy (redaction, correlation IDs, audit trails).
+- [ ] On-call runbooks (incident response + escalation).
+
+Release and deployment
+- [ ] CI integration smoke tests (compose + signed inference + metering).
+- [ ] Versioning and compatibility policy for protocol + SDK.
+- [ ] Deployment manifests for router/node/observability stacks (prod-ready).
+
+## Production readiness plan (tasks)
+
+Phase PR-1: Security baseline
+- Implement authZ policy modules for router/node ingress.
+- Add key rotation tooling and docs.
+- Enforce rate limits across all public endpoints.
+- Map threat-model items to mitigations with code references.
+
+Phase PR-2: Payments and settlement hardening
+- Integrate real LN providers with retries and idempotent payment requests.
+- Add reconciliation pipeline and alerting for receipt anomalies.
+- Add automated settlement verification tests in CI.
+
+Phase PR-3: Reliability and durability
+- Finalize durable storage with migrations + backups.
+- Add load/soak tests and chaos scenarios.
+- Validate offload/auction behavior under sustained load.
+
+Phase PR-4: Observability and operations
+- Ship production dashboards and alert SLOs.
+- Add audit logging and correlation IDs.
+- Finalize runbooks for incidents, upgrades, and rollbacks.
+
+Phase PR-5: Release readiness
+- Add compatibility checks for protocol/SDK changes.
+- Finalize deployment manifests and version pinning.
+- Complete pre-release security review.
 
 ## Completed
 

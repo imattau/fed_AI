@@ -34,6 +34,8 @@ import type {
 } from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
+import { checkRouterAccess } from './authz';
+import { createRateLimiter } from './rate-limit';
 import { verifyPaymentReceipt } from './payments/verify';
 import {
   nodeInferenceDuration,
@@ -90,6 +92,18 @@ export const createNodeHttpServer = (
     ? new FileNonceStore(config.nonceStorePath)
     : new InMemoryNonceStore());
   const startedAtMs = Date.now();
+  const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
+  const checkIngressRateLimit = (
+    keyId: string,
+  ): { ok: true } | { ok: false; status: number; error: string } => {
+    if (!ingressRateLimiter) {
+      return { ok: true };
+    }
+    if (!ingressRateLimiter.allow(keyId)) {
+      return { ok: false, status: 429, error: 'rate-limited' };
+    }
+    return { ok: true };
+  };
   const auctionRateWindowMs = 60_000;
   const auctionRateCounters = new Map<string, { count: number; resetAt: number }>();
 
@@ -479,21 +493,13 @@ export const createNodeHttpServer = (
         if (!isNostrNpub(envelope.keyId)) {
           return respond(400, { error: 'invalid-key-id' });
         }
-        if (config.routerBlockList?.includes(envelope.keyId)) {
-          return respond(403, { error: 'router-blocked' });
+        const access = checkRouterAccess(config, envelope.keyId);
+        if (!access.ok) {
+          return respond(access.status, { error: access.error });
         }
-        if (config.routerMuteList?.includes(envelope.keyId)) {
-          return respond(403, { error: 'router-muted' });
-        }
-        const allowedRouters = [
-          ...(config.routerAllowList ?? []),
-          ...(config.routerKeyId ? [config.routerKeyId] : []),
-        ];
-        if (allowedRouters.length > 0 && !allowedRouters.includes(envelope.keyId)) {
-          return respond(401, { error: 'router-not-allowed' });
-        }
-        if (config.routerFollowList?.length && !config.routerFollowList.includes(envelope.keyId)) {
-          return respond(403, { error: 'router-not-followed' });
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return respond(rateLimit.status, { error: rateLimit.error });
         }
         const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
         if (config.maxPromptBytes !== undefined && promptBytes > config.maxPromptBytes) {

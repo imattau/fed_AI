@@ -18,6 +18,11 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 
 - `ROUTER_REQUIRE_PAYMENT`: `true|false` to enforce payment receipts before inference.
 - `ROUTER_NONCE_STORE_PATH`: file path for persisted replay nonces.
+- `ROUTER_CLIENT_ALLOWLIST`: optional comma-separated npub allowlist for client requests.
+- `ROUTER_CLIENT_BLOCKLIST`: optional comma-separated npub blocklist for client requests.
+- `ROUTER_CLIENT_MUTE`: optional comma-separated npub mute list for client requests.
+- `ROUTER_RATE_LIMIT_MAX`: max requests per key per window for ingress endpoints.
+- `ROUTER_RATE_LIMIT_WINDOW_MS`: time window (ms) for ingress rate limiting.
 - `ROUTER_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
 - `ROUTER_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
 - `ROUTER_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
@@ -121,3 +126,11 @@ Tracing:
 - `node-unreachable`: verify node endpoint networking and firewall rules.
 - `invalid-metering` or signature failures: check node key config and signing path.
 - `relay-discovery-expired`: regenerate manifest or adjust snapshot max age.
+
+## Key rotation
+
+1. Generate a new Nostr keypair (`nsec`/`npub`) and store it in your secret manager.
+2. Update `ROUTER_KEY_ID` and `ROUTER_PRIVATE_KEY_PEM` to the new values.
+3. Restart the router and confirm `/health` and `/status` are healthy.
+4. Update any client allowlists and peer allowlists (federation or ingress) that reference the old key.
+5. Re-publish federation caps/price/status and refresh manifests if needed.

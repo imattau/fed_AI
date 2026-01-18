@@ -70,6 +70,7 @@ import type { RouterService } from './server';
 import { scoreNode, selectNode } from './scheduler';
 import { estimatePrice } from './scheduler/score';
 import { logWarn } from './logging';
+import { checkClientAccess } from './authz';
 import { verifyPaymentReceipt } from './payments/verify';
 import { requestInvoice } from './payments/invoice';
 import {
@@ -83,6 +84,7 @@ import { discoverFederationPeers } from './federation/discovery';
 import { runAuctionAndAward } from './federation/publisher';
 import { allowsPrivacyLevel, canBidForRfb, estimateBidPrice } from './federation/logic';
 import type { FederationRateLimiter } from './federation/rate-limit';
+import type { RateLimiter } from './rate-limit';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -543,6 +545,7 @@ export const createRouterHttpServer = (
   config: RouterConfig,
   nonceStore?: NonceStore,
   federationRateLimiter?: FederationRateLimiter,
+  ingressRateLimiter?: RateLimiter | null,
 ): http.Server => {
   const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
@@ -565,6 +568,18 @@ export const createRouterHttpServer = (
       return 'muted';
     }
     return null;
+  };
+
+  const checkIngressRateLimit = (
+    keyId: string,
+  ): { ok: true } | { ok: false; status: number; error: string } => {
+    if (!ingressRateLimiter) {
+      return { ok: true };
+    }
+    if (!ingressRateLimiter.allow(keyId)) {
+      return { ok: false, status: 429, error: 'rate-limited' };
+    }
+    return { ok: true };
   };
 
   const attemptFederationOffload = async (
@@ -885,6 +900,10 @@ export const createRouterHttpServer = (
         if (!isNostrNpub(envelope.keyId)) {
           return sendJson(res, 400, { error: 'invalid-key-id' });
         }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return sendJson(res, rateLimit.status, { error: rateLimit.error });
+        }
         if (envelope.payload.keyId !== envelope.keyId) {
           return sendJson(res, 400, { error: 'key-id-mismatch' });
         }
@@ -925,6 +944,10 @@ export const createRouterHttpServer = (
         }
         if (!isNostrNpub(manifest.signature.keyId)) {
           return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
+        const rateLimit = checkIngressRateLimit(manifest.signature.keyId);
+        if (!rateLimit.ok) {
+          return sendJson(res, rateLimit.status, { error: rateLimit.error });
         }
 
         const publicKey = parsePublicKey(manifest.signature.keyId);
@@ -1690,6 +1713,10 @@ export const createRouterHttpServer = (
         if (!isNostrNpub(envelope.keyId)) {
           return sendJson(res, 400, { error: 'invalid-key-id' });
         }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return sendJson(res, rateLimit.status, { error: rateLimit.error });
+        }
         if (envelope.payload.actorId !== envelope.keyId) {
           return sendJson(res, 400, { error: 'actor-key-mismatch' });
         }
@@ -1721,6 +1748,10 @@ export const createRouterHttpServer = (
         const envelope = body.value as Envelope<import('@fed-ai/protocol').StakeSlash>;
         if (!isNostrNpub(envelope.keyId)) {
           return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return sendJson(res, rateLimit.status, { error: rateLimit.error });
         }
         if (envelope.keyId !== config.keyId) {
           return sendJson(res, 403, { error: 'router-only' });
@@ -1756,6 +1787,14 @@ export const createRouterHttpServer = (
         const envelope = body.value as Envelope<QuoteRequest>;
         if (!isNostrNpub(envelope.keyId)) {
           return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
+        const access = checkClientAccess(config, envelope.keyId);
+        if (!access.ok) {
+          return sendJson(res, access.status, { error: access.error });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return sendJson(res, rateLimit.status, { error: rateLimit.error });
         }
         const replay = checkReplay(envelope, store);
         if (!replay.ok) {
@@ -1840,6 +1879,16 @@ export const createRouterHttpServer = (
           paymentReceiptFailures.inc();
           return respond(400, { error: 'invalid-key-id' });
         }
+        const access = checkClientAccess(config, envelope.keyId);
+        if (!access.ok) {
+          paymentReceiptFailures.inc();
+          return respond(access.status, { error: access.error });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          paymentReceiptFailures.inc();
+          return respond(rateLimit.status, { error: rateLimit.error });
+        }
         const clientKey = parsePublicKey(envelope.keyId);
         if (!verifyEnvelope(envelope, clientKey)) {
           paymentReceiptFailures.inc();
@@ -1910,6 +1959,10 @@ export const createRouterHttpServer = (
         const envelope = body.value as Envelope<NodeOffloadRequest>;
         if (!isNostrNpub(envelope.keyId)) {
           return respond(400, { error: 'invalid-key-id' });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return respond(rateLimit.status, { error: rateLimit.error });
         }
         const nodeRecord = service.nodes.find(
           (node) => node.nodeId === envelope.payload.originNodeId,
@@ -2010,6 +2063,14 @@ export const createRouterHttpServer = (
         const envelope = body.value as Envelope<InferenceRequest>;
         if (!isNostrNpub(envelope.keyId)) {
           return respond(400, { error: 'invalid-key-id' });
+        }
+        const access = checkClientAccess(config, envelope.keyId);
+        if (!access.ok) {
+          return respond(access.status, { error: access.error });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return respond(rateLimit.status, { error: rateLimit.error });
         }
         const replay = checkReplay(envelope, store);
         if (!replay.ok) {

@@ -23,6 +23,8 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_OFFLOAD_AUCTION_MS`: auction window in milliseconds (default 800).
 - `NODE_OFFLOAD_AUCTION_ALLOWLIST`: comma-separated npub list allowed to send auction requests.
 - `NODE_OFFLOAD_AUCTION_RATE_LIMIT`: per-minute request cap for `/offload/rfb` and `/offload/award`.
+- `NODE_RATE_LIMIT_MAX`: max requests per router key per window.
+- `NODE_RATE_LIMIT_WINDOW_MS`: time window (ms) for node ingress rate limiting.
 
 ## Optional configuration
 
@@ -112,3 +114,11 @@ Tracing:
 - `invalid-signature`: confirm router public key matches router key ID.
 - `payment-required`: check receipt generation and inclusion.
 - Runner failures: verify `NODE_RUNNER_URL` is reachable and supports the expected API.
+
+## Key rotation
+
+1. Generate a new Nostr keypair (`nsec`/`npub`) and store it in your secret manager.
+2. Update `NODE_KEY_ID` and `NODE_PRIVATE_KEY_PEM` to the new values.
+3. Restart the node and confirm `/health` and `/status` are healthy.
+4. Re-register with routers or allow them to pick up the new key via heartbeat.
+5. Update any router allowlists or federation policies that reference the old key.

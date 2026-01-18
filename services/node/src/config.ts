@@ -32,6 +32,8 @@ export type NodeConfig = {
   routerFollowList?: string[];
   routerMuteList?: string[];
   routerBlockList?: string[];
+  rateLimitMax?: number;
+  rateLimitWindowMs?: number;
   nonceStorePath?: string;
   nonceStoreUrl?: string;
   tls?: NodeTlsConfig;
@@ -77,6 +79,8 @@ export const defaultNodeConfig: NodeConfig = {
   routerFollowList: undefined,
   routerMuteList: undefined,
   routerBlockList: undefined,
+  rateLimitMax: undefined,
+  rateLimitWindowMs: undefined,
   offloadPeers: undefined,
   offloadRouter: false,
   offloadAuctionEnabled: false,

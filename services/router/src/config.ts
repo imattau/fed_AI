@@ -16,6 +16,11 @@ export type RouterConfig = {
   pruneIntervalMs?: number;
   schedulerTopK?: number;
   requirePayment: boolean;
+  clientAllowList?: string[];
+  clientBlockList?: string[];
+  clientMuteList?: string[];
+  rateLimitMax?: number;
+  rateLimitWindowMs?: number;
   tls?: RouterTlsConfig;
   paymentInvoice?: PaymentInvoiceConfig;
   paymentVerification?: PaymentVerificationConfig;
@@ -76,6 +81,11 @@ export const defaultRouterConfig: RouterConfig = {
   pruneIntervalMs: 30_000,
   schedulerTopK: 50,
   requirePayment: false,
+  clientAllowList: undefined,
+  clientBlockList: undefined,
+  clientMuteList: undefined,
+  rateLimitMax: undefined,
+  rateLimitWindowMs: undefined,
   relayAdmission: defaultRelayAdmissionPolicy,
   federation: {
     enabled: false,
