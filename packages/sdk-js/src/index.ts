@@ -1,8 +1,10 @@
 import {
   buildEnvelope,
+  exportPublicKeyHex,
   parsePrivateKey,
   signEnvelope,
   parsePublicKey,
+  derivePublicKeyHex,
   validateEnvelope,
   validateInferenceResponse,
   validateMeteringRecord,
@@ -59,10 +61,15 @@ export class FedAiClient {
     this.routerUrl = config.routerUrl.replace(/\/$/, '');
     this.keyId = config.keyId;
     this.privateKey = parsePrivateKey(config.privateKey);
+    const derivedKeyHex = derivePublicKeyHex(this.privateKey);
+    const keyIdHex = exportPublicKeyHex(parsePublicKey(this.keyId));
+    if (keyIdHex !== derivedKeyHex) {
+      throw new Error('key-id-mismatch');
+    }
     this.routerPublicKey = config.routerPublicKey
       ? parsePublicKey(config.routerPublicKey)
       : undefined;
-    this.verifyResponses = config.verifyResponses ?? false;
+    this.verifyResponses = config.verifyResponses ?? Boolean(config.routerPublicKey);
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
@@ -123,7 +130,9 @@ export class FedAiClient {
         const payment = this.parseEnvelope(body.payment, validatePaymentRequest, 'payment');
         throw new PaymentRequiredError(payment);
       }
-      throw new Error(`infer failed: ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      const suffix = detail ? ` ${detail}` : '';
+      throw new Error(`infer failed: ${response.status}${suffix}`);
     }
     const body = await response.json();
     return {
@@ -135,7 +144,9 @@ export class FedAiClient {
   public async sendPaymentReceipt(receipt: Envelope<PaymentReceipt>): Promise<void> {
     const response = await this.post('/payment-receipt', receipt);
     if (!response.ok) {
-      throw new Error(`payment receipt failed: ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      const suffix = detail ? ` ${detail}` : '';
+      throw new Error(`payment receipt failed: ${response.status}${suffix}`);
     }
   }
 
