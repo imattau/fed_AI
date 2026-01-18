@@ -8,6 +8,7 @@ import {
   parsePrivateKey,
   parsePublicKey,
   signEnvelope,
+  exportPublicKeyNpub,
 } from '@fed-ai/protocol';
 import type { Capability, ModelInfo, NodeDescriptor } from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
@@ -168,6 +169,7 @@ const buildConfig = (): NodeConfig => {
       : routerKeyId
         ? parsePublicKey(routerKeyId)
         : undefined,
+    routerAllowList: parseNpubList(getEnv('NODE_ROUTER_ALLOWLIST')),
     routerFollowList: parseNpubList(getEnv('NODE_ROUTER_FOLLOW')),
     routerMuteList: parseNpubList(getEnv('NODE_ROUTER_MUTE')),
     routerBlockList: parseNpubList(getEnv('NODE_ROUTER_BLOCK')),
@@ -319,6 +321,9 @@ const validateConfig = (config: NodeConfig): string[] => {
 
 const start = async (): Promise<void> => {
   const config = buildConfig();
+  if (!config.routerKeyId && config.routerPublicKey) {
+    config.routerKeyId = exportPublicKeyNpub(config.routerPublicKey);
+  }
   const issues = validateConfig(config);
   if (issues.length > 0) {
     logWarn('[node] invalid configuration', { issues });

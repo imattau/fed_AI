@@ -150,6 +150,13 @@ export const createNodeHttpServer = (
         if (config.routerMuteList?.includes(envelope.keyId)) {
           return respond(403, { error: 'router-muted' });
         }
+        const allowedRouters = [
+          ...(config.routerAllowList ?? []),
+          ...(config.routerKeyId ? [config.routerKeyId] : []),
+        ];
+        if (allowedRouters.length > 0 && !allowedRouters.includes(envelope.keyId)) {
+          return respond(401, { error: 'router-not-allowed' });
+        }
         if (config.routerFollowList?.length && !config.routerFollowList.includes(envelope.keyId)) {
           return respond(403, { error: 'router-not-followed' });
         }
@@ -160,13 +167,13 @@ export const createNodeHttpServer = (
         if (config.maxTokens !== undefined && envelope.payload.maxTokens > config.maxTokens) {
           return respond(400, { error: 'max-tokens-exceeded' });
         }
-        if (config.routerKeyId && envelope.keyId !== config.routerKeyId) {
-          return respond(401, { error: 'router-key-id-mismatch' });
-        }
-        if (!config.routerPublicKey) {
+        const routerPublicKey = config.routerKeyId === envelope.keyId
+          ? config.routerPublicKey
+          : parsePublicKey(envelope.keyId);
+        if (!routerPublicKey) {
           return respond(500, { error: 'router-public-key-missing' });
         }
-        if (!verifyEnvelope(envelope, config.routerPublicKey)) {
+        if (!verifyEnvelope(envelope, routerPublicKey)) {
           return respond(401, { error: 'invalid-signature' });
         }
 

@@ -45,6 +45,7 @@ Ports:
 ## Lightning adapter configuration
 
 The compose stack includes `tools/ln-adapter`, which can talk to LNbits or LND.
+By default the example uses the `mock` backend so you can run the flow without credentials.
 
 Set one of the following before running:
 

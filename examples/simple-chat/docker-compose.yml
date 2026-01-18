@@ -47,7 +47,7 @@ services:
       - ../../tools/ln-adapter:/app
     environment:
       LN_ADAPTER_PORT: 4000
-      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-lnbits}
+      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-mock}
       LNBITS_URL: ${LNBITS_URL}
       LNBITS_API_KEY: ${LNBITS_API_KEY}
       LND_REST_URL: ${LND_REST_URL}

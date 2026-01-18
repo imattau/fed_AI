@@ -59,7 +59,7 @@ Prohibitions
 
 Configuration
 - Core: `NODE_ID`, `NODE_KEY_ID` (npub), `NODE_PRIVATE_KEY_PEM` (nsec or hex), `NODE_ENDPOINT`, `NODE_PORT`.
-- Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM` (npub or hex), `ROUTER_KEY_ID` (npub).
+- Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM` (npub or hex), `ROUTER_KEY_ID` (npub), `NODE_ROUTER_ALLOWLIST` (npub list).
 - Router preferences: `NODE_ROUTER_FOLLOW`, `NODE_ROUTER_MUTE`, `NODE_ROUTER_BLOCK` (npub lists).
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.

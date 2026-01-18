@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const http = require('node:http');
+const { randomBytes } = require('node:crypto');
 
 const backend = (process.env.LN_ADAPTER_BACKEND ?? '').toLowerCase();
 const port = Number(process.env.LN_ADAPTER_PORT ?? 4000);
@@ -131,6 +132,17 @@ const handleInvoice = async (payload, signal) => {
     };
   }
 
+  if (backend === 'mock') {
+    return {
+      status: 200,
+      body: {
+        invoice: `lnmock-${requestId}-${Date.now()}`,
+        paymentHash: randomBytes(32).toString('hex'),
+        expiresAtMs: Date.now() + 5 * 60 * 1000,
+      },
+    };
+  }
+
   return { status: 400, body: { error: 'unsupported-backend' } };
 };
 
@@ -183,6 +195,10 @@ const handleVerify = async (payload, signal) => {
     if (amountSats && Number(amountSats) !== Number(response.value)) {
       return { status: 200, body: { paid: false, detail: 'amount-mismatch' } };
     }
+    return { status: 200, body: { paid: true, settledAtMs: Date.now() } };
+  }
+
+  if (backend === 'mock') {
     return { status: 200, body: { paid: true, settledAtMs: Date.now() } };
   }
 

@@ -6,6 +6,7 @@ export type NodeConfig = {
   endpoint: string;
   routerEndpoint: string;
   routerKeyId?: string;
+  routerAllowList?: string[];
   heartbeatIntervalMs: number;
   runnerName: string;
   port: number;

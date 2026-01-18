@@ -11,5 +11,6 @@ COPY services/router ./services/router
 COPY tools ./tools
 
 RUN pnpm install
+RUN pnpm --filter @fed-ai/protocol build
 
 CMD ["pnpm", "--filter", "@fed-ai/node", "dev"]
