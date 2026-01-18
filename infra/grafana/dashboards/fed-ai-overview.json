@@ -77,6 +77,42 @@
         }
       ],
       "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Router Payment Receipt Failures",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_payment_receipt_failures_total[5m]))",
+          "legendFormat": "failures/sec"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Router Payment Reconciliation Failures",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(router_payment_reconciliation_failures_total[5m]))",
+          "legendFormat": "failures/sec"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Node Payment Receipt Failures",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(node_payment_receipt_failures_total[5m]))",
+          "legendFormat": "failures/sec"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 }
     }
   ],
   "annotations": {

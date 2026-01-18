@@ -627,6 +627,13 @@ export const createRouterHttpServer = (
     return { ok: true };
   };
 
+  const ensureRequestId = (req: IncomingMessage, res: ServerResponse): string => {
+    const header = req.headers['x-request-id'];
+    const requestId = Array.isArray(header) ? header[0] : header ?? randomUUID();
+    res.setHeader('x-request-id', requestId);
+    return requestId;
+  };
+
   const attemptFederationOffload = async (
     envelope: Envelope<InferenceRequest>,
   ): Promise<
@@ -890,6 +897,7 @@ export const createRouterHttpServer = (
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
+    const requestId = ensureRequestId(req, res);
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
     }
@@ -1898,7 +1906,11 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/payment-receipt') {
       const span = routerTracer.startSpan('router.paymentReceipt', {
-        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+        attributes: {
+          component: 'router',
+          'router.endpoint': config.endpoint,
+          'request.id': requestId,
+        },
       });
       let statusLabel = '200';
       const respond = (status: number, body: unknown): void => {
@@ -1996,7 +2008,11 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/node/offload') {
       const span = routerTracer.startSpan('router.nodeOffload', {
-        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+        attributes: {
+          component: 'router',
+          'router.endpoint': config.endpoint,
+          'request.id': requestId,
+        },
       });
       const respond = (status: number, body: unknown): void => {
         sendJson(res, status, body);
@@ -2096,7 +2112,11 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/infer') {
       const span = routerTracer.startSpan('router.infer', {
-        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+        attributes: {
+          component: 'router',
+          'router.endpoint': config.endpoint,
+          'request.id': requestId,
+        },
       });
       const timer = inferenceDuration.startTimer();
       let statusLabel = '200';

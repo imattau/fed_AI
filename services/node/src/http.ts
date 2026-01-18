@@ -80,6 +80,13 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
+const ensureRequestId = (req: IncomingMessage, res: ServerResponse): string => {
+  const header = req.headers['x-request-id'];
+  const requestId = Array.isArray(header) ? header[0] : header ?? randomUUID();
+  res.setHeader('x-request-id', requestId);
+  return requestId;
+};
+
 const sumSplits = (splits?: PaymentSplit[]): number => {
   return (splits ?? []).reduce((sum, split) => sum + split.amountSats, 0);
 };
@@ -344,6 +351,7 @@ export const createNodeHttpServer = (
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
+    const requestId = ensureRequestId(req, res);
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
     }
@@ -477,7 +485,7 @@ export const createNodeHttpServer = (
 
     if (req.method === 'POST' && req.url === '/infer') {
       const span = nodeTracer.startSpan('node.infer', {
-        attributes: { component: 'node', 'node.id': config.nodeId },
+        attributes: { component: 'node', 'node.id': config.nodeId, 'request.id': requestId },
       });
       const timer = nodeInferenceDuration.startTimer();
       let statusLabel = '200';

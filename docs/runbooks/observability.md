@@ -60,6 +60,7 @@ Local OTLP receiver is available via docker compose:
 
 - Log only metadata; never log prompts or outputs.
 - Include request IDs and node IDs where safe.
+- Routers and nodes echo `x-request-id` so clients can correlate failures.
 
 ## Dashboards
 

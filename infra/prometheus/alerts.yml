@@ -21,6 +21,22 @@ groups:
         annotations:
           summary: "Router accounting failures detected"
           description: "Accounting verification failures are non-zero."
+      - alert: RouterPaymentReceiptFailures
+        expr: sum(rate(router_payment_receipt_failures_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Router payment receipt failures detected"
+          description: "Router rejected one or more payment receipts."
+      - alert: RouterPaymentReconciliationFailures
+        expr: sum(rate(router_payment_reconciliation_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Router payment reconciliation failures detected"
+          description: "Missing receipts or reconciliation anomalies detected."
       - alert: RouterFederationMessageSpike
         expr: sum(rate(router_federation_messages_total[5m])) > 10
         for: 5m
