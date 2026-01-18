@@ -9,13 +9,13 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 ## Required configuration
 
 - `NODE_ID`: logical node identifier.
-- `NODE_KEY_ID`: public key ID (Ed25519 hex).
-- `NODE_PRIVATE_KEY_PEM`: private key (PEM or 32-byte hex).
+- `NODE_KEY_ID`: public key ID (npub).
+- `NODE_PRIVATE_KEY_PEM`: private key (nsec, PEM, or 32-byte hex).
 - `NODE_ENDPOINT`: public base URL for router callbacks.
 - `NODE_PORT`: listen port.
 - `ROUTER_ENDPOINT`: router base URL for registration and heartbeat.
-- `ROUTER_PUBLIC_KEY_PEM`: router public key (PEM or 32-byte hex).
-- `ROUTER_KEY_ID`: router public key ID (hex) to enforce key-id match.
+- `ROUTER_PUBLIC_KEY_PEM`: router public key (PEM or 32-byte hex, optional if `ROUTER_KEY_ID` is set).
+- `ROUTER_KEY_ID`: router public key ID (npub) to enforce key-id match.
 
 ## Optional configuration
 
@@ -43,6 +43,7 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_JOB_TYPES`: comma-separated RouterJobType values for capability ads.
 - `NODE_LATENCY_ESTIMATE_MS`: static latency estimate for capability ads.
 - `NODE_NONCE_STORE_PATH`: file path for persisted replay nonces.
+- `NODE_NONCE_STORE_URL`: Postgres connection string for replay nonce storage.
 - `NODE_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
 - `NODE_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
 - `NODE_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.

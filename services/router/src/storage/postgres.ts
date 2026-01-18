@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import type { QueryResultRow } from 'pg';
 import type { Envelope, NodeDescriptor, PaymentReceipt, PaymentRequest } from '@fed-ai/protocol';
 import type { NodeManifest } from '@fed-ai/manifest';
 import type { RouterDbConfig } from '../config';
@@ -10,6 +11,14 @@ const TABLES = {
   paymentReceipts: 'router_payment_receipts',
   manifests: 'router_manifests',
   manifestAdmissions: 'router_manifest_admissions',
+};
+
+export type RouterStoreRetention = {
+  nodeRetentionMs?: number;
+  paymentRequestRetentionMs?: number;
+  paymentReceiptRetentionMs?: number;
+  manifestRetentionMs?: number;
+  manifestAdmissionRetentionMs?: number;
 };
 
 const createTables = async (pool: Pool): Promise<void> => {
@@ -51,7 +60,42 @@ const createTables = async (pool: Pool): Promise<void> => {
   `);
 };
 
-export const createPostgresRouterStore = async (config: RouterDbConfig): Promise<RouterStore> => {
+const buildCutoff = (retentionMs?: number): number | null => {
+  if (!retentionMs) {
+    return null;
+  }
+  return Date.now() - retentionMs;
+};
+
+const maybeCleanup = async (pool: Pool, table: string, cutoffMs: number | null): Promise<void> => {
+  if (cutoffMs === null) {
+    return;
+  }
+  await pool.query(
+    `delete from ${table} where updated_at < to_timestamp($1 / 1000.0)`,
+    [cutoffMs],
+  );
+};
+
+const queryWithRetention = async <T extends QueryResultRow>(
+  pool: Pool,
+  table: string,
+  columns: string,
+  cutoffMs: number | null,
+): Promise<{ rows: T[] }> => {
+  if (cutoffMs === null) {
+    return pool.query<T>(`select ${columns} from ${table}`);
+  }
+  return pool.query<T>(
+    `select ${columns} from ${table} where updated_at >= to_timestamp($1 / 1000.0)`,
+    [cutoffMs],
+  );
+};
+
+export const createPostgresRouterStore = async (
+  config: RouterDbConfig,
+  retention: RouterStoreRetention = {},
+): Promise<RouterStore> => {
   const pool = new Pool({
     connectionString: config.url,
     ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
@@ -60,20 +104,49 @@ export const createPostgresRouterStore = async (config: RouterDbConfig): Promise
 
   return {
     async load(): Promise<RouterStoreSnapshot> {
-      const nodes = await pool.query<{ node_id: string; data: NodeDescriptor }>(
-        `select node_id, data from ${TABLES.nodes}`,
+      const nodeCutoff = buildCutoff(retention.nodeRetentionMs);
+      const requestCutoff = buildCutoff(retention.paymentRequestRetentionMs);
+      const receiptCutoff = buildCutoff(retention.paymentReceiptRetentionMs);
+      const manifestCutoff = buildCutoff(retention.manifestRetentionMs);
+      const admissionCutoff = buildCutoff(retention.manifestAdmissionRetentionMs);
+
+      await Promise.all([
+        maybeCleanup(pool, TABLES.nodes, nodeCutoff),
+        maybeCleanup(pool, TABLES.paymentRequests, requestCutoff),
+        maybeCleanup(pool, TABLES.paymentReceipts, receiptCutoff),
+        maybeCleanup(pool, TABLES.manifests, manifestCutoff),
+        maybeCleanup(pool, TABLES.manifestAdmissions, admissionCutoff),
+      ]);
+
+      const nodes = await queryWithRetention<{ node_id: string; data: NodeDescriptor }>(
+        pool,
+        TABLES.nodes,
+        'node_id, data',
+        nodeCutoff,
       );
-      const paymentRequests = await pool.query<{ request_key: string; data: PaymentRequest }>(
-        `select request_key, data from ${TABLES.paymentRequests}`,
+      const paymentRequests = await queryWithRetention<{ request_key: string; data: PaymentRequest }>(
+        pool,
+        TABLES.paymentRequests,
+        'request_key, data',
+        requestCutoff,
       );
-      const paymentReceipts = await pool.query<{ receipt_key: string; data: Envelope<PaymentReceipt> }>(
-        `select receipt_key, data from ${TABLES.paymentReceipts}`,
+      const paymentReceipts = await queryWithRetention<{ receipt_key: string; data: Envelope<PaymentReceipt> }>(
+        pool,
+        TABLES.paymentReceipts,
+        'receipt_key, data',
+        receiptCutoff,
       );
-      const manifests = await pool.query<{ manifest_id: string; data: NodeManifest }>(
-        `select manifest_id, data from ${TABLES.manifests}`,
+      const manifests = await queryWithRetention<{ manifest_id: string; data: NodeManifest }>(
+        pool,
+        TABLES.manifests,
+        'manifest_id, data',
+        manifestCutoff,
       );
-      const admissions = await pool.query<{ node_id: string; eligible: boolean; reason: string | null }>(
-        `select node_id, eligible, reason from ${TABLES.manifestAdmissions}`,
+      const admissions = await queryWithRetention<{ node_id: string; eligible: boolean; reason: string | null }>(
+        pool,
+        TABLES.manifestAdmissions,
+        'node_id, eligible, reason',
+        admissionCutoff,
       );
 
       return {

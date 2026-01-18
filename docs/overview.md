@@ -22,7 +22,7 @@ What it is not
 - No centralized inference provider. No vendor lock-in.
 
 Nostr alignment
-- Node identities use Nostr-compatible Ed25519 keys.
+- Node identities are Nostr identities (NIP-19 npub/nsec).
 - Signed envelopes align with Nostr signing primitives.
 - Discovery and trust can be relay-backed without exposing prompts or outputs.
 - Nostr relays are for discovery and trust; inference operations are peer-to-peer between client, router, and node.

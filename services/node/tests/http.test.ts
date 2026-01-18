@@ -5,7 +5,7 @@ import { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import {
   buildEnvelope,
-  exportPublicKeyHex,
+  exportPublicKeyNpub,
   signEnvelope,
   validateEnvelope,
   validateInferenceResponse,
@@ -41,10 +41,11 @@ const closeServer = (server: Server) => {
 };
 
 test('node /infer rejects when router public key missing', async () => {
-  const { privateKey } = generateKeyPairSync('ed25519');
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const { publicKey: routerPublicKey } = generateKeyPairSync('ed25519');
   const config: NodeConfig = {
     nodeId: 'node-1',
-    keyId: 'node-key-1',
+    keyId: exportPublicKeyNpub(publicKey),
     endpoint: 'http://localhost:0',
     routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
@@ -63,7 +64,7 @@ test('node /infer rejects when router public key missing', async () => {
     prompt: 'hello',
     maxTokens: 8,
   };
-  const envelope = buildEnvelope(payload, 'nonce-1', Date.now(), 'router-key');
+  const envelope = buildEnvelope(payload, 'nonce-1', Date.now(), exportPublicKeyNpub(routerPublicKey));
   const response = await fetch(`${baseUrl}/infer`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -78,8 +79,8 @@ test('node /infer rejects when router public key missing', async () => {
 test('node /infer validates signatures and returns signed response', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -139,8 +140,8 @@ test('node /infer validates signatures and returns signed response', async () =>
 test('node /infer rejects when router key id mismatches', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -165,9 +166,11 @@ test('node /infer rejects when router key id mismatches', async () => {
     prompt: 'hello',
     maxTokens: 8,
   };
+  const { publicKey: overridePublicKey } = generateKeyPairSync('ed25519');
+  const overrideKeyId = exportPublicKeyNpub(overridePublicKey);
 
   const requestEnvelope = signEnvelope(
-    buildEnvelope(payload, 'nonce-key-id', Date.now(), 'router-key-override'),
+    buildEnvelope(payload, 'nonce-key-id', Date.now(), overrideKeyId),
     routerKeys.privateKey,
   );
 
@@ -185,9 +188,9 @@ test('node /infer requires payment when configured', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -293,8 +296,8 @@ test('node /infer requires payment when configured', async () => {
 test('node /infer enforces capacity limits', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -337,8 +340,8 @@ test('node /infer enforces capacity limits', async () => {
 test('node /infer enforces prompt and token limits', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -398,8 +401,8 @@ test('node /infer enforces prompt and token limits', async () => {
 test('node /infer enforces max request bytes', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -443,8 +446,8 @@ test('node /infer enforces max request bytes', async () => {
 test('node /infer enforces max runtime budget', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: NodeConfig = {
     nodeId: 'node-1',
@@ -509,7 +512,7 @@ test('node /metrics exposes Prometheus metrics', async () => {
   const nodeKeys = generateKeyPairSync('ed25519');
   const config: NodeConfig = {
     nodeId: 'node-1',
-    keyId: exportPublicKeyHex(nodeKeys.publicKey),
+    keyId: exportPublicKeyNpub(nodeKeys.publicKey),
     endpoint: 'http://localhost:0',
     routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,

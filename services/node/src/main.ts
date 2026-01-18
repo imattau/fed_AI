@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { buildEnvelope, parsePrivateKey, parsePublicKey, signEnvelope } from '@fed-ai/protocol';
+import {
+  buildEnvelope,
+  decodeNpubToHex,
+  derivePublicKeyHex,
+  exportPublicKeyHex,
+  isNostrNpub,
+  parsePrivateKey,
+  parsePublicKey,
+  signEnvelope,
+} from '@fed-ai/protocol';
 import type { Capability, ModelInfo, NodeDescriptor } from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createNodeService } from './server';
@@ -14,6 +23,8 @@ import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
 import { enforceSandboxPolicy } from './sandbox/policy';
 import { logInfo, logWarn } from './logging';
+import { createPostgresNonceStore } from './storage/postgres-nonce';
+import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -112,6 +123,7 @@ const buildConfig = (): NodeConfig => {
   const paymentVerifyTimeoutMs = parseNumber(getEnv('NODE_LN_VERIFY_TIMEOUT_MS'));
   const paymentRequirePreimage =
     (getEnv('NODE_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
+  const nonceStoreUrl = getEnv('NODE_NONCE_STORE_URL');
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
 
@@ -141,8 +153,13 @@ const buildConfig = (): NodeConfig => {
     maxInferenceMs: parseNumber(getEnv('NODE_MAX_RUNTIME_MS')),
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
-    routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : undefined,
+    routerPublicKey: routerPublicKey
+      ? parsePublicKey(routerPublicKey)
+      : routerKeyId
+        ? parsePublicKey(routerKeyId)
+        : undefined,
     nonceStorePath: getEnv('NODE_NONCE_STORE_PATH'),
+    nonceStoreUrl,
     capabilityJobTypes: parseJobTypes(getEnv('NODE_JOB_TYPES')),
     capabilityLatencyMs: parseNumber(getEnv('NODE_LATENCY_ESTIMATE_MS'), true),
     tls:
@@ -236,15 +253,83 @@ const buildRunner = (config: NodeConfig): Runner => {
   throw new Error(`unsupported-runner:${config.runnerName}`);
 };
 
-const start = (): void => {
+const validateNostrIdentity = (keyId: string, privateKey?: import('node:crypto').KeyObject): void => {
+  if (!isNostrNpub(keyId)) {
+    throw new Error('node keyId must be a Nostr npub');
+  }
+  if (privateKey) {
+    const expected = decodeNpubToHex(keyId);
+    const derived = derivePublicKeyHex(privateKey);
+    if (expected !== derived) {
+      throw new Error('node private key does not match keyId');
+    }
+  }
+};
+
+const validateRouterIdentity = (
+  routerKeyId?: string,
+  routerPublicKey?: import('node:crypto').KeyObject,
+): void => {
+  if (!routerKeyId) {
+    return;
+  }
+  if (!isNostrNpub(routerKeyId)) {
+    throw new Error('router keyId must be a Nostr npub');
+  }
+  if (routerPublicKey) {
+    const expected = decodeNpubToHex(routerKeyId);
+    const actual = exportPublicKeyHex(routerPublicKey);
+    if (expected !== actual) {
+      throw new Error('router public key does not match router keyId');
+    }
+  }
+};
+
+const validateConfig = (config: NodeConfig): string[] => {
+  const issues: string[] = [];
+  if (!config.keyId) {
+    issues.push('NODE_KEY_ID is required (npub).');
+  } else if (!isNostrNpub(config.keyId)) {
+    issues.push('NODE_KEY_ID must be a Nostr npub.');
+  }
+  if (!config.privateKey) {
+    issues.push('NODE_PRIVATE_KEY_PEM (nsec/PEM/hex) is required to sign heartbeats.');
+  }
+  if (!config.routerEndpoint) {
+    issues.push('ROUTER_ENDPOINT is required.');
+  }
+  if (config.routerKeyId && !isNostrNpub(config.routerKeyId)) {
+    issues.push('ROUTER_KEY_ID must be a Nostr npub when set.');
+  }
+  return issues;
+};
+
+const start = async (): Promise<void> => {
   const config = buildConfig();
+  const issues = validateConfig(config);
+  if (issues.length > 0) {
+    logWarn('[node] invalid configuration', { issues });
+    process.exit(1);
+  }
+  validateNostrIdentity(config.keyId, config.privateKey);
+  validateRouterIdentity(config.routerKeyId, config.routerPublicKey);
   const sandboxCheck = enforceSandboxPolicy(config);
   if (!sandboxCheck.ok) {
     throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
   }
   const runner = buildRunner(config);
   const service = createNodeService(config, runner);
-  const server = createNodeHttpServer(service, config);
+  let nonceStore: NonceStore = config.nonceStorePath
+    ? new FileNonceStore(config.nonceStorePath)
+    : new InMemoryNonceStore();
+  if (config.nonceStoreUrl) {
+    try {
+      nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
+    } catch (error) {
+      logWarn('[node] failed to initialize nonce store', error);
+    }
+  }
+  const server = createNodeHttpServer(service, config, nonceStore);
 
   server.listen(config.port);
   void logRelayCandidates('node', buildDiscoveryOptions());
@@ -258,7 +343,7 @@ const start = (): void => {
   }
 };
 
-start();
+void start();
 
 async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Capability[]> {
   // Pricing is a placeholder until node pricing configuration is wired in.
@@ -272,9 +357,9 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
     models = [];
   }
 
-  const normalized = models
+  const normalized: Capability[] = models
     .filter((model) => Boolean(model?.id))
-    .map((model) => ({
+    .map((model): Capability => ({
       modelId: model.id ?? fallbackModelId,
       contextWindow: model.contextWindow ?? fallbackContextWindow,
       maxTokens: model.contextWindow ?? fallbackContextWindow,

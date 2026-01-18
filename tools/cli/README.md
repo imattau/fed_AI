@@ -7,8 +7,12 @@ Operator runbook: `docs/runbooks/cli.md`.
 Usage
 
 ```
-# Generate Ed25519 key material (hex)
+# Generate Nostr key material (npub/nsec)
 pnpm --filter @fed-ai/cli dev -- gen-keys
+
+# Quick setup (env files)
+pnpm --filter @fed-ai/cli dev -- setup --role both \
+  --router-out .env.router --node-out .env.node
 
 # Profile hardware/network
 pnpm --filter @fed-ai/cli dev -- profile --latency-targets 1.1.1.1,8.8.8.8
@@ -23,8 +27,8 @@ pnpm --filter @fed-ai/cli dev -- recommend --profile profile.json --bench bench.
 pnpm --filter @fed-ai/cli dev -- manifest \
   --role node \
   --id node-1 \
-  --key-id <public-key-hex> \
-  --private-key <private-key-hex> \
+  --key-id <npub> \
+  --private-key <nsec> \
   --profile profile.json \
   --bench bench.json \
   --write node.manifest.json
@@ -32,8 +36,8 @@ pnpm --filter @fed-ai/cli dev -- manifest \
 # Request a quote
 pnpm --filter @fed-ai/cli dev -- quote \
   --router http://localhost:8080 \
-  --key-id <public-key-hex> \
-  --private-key <private-key-hex> \
+  --key-id <npub> \
+  --private-key <nsec> \
   --model mock-model \
   --input 10 \
   --output 5 \
@@ -43,8 +47,8 @@ pnpm --filter @fed-ai/cli dev -- quote \
 # Send a signed inference request (optionally attach previously saved receipts)
 pnpm --filter @fed-ai/cli dev -- infer \
   --router http://localhost:8080 \
-  --key-id <public-key-hex> \
-  --private-key <private-key-hex> \
+  --key-id <npub> \
+  --private-key <nsec> \
   --model mock-model \
   --prompt "hello" \
   --max-tokens 16 \
@@ -55,8 +59,8 @@ pnpm --filter @fed-ai/cli dev -- infer \
 # Convert a saved payment request into a signed receipt
 pnpm --filter @fed-ai/cli dev -- receipt \
   --payment-request invoice.json \
-  --key-id <public-key-hex> \
-  --private-key <private-key-hex> \
+  --key-id <npub> \
+  --private-key <nsec> \
   --router http://localhost:8080 \
   --write node-receipt.json
 

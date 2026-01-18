@@ -29,9 +29,13 @@ Recommended environment:
 - `ROUTER_LN_INVOICE_URL`
 - `ROUTER_LN_VERIFY_URL`
 - `ROUTER_DB_URL`
+- `ROUTER_MAX_REQUEST_BYTES`
+- `ROUTER_*_RETENTION_MS` and `ROUTER_PRUNE_INTERVAL_MS` if you need custom retention windows
+- `ROUTER_SCHEDULER_TOP_K` to bound candidate scoring cost
 - `ROUTER_RELAY_*` overrides
 - `ROUTER_RELAY_SNAPSHOT_REQUIRED`
 - `ROUTER_FEDERATION_ENABLED`
+- `ROUTER_FEDERATION_NOSTR` and `ROUTER_FEDERATION_NOSTR_RELAYS` when using relays for federation control-plane
 
 ## Node deployment
 

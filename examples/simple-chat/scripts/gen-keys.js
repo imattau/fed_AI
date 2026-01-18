@@ -1,47 +1,29 @@
 const fs = require('node:fs');
-const { generateKeyPairSync } = require('node:crypto');
-
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
-
-const stripPrefix = (keyDer, prefix, label) => {
-  if (!keyDer.subarray(0, prefix.length).equals(prefix)) {
-    throw new Error(`${label} key does not match expected Ed25519 DER prefix`);
-  }
-  return keyDer.subarray(prefix.length).toString('hex');
-};
-
-const exportPublicKeyHex = (key) => {
-  const spki = key.export({ format: 'der', type: 'spki' });
-  return stripPrefix(spki, ED25519_SPKI_PREFIX, 'public');
-};
-
-const exportPrivateKeyHex = (key) => {
-  const pkcs8 = key.export({ format: 'der', type: 'pkcs8' });
-  return stripPrefix(pkcs8, ED25519_PKCS8_PREFIX, 'private');
-};
+const { generateSecretKey, getPublicKey, nip19 } = require('nostr-tools');
 
 const [,, outputPath = '/keys/keys.env'] = process.argv;
 
-const router = generateKeyPairSync('ed25519');
-const nodeKey = generateKeyPairSync('ed25519');
-const nodeCpuKey = generateKeyPairSync('ed25519');
+const buildKeys = () => {
+  const secret = generateSecretKey();
+  const pubkey = getPublicKey(secret);
+  return {
+    npub: nip19.npubEncode(pubkey),
+    nsec: nip19.nsecEncode(secret),
+  };
+};
 
-const routerPublic = exportPublicKeyHex(router.publicKey);
-const routerPrivate = exportPrivateKeyHex(router.privateKey);
-const nodePublic = exportPublicKeyHex(nodeKey.publicKey);
-const nodePrivate = exportPrivateKeyHex(nodeKey.privateKey);
-const nodeCpuPublic = exportPublicKeyHex(nodeCpuKey.publicKey);
-const nodeCpuPrivate = exportPrivateKeyHex(nodeCpuKey.privateKey);
+const router = buildKeys();
+const nodeKey = buildKeys();
+const nodeCpuKey = buildKeys();
 
 const lines = [
-  `ROUTER_KEY_ID=${routerPublic}`,
-  `ROUTER_PRIVATE_KEY_PEM=${routerPrivate}`,
-  `ROUTER_PUBLIC_KEY_PEM=${routerPublic}`,
-  `NODE_KEY_ID=${nodePublic}`,
-  `NODE_PRIVATE_KEY_PEM=${nodePrivate}`,
-  `NODE2_KEY_ID=${nodeCpuPublic}`,
-  `NODE2_PRIVATE_KEY_PEM=${nodeCpuPrivate}`,
+  `ROUTER_KEY_ID=${router.npub}`,
+  `ROUTER_PRIVATE_KEY_PEM=${router.nsec}`,
+  `ROUTER_PUBLIC_KEY_PEM=${router.npub}`,
+  `NODE_KEY_ID=${nodeKey.npub}`,
+  `NODE_PRIVATE_KEY_PEM=${nodeKey.nsec}`,
+  `NODE2_KEY_ID=${nodeCpuKey.npub}`,
+  `NODE2_PRIVATE_KEY_PEM=${nodeCpuKey.nsec}`,
 ];
 
 fs.mkdirSync(require('node:path').dirname(outputPath), { recursive: true });

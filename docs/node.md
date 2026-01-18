@@ -58,8 +58,8 @@ Prohibitions
 - No prompt or output logging.
 
 Configuration
-- Core: `NODE_ID`, `NODE_KEY_ID`, `NODE_PRIVATE_KEY_PEM`, `NODE_ENDPOINT`, `NODE_PORT`.
-- Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`, `ROUTER_KEY_ID`.
+- Core: `NODE_ID`, `NODE_KEY_ID` (npub), `NODE_PRIVATE_KEY_PEM` or nsec, `NODE_ENDPOINT`, `NODE_PORT`.
+- Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM`, `ROUTER_KEY_ID` (npub).
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.
@@ -68,6 +68,7 @@ Configuration
 - Lightning verification: `NODE_LN_VERIFY_URL`, `NODE_LN_VERIFY_TIMEOUT_MS`, `NODE_LN_REQUIRE_PREIMAGE`.
 - TLS: `NODE_TLS_CERT_PATH`, `NODE_TLS_KEY_PATH`, `NODE_TLS_CA_PATH`, `NODE_TLS_REQUIRE_CLIENT_CERT`.
 - Replay protection: `NODE_NONCE_STORE_PATH` to persist replay nonces across restarts.
+- Replay protection (Postgres): `NODE_NONCE_STORE_URL`.
 - Sandbox: `NODE_SANDBOX_MODE`, `NODE_SANDBOX_ALLOWED_RUNNERS`.
 - Sandbox endpoints: `NODE_SANDBOX_ALLOWED_ENDPOINTS` (prefix allowlist).
 - When `NODE_SANDBOX_MODE=restricted`, set explicit limits (`NODE_MAX_PROMPT_BYTES`, `NODE_MAX_TOKENS`, `NODE_MAX_REQUEST_BYTES`) or the node will refuse to start.

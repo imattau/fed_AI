@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { exportPublicKeyNpub } from '@fed-ai/protocol';
 import { enforceSandboxPolicy } from '../src/sandbox/policy';
 import type { NodeConfig } from '../src/config';
 
+const { publicKey } = generateKeyPairSync('ed25519');
+
 const baseConfig: NodeConfig = {
   nodeId: 'node-1',
-  keyId: 'node-key',
+  keyId: exportPublicKeyNpub(publicKey),
   endpoint: 'http://localhost:0',
   routerEndpoint: 'http://localhost:8080',
   heartbeatIntervalMs: 10_000,

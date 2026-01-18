@@ -48,9 +48,9 @@ Envelope<T> {
 
 - Ed25519 signatures
 - `signEnvelope()` and `verifyEnvelope()`
-- Keys are compatible with Nostr Ed25519 key material
-- `keyId` identifies the signing key and should map to a Nostr public key
-- Services accept keys as PEM or 32-byte hex public keys
+- Keys are Nostr identities (Ed25519 with NIP-19 npub/nsec encoding)
+- `keyId` is the Nostr public key (`npub...`)
+- Services accept keys as npub/nsec, PEM, or 32-byte hex
 
 ## Security posture
 

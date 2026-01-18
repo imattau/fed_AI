@@ -13,4 +13,6 @@ test('generateKeyPairHex returns 32-byte hex keys', () => {
   const keys = generateKeyPairHex();
   assert.match(keys.publicKey, /^[0-9a-f]{64}$/);
   assert.match(keys.privateKey, /^[0-9a-f]{64}$/);
+  assert.match(keys.npub, /^npub1[0-9a-z]+$/);
+  assert.match(keys.nsec, /^nsec1[0-9a-z]+$/);
 });

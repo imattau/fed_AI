@@ -23,6 +23,7 @@ export type NodeConfig = {
   privateKey?: import('node:crypto').KeyObject;
   routerPublicKey?: import('node:crypto').KeyObject;
   nonceStorePath?: string;
+  nonceStoreUrl?: string;
   tls?: NodeTlsConfig;
   paymentVerification?: PaymentVerificationConfig;
   capabilityJobTypes?: RouterJobType[];
@@ -44,7 +45,7 @@ export type PaymentVerificationConfig = {
 
 export const defaultNodeConfig: NodeConfig = {
   nodeId: 'node-1',
-  keyId: 'node-key-1',
+  keyId: 'npub1r72drc4k609u2jwsgt5qy5at4aea9fsu8lqua4f20d26az9h80ms45kp92',
   endpoint: 'http://localhost:8081',
   routerEndpoint: 'http://localhost:8080',
   heartbeatIntervalMs: 10_000,
@@ -62,6 +63,7 @@ export const defaultNodeConfig: NodeConfig = {
   maxInferenceMs: undefined,
   requirePayment: false,
   nonceStorePath: undefined,
+  nonceStoreUrl: undefined,
   tls: undefined,
   paymentVerification: undefined,
   capabilityJobTypes: undefined,

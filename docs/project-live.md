@@ -62,6 +62,12 @@ Phase 7 - Optional extensions
 - [x] Router invoice generation hook for Lightning-backed invoices (replaces mock when configured).
 - [x] Router store backed by Postgres for nodes, payments, and manifests (configurable).
 - [x] Performance hardening: async persistence, nonce store debouncing, scheduler cache.
+- [x] Postgres-backed replay nonce store option for router/node.
+- [x] Performance audit remediation: add router request size limits and 413 handling.
+- [x] Performance audit remediation: prune in-memory maps + persistence snapshot (payments, receipts, federation jobs, health) with TTLs.
+- [x] Performance audit remediation: add retention/paging to router Postgres store load and cleanup.
+- [x] Performance audit remediation: add request timeouts + limited parallelism for federation publish/auction.
+- [x] Performance audit remediation: reduce scheduler sort work with top-k selection or cached scores per job type.
 
 ## Upcoming tasks
 
@@ -167,6 +173,21 @@ Phase 7 - Optional extensions
 - [x] Default redacted logging utilities wired into router/node.
 - [x] Lightning verification hook added for router/node payment receipt acceptance.
 - [x] Scheduler now accounts for capability latency estimates and job type compatibility.
+- [ ] Nostr identity alignment
+  - [x] Add NIP-19 (npub/nsec) parsing + encoding in `@fed-ai/protocol`.
+  - [x] Update CLI `gen-keys` to output npub/nsec and accept NIP-19 inputs.
+  - [x] Enforce/validate Nostr identities for router/node IDs and envelopes.
+- [ ] Nostr event layer
+  - [x] Define NIP + event kinds for `CAPS_ANNOUNCE`, `PRICE_ANNOUNCE`, `STATUS_ANNOUNCE`, `RFB`, `BID`, `AWARD`.
+  - [x] Implement relay publish/subscribe path for federation control-plane messages.
+  - [x] Add tests for event signing/verification and relay publish flow.
+- [ ] Nostr relay operations
+  - [ ] Add relay connection manager with retry/backoff and configurable relay lists.
+  - [ ] Verify inbound events against router/node allowlists and expiry windows.
+  - [ ] Add metrics for relay publish/subscribe failures.
+- [ ] Docs update
+  - [ ] Document required NIPs, identity format (NIP-19), and relay usage.
+  - [ ] Update protocol/architecture docs with event kind mapping and tag definitions.
 
 ## Scratchpad
 

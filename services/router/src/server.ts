@@ -56,6 +56,7 @@ export type RouterService = {
       {
         submit: import('@fed-ai/protocol').RouterJobSubmit;
         requestRouterId: string;
+        updatedAtMs: number;
         result?: import('@fed-ai/protocol').RouterJobResult;
         settlement?: {
           receipt?: import('@fed-ai/protocol').RouterReceipt;
@@ -70,6 +71,7 @@ export type RouterService = {
         submit: import('@fed-ai/protocol').RouterJobSubmit;
         award: import('@fed-ai/protocol').RouterControlMessage<import('@fed-ai/protocol').RouterAwardPayload>;
         peer: string;
+        updatedAtMs: number;
         result?: import('@fed-ai/protocol').RouterJobResult;
         settlement?: {
           receipt?: import('@fed-ai/protocol').RouterReceipt;

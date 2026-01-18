@@ -17,6 +17,42 @@ export type FederationPublishResult = {
 
 type Fetcher = typeof fetch;
 
+const withTimeout = (timeoutMs?: number): { signal?: AbortSignal; cancel: () => void } => {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return { cancel: () => undefined };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timer),
+  };
+};
+
+const runWithConcurrency = async <T, R>(
+  items: T[],
+  limit: number,
+  handler: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  if (items.length === 0) {
+    return [];
+  }
+  if (limit <= 0) {
+    return Promise.all(items.map((item) => handler(item)));
+  }
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await handler(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+};
+
 const buildMessage = <T>(
   type: RouterControlMessage<T>['type'],
   routerId: string,
@@ -43,13 +79,22 @@ const postMessage = async (
   peer: string,
   endpoint: string,
   message: RouterControlMessage<unknown>,
+  timeoutMs?: number,
 ): Promise<FederationPublishResult> => {
-  const response = await fetcher(`${peer}${endpoint}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(message),
-  });
-  return { peer, endpoint, ok: response.ok, status: response.status };
+  const { signal, cancel } = withTimeout(timeoutMs);
+  try {
+    const response = await fetcher(`${peer}${endpoint}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(message),
+      signal,
+    });
+    return { peer, endpoint, ok: response.ok, status: response.status };
+  } catch {
+    return { peer, endpoint, ok: false, status: 0 };
+  } finally {
+    cancel();
+  }
 };
 
 export const publishFederation = async (
@@ -63,6 +108,8 @@ export const publishFederation = async (
   }
   const routerId = config.keyId;
   const results: FederationPublishResult[] = [];
+  const timeoutMs = config.federation.requestTimeoutMs;
+  const concurrency = config.federation.publishConcurrency ?? 4;
 
   const caps = service.federation.localCapabilities;
   if (caps) {
@@ -74,9 +121,12 @@ export const publishFederation = async (
       caps.expiry,
       config.privateKey,
     );
-    for (const peer of peers) {
-      results.push(await postMessage(fetcher, peer, '/federation/caps', message));
-    }
+    const capsResults = await runWithConcurrency(
+      peers,
+      concurrency,
+      (peer) => postMessage(fetcher, peer, '/federation/caps', message, timeoutMs),
+    );
+    results.push(...capsResults);
   }
 
   const status = service.federation.localStatus;
@@ -89,9 +139,12 @@ export const publishFederation = async (
       status.expiry,
       config.privateKey,
     );
-    for (const peer of peers) {
-      results.push(await postMessage(fetcher, peer, '/federation/status', message));
-    }
+    const statusResults = await runWithConcurrency(
+      peers,
+      concurrency,
+      (peer) => postMessage(fetcher, peer, '/federation/status', message, timeoutMs),
+    );
+    results.push(...statusResults);
   }
 
   for (const price of service.federation.localPriceSheets.values()) {
@@ -103,9 +156,12 @@ export const publishFederation = async (
       price.expiry,
       config.privateKey,
     );
-    for (const peer of peers) {
-      results.push(await postMessage(fetcher, peer, '/federation/price', message));
-    }
+    const priceResults = await runWithConcurrency(
+      peers,
+      concurrency,
+      (peer) => postMessage(fetcher, peer, '/federation/price', message, timeoutMs),
+    );
+    results.push(...priceResults);
   }
 
   return results;
@@ -131,27 +187,35 @@ export const runFederationAuction = async (
   if (!config.federation?.enabled || !config.privateKey) {
     return { jobId: rfb.payload.jobId, bids: [] };
   }
-  const bids: FederationAuctionBid[] = [];
-  for (const peer of peers) {
-    const response = await fetcher(`${peer}/federation/rfb`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(rfb),
-    });
-    if (!response.ok) {
-      continue;
-    }
+  const timeoutMs = config.federation.requestTimeoutMs;
+  const concurrency = config.federation.auctionConcurrency ?? 4;
+  const bidResults = await runWithConcurrency(peers, concurrency, async (peer) => {
+    const { signal, cancel } = withTimeout(timeoutMs);
     try {
+      const response = await fetcher(`${peer}/federation/rfb`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(rfb),
+        signal,
+      });
+      if (!response.ok) {
+        return null;
+      }
       const parsed = (await response.json()) as {
         bid?: RouterControlMessage<import('@fed-ai/protocol').RouterBidPayload>;
       };
       if (parsed?.bid && parsed.bid.type === 'BID') {
-        bids.push({ peer, bid: parsed.bid });
+        return { peer, bid: parsed.bid };
       }
+      return null;
     } catch {
-      // ignore invalid bid payloads
+      return null;
+    } finally {
+      cancel();
     }
-  }
+  });
+
+  const bids = bidResults.filter((entry): entry is FederationAuctionBid => entry !== null);
   bids.sort((a, b) => a.bid.payload.priceMsat - b.bid.payload.priceMsat);
   const winner = bids[0];
   return { jobId: rfb.payload.jobId, bids, winner };

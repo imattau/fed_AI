@@ -9,8 +9,8 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 ## Required configuration
 
 - `ROUTER_ID`: logical router identifier.
-- `ROUTER_KEY_ID`: public key ID (Ed25519 hex).
-- `ROUTER_PRIVATE_KEY_PEM`: private key (PEM or 32-byte hex).
+- `ROUTER_KEY_ID`: public key ID (npub).
+- `ROUTER_PRIVATE_KEY_PEM`: private key (nsec, PEM, or 32-byte hex).
 - `ROUTER_ENDPOINT`: public base URL.
 - `ROUTER_PORT`: listen port.
 
@@ -25,6 +25,7 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_LN_INVOICE_TIMEOUT_MS`: invoice generation timeout in ms.
 - `ROUTER_DB_URL`: Postgres connection string for router persistence.
 - `ROUTER_DB_SSL`: `true|false` to enable SSL for Postgres.
+- `ROUTER_NONCE_STORE_URL`: Postgres connection string for replay nonce storage.
 - `ROUTER_TLS_CERT_PATH`: TLS cert path for HTTPS.
 - `ROUTER_TLS_KEY_PATH`: TLS key path for HTTPS.
 - `ROUTER_TLS_CA_PATH`: optional CA bundle for mTLS.
@@ -38,6 +39,10 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_FEDERATION_MAX_PL`: max privacy level accepted (`PL0`-`PL3`).
 - `ROUTER_FEDERATION_PEERS`: comma-separated peer URLs for outbound publishing.
 - `ROUTER_FEDERATION_PUBLISH_INTERVAL_MS`: publish interval for federation announcements.
+- `ROUTER_FEDERATION_NOSTR`: enable Nostr relay publish/subscribe for federation control-plane.
+- `ROUTER_FEDERATION_NOSTR_RELAYS`: comma-separated Nostr relay URLs (optional; defaults to discovery list).
+- `ROUTER_FEDERATION_NOSTR_PUBLISH_INTERVAL_MS`: publish cadence for caps/price/status events.
+- `ROUTER_FEDERATION_NOSTR_SUBSCRIBE_SINCE_SEC`: history window in seconds when subscribing.
 - `ROUTER_FEDERATION_DISCOVERY`: `true|false` to enable bootstrap peer discovery.
 - `ROUTER_FEDERATION_BOOTSTRAP_PEERS`: comma-separated bootstrap peer URLs.
 - `ROUTER_RELAY_BOOTSTRAP`: comma-separated relay URLs.

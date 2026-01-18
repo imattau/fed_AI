@@ -5,6 +5,16 @@ export type RouterConfig = {
   port: number;
   privateKey?: import('node:crypto').KeyObject;
   nonceStorePath?: string;
+  nonceStoreUrl?: string;
+  maxRequestBytes?: number;
+  paymentRequestRetentionMs?: number;
+  paymentReceiptRetentionMs?: number;
+  federationJobRetentionMs?: number;
+  nodeHealthRetentionMs?: number;
+  nodeCooldownRetentionMs?: number;
+  nodeRetentionMs?: number;
+  pruneIntervalMs?: number;
+  schedulerTopK?: number;
   requirePayment: boolean;
   tls?: RouterTlsConfig;
   paymentInvoice?: PaymentInvoiceConfig;
@@ -53,14 +63,30 @@ export const defaultRelayAdmissionPolicy: RelayAdmissionPolicy = {
 
 export const defaultRouterConfig: RouterConfig = {
   routerId: 'router-1',
-  keyId: 'router-key-1',
+  keyId: 'npub1r72drc4k609u2jwsgt5qy5at4aea9fsu8lqua4f20d26az9h80ms45kp92',
   endpoint: 'http://localhost:8080',
   port: 8080,
+  maxRequestBytes: undefined,
+  paymentRequestRetentionMs: 10 * 60 * 1000,
+  paymentReceiptRetentionMs: 60 * 60 * 1000,
+  federationJobRetentionMs: 10 * 60 * 1000,
+  nodeHealthRetentionMs: 60 * 60 * 1000,
+  nodeCooldownRetentionMs: 10 * 60 * 1000,
+  nodeRetentionMs: 10 * 60 * 1000,
+  pruneIntervalMs: 30_000,
+  schedulerTopK: 50,
   requirePayment: false,
   relayAdmission: defaultRelayAdmissionPolicy,
   federation: {
     enabled: false,
     endpoint: 'http://localhost:8080',
+    requestTimeoutMs: 1000,
+    publishConcurrency: 4,
+    auctionConcurrency: 4,
+    nostrEnabled: false,
+    nostrRelays: undefined,
+    nostrPublishIntervalMs: 30_000,
+    nostrSubscribeSinceSeconds: 300,
   },
 };
 
@@ -72,6 +98,13 @@ export type RouterFederationConfig = {
   maxPrivacyLevel?: 'PL0' | 'PL1' | 'PL2' | 'PL3';
   peers?: string[];
   publishIntervalMs?: number;
+  requestTimeoutMs?: number;
+  publishConcurrency?: number;
+  auctionConcurrency?: number;
+  nostrEnabled?: boolean;
+  nostrRelays?: string[];
+  nostrPublishIntervalMs?: number;
+  nostrSubscribeSinceSeconds?: number;
   discovery?: {
     enabled: boolean;
     bootstrapPeers?: string[];

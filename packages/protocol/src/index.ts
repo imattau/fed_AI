@@ -4,3 +4,4 @@ export * from './crypto';
 export * from './keys';
 export * from './replay';
 export * from './validators';
+export * from './nostr';

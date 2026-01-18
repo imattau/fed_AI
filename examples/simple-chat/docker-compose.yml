@@ -1,11 +1,16 @@
 services:
   keys:
     image: node:20-bookworm-slim
-    working_dir: /scripts
+    working_dir: /tmp
     volumes:
       - ./scripts:/scripts:ro
       - keys:/keys
-    command: ["node", "/scripts/gen-keys.js", "/keys/keys.env"]
+    command:
+      [
+        "sh",
+        "-c",
+        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 >/dev/null 2>&1 && node /scripts/gen-keys.js /keys/keys.env",
+      ]
 
   model:
     image: curlimages/curl:8.5.0

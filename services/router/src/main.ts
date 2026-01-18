@@ -1,4 +1,9 @@
-import { parsePrivateKey } from '@fed-ai/protocol';
+import {
+  decodeNpubToHex,
+  derivePublicKeyHex,
+  isNostrNpub,
+  parsePrivateKey,
+} from '@fed-ai/protocol';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createRouterService, hydrateRouterService } from './server';
 import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from './config';
@@ -8,6 +13,10 @@ import { discoverFederationPeers } from './federation/discovery';
 import { logInfo, logWarn } from './logging';
 import { loadRouterState, startRouterStatePersistence } from './state';
 import { createPostgresRouterStore } from './storage/postgres';
+import { createPostgresNonceStore } from './storage/postgres-nonce';
+import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol';
+import { pruneRouterState } from './prune';
+import { publishFederationToRelays, startFederationNostr } from './federation/nostr';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -98,6 +107,16 @@ const buildConfig = (): RouterConfig => {
   const statePersistIntervalMs = parseNumber(getEnv('ROUTER_STATE_PERSIST_MS'));
   const dbUrl = getEnv('ROUTER_DB_URL');
   const dbSsl = (getEnv('ROUTER_DB_SSL') ?? 'false').toLowerCase() === 'true';
+  const nonceStoreUrl = getEnv('ROUTER_NONCE_STORE_URL');
+  const maxRequestBytes = parseNumber(getEnv('ROUTER_MAX_REQUEST_BYTES'));
+  const paymentRequestRetentionMs = parseNumber(getEnv('ROUTER_PAYMENT_REQUEST_RETENTION_MS'));
+  const paymentReceiptRetentionMs = parseNumber(getEnv('ROUTER_PAYMENT_RECEIPT_RETENTION_MS'));
+  const federationJobRetentionMs = parseNumber(getEnv('ROUTER_FEDERATION_JOB_RETENTION_MS'));
+  const nodeHealthRetentionMs = parseNumber(getEnv('ROUTER_NODE_HEALTH_RETENTION_MS'));
+  const nodeCooldownRetentionMs = parseNumber(getEnv('ROUTER_NODE_COOLDOWN_RETENTION_MS'));
+  const nodeRetentionMs = parseNumber(getEnv('ROUTER_NODE_RETENTION_MS'));
+  const pruneIntervalMs = parseNumber(getEnv('ROUTER_PRUNE_INTERVAL_MS'));
+  const schedulerTopK = parseNumber(getEnv('ROUTER_SCHEDULER_TOP_K'));
 
   return {
     ...defaultRouterConfig,
@@ -105,8 +124,18 @@ const buildConfig = (): RouterConfig => {
     keyId: getEnv('ROUTER_KEY_ID') ?? defaultRouterConfig.keyId,
     endpoint: getEnv('ROUTER_ENDPOINT') ?? defaultRouterConfig.endpoint,
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
+    maxRequestBytes,
+    paymentRequestRetentionMs,
+    paymentReceiptRetentionMs,
+    federationJobRetentionMs,
+    nodeHealthRetentionMs,
+    nodeCooldownRetentionMs,
+    nodeRetentionMs,
+    pruneIntervalMs,
+    schedulerTopK,
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     nonceStorePath: getEnv('ROUTER_NONCE_STORE_PATH'),
+    nonceStoreUrl,
     requirePayment: (getEnv('ROUTER_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
     tls:
       tlsCertPath && tlsKeyPath
@@ -139,6 +168,13 @@ const buildConfig = (): RouterConfig => {
       endpoint: getEnv('ROUTER_FEDERATION_ENDPOINT') ?? defaultRouterConfig.endpoint,
       maxSpendMsat: parseNumber(getEnv('ROUTER_FEDERATION_MAX_SPEND_MSAT')),
       maxOffloads: parseNumber(getEnv('ROUTER_FEDERATION_MAX_OFFLOADS')),
+      requestTimeoutMs: parseNumber(getEnv('ROUTER_FEDERATION_REQUEST_TIMEOUT_MS')),
+      publishConcurrency: parseNumber(getEnv('ROUTER_FEDERATION_PUBLISH_CONCURRENCY')),
+      auctionConcurrency: parseNumber(getEnv('ROUTER_FEDERATION_AUCTION_CONCURRENCY')),
+      nostrEnabled: (getEnv('ROUTER_FEDERATION_NOSTR') ?? 'false').toLowerCase() === 'true',
+      nostrRelays: parseList(getEnv('ROUTER_FEDERATION_NOSTR_RELAYS')),
+      nostrPublishIntervalMs: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_PUBLISH_INTERVAL_MS')),
+      nostrSubscribeSinceSeconds: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_SUBSCRIBE_SINCE_SEC')),
       maxPrivacyLevel: getEnv('ROUTER_FEDERATION_MAX_PL') as
         | 'PL0'
         | 'PL1'
@@ -155,9 +191,60 @@ const buildConfig = (): RouterConfig => {
   };
 };
 
+const validateNostrIdentity = (keyId: string, privateKey?: import('node:crypto').KeyObject): void => {
+  if (!isNostrNpub(keyId)) {
+    throw new Error('router keyId must be a Nostr npub');
+  }
+  if (privateKey) {
+    const expected = decodeNpubToHex(keyId);
+    const derived = derivePublicKeyHex(privateKey);
+    if (expected !== derived) {
+      throw new Error('router private key does not match keyId');
+    }
+  }
+};
+
+const validateConfig = (config: RouterConfig): string[] => {
+  const issues: string[] = [];
+  if (!config.keyId) {
+    issues.push('ROUTER_KEY_ID is required (npub).');
+  } else if (!isNostrNpub(config.keyId)) {
+    issues.push('ROUTER_KEY_ID must be a Nostr npub.');
+  }
+  if (!config.privateKey) {
+    issues.push('ROUTER_PRIVATE_KEY_PEM (nsec/PEM/hex) is required to sign envelopes.');
+  }
+  if (!config.endpoint) {
+    issues.push('ROUTER_ENDPOINT is required.');
+  }
+  if (config.requirePayment) {
+    if (!config.paymentInvoice) {
+      issues.push('ROUTER_LN_INVOICE_URL is required when ROUTER_REQUIRE_PAYMENT=true.');
+    }
+    if (!config.paymentVerification) {
+      issues.push('ROUTER_LN_VERIFY_URL is required when ROUTER_REQUIRE_PAYMENT=true.');
+    }
+  }
+  return issues;
+};
+
 const start = async (): Promise<void> => {
   const config = buildConfig();
-  const store = config.db ? await createPostgresRouterStore(config.db) : undefined;
+  const issues = validateConfig(config);
+  if (issues.length > 0) {
+    logWarn('[router] invalid configuration', { issues });
+    process.exit(1);
+  }
+  validateNostrIdentity(config.keyId, config.privateKey);
+  const store = config.db
+    ? await createPostgresRouterStore(config.db, {
+        nodeRetentionMs: config.nodeRetentionMs,
+        paymentRequestRetentionMs: config.paymentRequestRetentionMs,
+        paymentReceiptRetentionMs: config.paymentReceiptRetentionMs,
+        manifestRetentionMs: config.nodeRetentionMs,
+        manifestAdmissionRetentionMs: config.nodeRetentionMs,
+      })
+    : undefined;
   const service = createRouterService(config, store);
   if (store) {
     try {
@@ -169,10 +256,27 @@ const start = async (): Promise<void> => {
   } else {
     loadRouterState(service, config.statePath);
   }
-  const server = createRouterHttpServer(service, config);
+  let nonceStore: NonceStore = config.nonceStorePath
+    ? new FileNonceStore(config.nonceStorePath)
+    : new InMemoryNonceStore();
+  if (config.nonceStoreUrl) {
+    try {
+      nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
+    } catch (error) {
+      logWarn('[router] failed to initialize nonce store', error);
+    }
+  }
+
+  const server = createRouterHttpServer(service, config, nonceStore);
 
   server.listen(config.port);
   startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);
+  pruneRouterState(service, config);
+  if (config.pruneIntervalMs && config.pruneIntervalMs > 0) {
+    setInterval(() => {
+      pruneRouterState(service, config);
+    }, config.pruneIntervalMs);
+  }
   void logRelayCandidates('router', buildDiscoveryOptions());
 
   const discoveredPeers = discoverFederationPeers(
@@ -191,6 +295,31 @@ const start = async (): Promise<void> => {
     };
     void publish();
     setInterval(publish, intervalMs);
+  }
+
+  if (config.federation?.enabled && config.federation.nostrEnabled) {
+    let relayUrls = config.federation.nostrRelays ?? [];
+    if (relayUrls.length === 0) {
+      try {
+        const relays = await discoverRelays(buildDiscoveryOptions());
+        relayUrls = relays.map((entry) => entry.url);
+      } catch (error) {
+        logWarn('[router] nostr relay discovery failed', error);
+      }
+    }
+    if (relayUrls.length > 0 && config.privateKey) {
+      const runtime = startFederationNostr(service, config, relayUrls);
+      const intervalMs = config.federation.nostrPublishIntervalMs ?? 30_000;
+      const publish = async () => {
+        try {
+          await publishFederationToRelays(service, config, runtime);
+        } catch (error) {
+          logWarn('[router] nostr federation publish failed', error);
+        }
+      };
+      void publish();
+      setInterval(publish, intervalMs);
+    }
   }
 };
 

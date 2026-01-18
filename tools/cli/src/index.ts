@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   buildEnvelope,
+  isNostrNpub,
   parsePrivateKey,
   signEnvelope,
 } from '@fed-ai/protocol';
@@ -33,6 +34,13 @@ const postJson = async (url: string, body: unknown): Promise<Response> => {
 const loadJson = async <T>(path: string): Promise<T> => {
   const raw = await readFile(path, 'utf8');
   return JSON.parse(raw) as T;
+};
+
+const requireNpub = (value: string, label: string): void => {
+  if (!isNostrNpub(value)) {
+    console.error(`${label} must be a Nostr npub`);
+    process.exit(1);
+  }
 };
 
 /** Split comma-separated values into normalized arrays for discovery overrides. */
@@ -116,6 +124,66 @@ const run = async (): Promise<void> => {
     return;
   }
 
+  if (command === 'setup') {
+    const role = (args.role ?? '').toLowerCase();
+    const routerOut = args['router-out'] ?? '.env.router';
+    const nodeOut = args['node-out'] ?? '.env.node';
+    const routerEndpoint = args['router-endpoint'] ?? 'http://localhost:8080';
+    const nodeEndpoint = args['node-endpoint'] ?? 'http://localhost:8081';
+    const routerPort = args['router-port'] ?? '8080';
+    const nodePort = args['node-port'] ?? '8081';
+    const nodeRunner = args['node-runner'] ?? 'http';
+    const requirePayment = (args['require-payment'] ?? 'false').toLowerCase() === 'true';
+    const lnInvoiceUrl = args['ln-invoice-url'];
+    const lnVerifyUrl = args['ln-verify-url'];
+
+    if (!role || !['router', 'node', 'both'].includes(role)) {
+      console.error('Missing or invalid --role (router|node|both).');
+      process.exit(1);
+    }
+
+    const routerKeys = generateKeyPairHex();
+    const nodeKeys = generateKeyPairHex();
+
+    if (role === 'router' || role === 'both') {
+      const lines = [
+        `ROUTER_ID=router-1`,
+        `ROUTER_KEY_ID=${routerKeys.npub}`,
+        `ROUTER_PRIVATE_KEY_PEM=${routerKeys.nsec}`,
+        `ROUTER_ENDPOINT=${routerEndpoint}`,
+        `ROUTER_PORT=${routerPort}`,
+        `ROUTER_REQUIRE_PAYMENT=${requirePayment}`,
+      ];
+      if (lnInvoiceUrl) {
+        lines.push(`ROUTER_LN_INVOICE_URL=${lnInvoiceUrl}`);
+      }
+      if (lnVerifyUrl) {
+        lines.push(`ROUTER_LN_VERIFY_URL=${lnVerifyUrl}`);
+      }
+      await writeFile(routerOut, `${lines.join('\n')}\n`);
+      console.log(`Wrote ${routerOut}`);
+    }
+
+    if (role === 'node' || role === 'both') {
+      const lines = [
+        `NODE_ID=node-1`,
+        `NODE_KEY_ID=${nodeKeys.npub}`,
+        `NODE_PRIVATE_KEY_PEM=${nodeKeys.nsec}`,
+        `NODE_ENDPOINT=${nodeEndpoint}`,
+        `NODE_PORT=${nodePort}`,
+        `NODE_RUNNER=${nodeRunner}`,
+        `ROUTER_ENDPOINT=${routerEndpoint}`,
+      ];
+      if (role === 'both') {
+        lines.push(`ROUTER_KEY_ID=${routerKeys.npub}`);
+      }
+      await writeFile(nodeOut, `${lines.join('\n')}\n`);
+      console.log(`Wrote ${nodeOut}`);
+    }
+
+    return;
+  }
+
   if (command === 'profile') {
     const targets = args['latency-targets']?.split(',').filter(Boolean) ?? [];
     const profile = await profileSystem({ latencyTargets: targets });
@@ -168,6 +236,7 @@ const run = async (): Promise<void> => {
       process.exit(1);
     }
 
+    requireNpub(keyId, '--key-id');
     const privateKey = parsePrivateKey(privateKeyInput);
     const [profile, bench] = await Promise.all([
       loadJson<ProfileReport>(profilePath),
@@ -243,6 +312,7 @@ const run = async (): Promise<void> => {
       process.exit(1);
     }
 
+    requireNpub(keyId, '--key-id');
     const privateKey = parsePrivateKey(privateKeyInput);
     const request: QuoteRequest = {
       requestId: randomUUID(),
@@ -281,6 +351,7 @@ const run = async (): Promise<void> => {
       process.exit(1);
     }
 
+    requireNpub(keyId, '--key-id');
     const privateKey = parsePrivateKey(privateKeyInput);
     const request: InferenceRequest = {
       requestId: randomUUID(),
@@ -343,6 +414,7 @@ const run = async (): Promise<void> => {
       process.exit(1);
     }
 
+    requireNpub(keyId, '--key-id');
     const privateKey = parsePrivateKey(privateKeyInput);
     const paymentEnvelope = await loadJson<Envelope<PaymentRequest>>(requestPath);
     const receiptPayload: PaymentReceipt = {

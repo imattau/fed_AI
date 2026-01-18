@@ -14,11 +14,18 @@ Provide consistent CLI entry points for keys, quotes, inference, and manifests.
   pnpm --filter @fed-ai/cli dev -- gen-keys --out keys.json
   ```
 
+- Quick setup:
+
+  ```
+  pnpm --filter @fed-ai/cli dev -- setup --role both \
+    --router-out .env.router --node-out .env.node
+  ```
+
 - Quote request:
 
   ```
   pnpm --filter @fed-ai/cli dev -- quote --router http://localhost:8080 \
-    --key-id <public-key-hex> --private-key <private-key-hex> --model mock-model \
+    --key-id <npub> --private-key <nsec> --model mock-model \
     --input 8 --output 8 --max-tokens 8 --out quote.json
   ```
 
@@ -26,7 +33,7 @@ Provide consistent CLI entry points for keys, quotes, inference, and manifests.
 
   ```
   pnpm --filter @fed-ai/cli dev -- infer --router http://localhost:8080 \
-    --key-id <public-key-hex> --private-key <private-key-hex> --model mock-model \
+    --key-id <npub> --private-key <nsec> --model mock-model \
     --prompt "hello" --max-tokens 8 --out infer.json
   ```
 

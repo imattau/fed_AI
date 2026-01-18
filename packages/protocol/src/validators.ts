@@ -57,6 +57,16 @@ const validateWithSchema = <T>(schema: z.ZodType<T>, value: unknown): Validation
   return { ok: false, errors: toErrors(result.error.issues) };
 };
 
+const routerJobTypeSchema: z.ZodType<RouterJobType> = z.union([
+  z.literal('EMBEDDING'),
+  z.literal('RERANK'),
+  z.literal('CLASSIFY'),
+  z.literal('MODERATE'),
+  z.literal('TOOL_CALL'),
+  z.literal('SUMMARISE'),
+  z.literal('GEN_CHUNK'),
+]);
+
 const pricingSchema = z.object({
   unit: z.union([z.literal('token'), z.literal('second')]),
   inputRate: z.number(),
@@ -202,16 +212,6 @@ const attestationSchema: z.ZodType<Attestation> = z.object({
   evidence: z.string(),
   ts: z.number(),
 });
-
-const routerJobTypeSchema: z.ZodType<RouterJobType> = z.union([
-  z.literal('EMBEDDING'),
-  z.literal('RERANK'),
-  z.literal('CLASSIFY'),
-  z.literal('MODERATE'),
-  z.literal('TOOL_CALL'),
-  z.literal('SUMMARISE'),
-  z.literal('GEN_CHUNK'),
-]);
 
 const routerPrivacyLevelSchema: z.ZodType<RouterPrivacyLevel> = z.union([
   z.literal('PL0'),

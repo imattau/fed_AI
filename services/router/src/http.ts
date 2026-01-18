@@ -7,6 +7,8 @@ import {
   checkReplay,
   FileNonceStore,
   InMemoryNonceStore,
+  NonceStore,
+  isNostrNpub,
   parsePublicKey,
   signEnvelope,
   signRouterReceipt,
@@ -77,6 +79,7 @@ import {
 } from './server';
 import { discoverFederationPeers } from './federation/discovery';
 import { runAuctionAndAward } from './federation/publisher';
+import { allowsPrivacyLevel, canBidForRfb, estimateBidPrice } from './federation/logic';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -350,15 +353,34 @@ const getWeightedNodes = (service: RouterService): NodeDescriptor[] => {
   return weighted;
 };
 
-const rankCandidateNodes = (nodes: NodeDescriptor[], request: QuoteRequest): NodeDescriptor[] => {
-  const scored = nodes
-    .map((node) => {
-      const score = scoreNode(node, request);
-      return score === null ? null : { node, score };
-    })
-    .filter((entry): entry is { node: NodeDescriptor; score: number } => entry !== null)
-    .sort((a, b) => b.score - a.score);
-  return scored.map((entry) => entry.node);
+const rankCandidateNodes = (
+  nodes: NodeDescriptor[],
+  request: QuoteRequest,
+  topK: number | undefined,
+): NodeDescriptor[] => {
+  const limit = topK && topK > 0 ? topK : nodes.length;
+  const ranked: Array<{ node: NodeDescriptor; score: number }> = [];
+  for (const node of nodes) {
+    const score = scoreNode(node, request);
+    if (score === null) {
+      continue;
+    }
+    let inserted = false;
+    for (let i = 0; i < ranked.length; i += 1) {
+      if (score > ranked[i].score) {
+        ranked.splice(i, 0, { node, score });
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      ranked.push({ node, score });
+    }
+    if (ranked.length > limit) {
+      ranked.length = limit;
+    }
+  }
+  return ranked.map((entry) => entry.node);
 };
 
 const pickCapabilityForRequest = (
@@ -400,10 +422,17 @@ const pickCapabilityForRequest = (
 
 const readJsonBody = async (
   req: IncomingMessage,
+  maxBytes?: number,
 ): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (maxBytes !== undefined && totalBytes > maxBytes) {
+      return { ok: false, error: 'payload-too-large' };
+    }
+    chunks.push(buffer);
   }
   const body = Buffer.concat(chunks).toString('utf8');
   if (!body) {
@@ -425,6 +454,10 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
+const bodyErrorStatus = (error: string): number => {
+  return error === 'payload-too-large' ? 413 : 400;
+};
+
 const isEnvelopeLike = (value: unknown): value is Envelope<unknown> => {
   if (!value || typeof value !== 'object') {
     return false;
@@ -444,7 +477,7 @@ const buildFederationJobHash = (request: InferenceRequest, inputHash: string): s
 const parseSignedEnvelope = <T>(
   raw: unknown,
   validator: (value: unknown) => { ok: true } | { ok: false; errors: string[] },
-  nonceStore: InMemoryNonceStore,
+  nonceStore: NonceStore,
 ): { ok: true; envelope: Envelope<T> } | { ok: false; error: string; details?: string[] } => {
   if (!isEnvelopeLike(raw)) {
     return { ok: false, error: 'missing-envelope' };
@@ -454,9 +487,12 @@ const parseSignedEnvelope = <T>(
     return { ok: false, error: 'invalid-envelope', details: validation.errors };
   }
   const envelope = raw as Envelope<T>;
+  if (!isNostrNpub(envelope.keyId)) {
+    return { ok: false, error: 'invalid-key-id' };
+  }
   const replay = checkReplay(envelope, nonceStore);
   if (!replay.ok) {
-    return { ok: false, error: replay.error };
+    return { ok: false, error: replay.error ?? 'replay-error' };
   }
   const publicKey = parsePublicKey(envelope.keyId);
   if (!verifyEnvelope(envelope, publicKey)) {
@@ -489,78 +525,24 @@ const verifyFederationMessage = <T>(
     return { ok: false, error: 'invalid-message', details: validation.errors };
   }
   const message = raw as RouterControlMessage<T>;
+  if (!isNostrNpub(message.routerId)) {
+    return { ok: false, error: 'invalid-key-id' };
+  }
   if (message.expiry < Date.now()) {
     return { ok: false, error: 'message-expired' };
   }
   return { ok: true, message };
 };
 
-const privacyRank: Record<'PL0' | 'PL1' | 'PL2' | 'PL3' | undefined, number> = {
-  PL0: 0,
-  PL1: 1,
-  PL2: 2,
-  PL3: 3,
-  undefined: 3,
-};
-
-const allowsPrivacyLevel = (config: RouterConfig, level: RouterJobSubmit['privacyLevel']): boolean => {
-  const max = config.federation?.maxPrivacyLevel;
-  return privacyRank[level] <= privacyRank[max];
-};
-
-const estimateBidPrice = (price: RouterPriceSheet, size: RouterRfbPayload['sizeEstimate']): number => {
-  const surge = price.currentSurge || 1;
-  switch (price.unit) {
-    case 'PER_1K_TOKENS': {
-      const tokens = size.tokens ?? 0;
-      const units = Math.max(1, Math.ceil(tokens / 1000));
-      return Math.max(1, Math.round(price.basePriceMsat * surge * units));
-    }
-    case 'PER_MB': {
-      const bytes = size.bytes ?? 0;
-      const units = Math.max(1, Math.ceil(bytes / (1024 * 1024)));
-      return Math.max(1, Math.round(price.basePriceMsat * surge * units));
-    }
-    case 'PER_SECOND': {
-      const seconds = Math.max(1, Math.ceil((size.tokens ?? 0) / 1000));
-      return Math.max(1, Math.round(price.basePriceMsat * surge * seconds));
-    }
-    case 'PER_JOB':
-    default:
-      return Math.max(1, Math.round(price.basePriceMsat * surge));
-  }
-};
-
-const canBidForRfb = (
-  service: RouterService,
-  config: RouterConfig,
-  payload: RouterRfbPayload,
-): { ok: true; priceSheet: RouterPriceSheet } | { ok: false; reason: string } => {
-  if (!allowsPrivacyLevel(config, payload.privacyLevel)) {
-    return { ok: false, reason: 'privacy-level-not-allowed' };
-  }
-  const status = service.federation.localStatus;
-  if (status?.loadSummary.backpressureState === 'SATURATED') {
-    return { ok: false, reason: 'router-saturated' };
-  }
-  const caps = service.federation.localCapabilities;
-  if (caps && !caps.supportedJobTypes.includes(payload.jobType)) {
-    return { ok: false, reason: 'job-type-unsupported' };
-  }
-  const priceSheet = service.federation.localPriceSheets.get(payload.jobType);
-  if (!priceSheet) {
-    return { ok: false, reason: 'missing-price' };
-  }
-  return { ok: true, priceSheet };
-};
 
 export const createRouterHttpServer = (
   service: RouterService,
   config: RouterConfig,
+  nonceStore?: NonceStore,
 ): http.Server => {
-  const nonceStore = config.nonceStorePath
+  const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
-    : new InMemoryNonceStore();
+    : new InMemoryNonceStore());
   const startedAtMs = Date.now();
   const federationPeers = discoverFederationPeers(
     config.federation?.peers,
@@ -645,6 +627,7 @@ export const createRouterHttpServer = (
       submit,
       award,
       peer: winnerPeer,
+      updatedAtMs: Date.now(),
       settlement: {},
     });
 
@@ -693,6 +676,7 @@ export const createRouterHttpServer = (
 
     const job = service.federation.outboundJobs.get(submit.jobId);
     if (job) {
+      job.updatedAtMs = Date.now();
       job.result = {
         jobId: submit.jobId,
         resultPayload: body.response.payload.output,
@@ -748,9 +732,9 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/register-node') {
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateNodeDescriptor);
@@ -759,11 +743,14 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<NodeDescriptor>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
         if (envelope.payload.keyId !== envelope.keyId) {
           return sendJson(res, 400, { error: 'key-id-mismatch' });
         }
 
-        const replay = checkReplay(envelope, nonceStore);
+        const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return sendJson(res, 400, { error: replay.error });
         }
@@ -788,14 +775,17 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/manifest') {
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const manifest = body.value as NodeManifest;
         if (!manifest.signature) {
           return sendJson(res, 400, { error: 'missing-signature' });
+        }
+        if (!isNostrNpub(manifest.signature.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
         }
 
         const publicKey = parsePublicKey(manifest.signature.keyId);
@@ -818,9 +808,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterCapabilityProfile>(
@@ -853,9 +843,9 @@ export const createRouterHttpServer = (
         if (!config.privateKey) {
           return sendJson(res, 500, { error: 'router-private-key-missing' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateRouterCapabilityProfile(body.value);
@@ -892,9 +882,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterPriceSheet>(
@@ -927,9 +917,9 @@ export const createRouterHttpServer = (
         if (!config.privateKey) {
           return sendJson(res, 500, { error: 'router-private-key-missing' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateRouterPriceSheet(body.value);
@@ -966,9 +956,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterStatusPayload>(
@@ -1001,9 +991,9 @@ export const createRouterHttpServer = (
         if (!config.privateKey) {
           return sendJson(res, 500, { error: 'router-private-key-missing' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateRouterStatusPayload(body.value);
@@ -1040,9 +1030,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterRfbPayload>(
@@ -1099,9 +1089,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterBidPayload>(
@@ -1131,9 +1121,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validated = verifyFederationMessage<RouterAwardPayload>(
@@ -1167,15 +1157,15 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const parsed = parseSignedEnvelope<RouterJobSubmit>(
           body.value,
           validateRouterJobSubmit,
-          nonceStore,
+          store,
         );
         if (!parsed.ok) {
           return sendJson(res, 400, { error: parsed.error, details: parsed.details });
@@ -1207,6 +1197,7 @@ export const createRouterHttpServer = (
         service.federation.jobs.set(submit.jobId, {
           submit,
           requestRouterId: envelope.keyId,
+          updatedAtMs: Date.now(),
           settlement: {},
         });
         federationJobs.inc({ stage: 'submit' });
@@ -1228,6 +1219,7 @@ export const createRouterHttpServer = (
             inputTokensEstimate: decoded.request.prompt.length,
             outputTokensEstimate: decoded.request.maxTokens,
           },
+          config.schedulerTopK,
         );
 
         const attemptNode = async (
@@ -1242,7 +1234,11 @@ export const createRouterHttpServer = (
             config.privateKey!,
           );
 
-          const failNode = (status: number, body: { error: string; details?: string[] }, reason?: string) => {
+          const failNode = (
+            status: number,
+            body: { error: string; details?: string[] },
+            reason?: string,
+          ): { ok: false; status: number; body: { error: string; details?: string[] } } => {
             markNodeFailure(service, targetNode.nodeId);
             if (reason) {
               accountingFailures.inc({ reason });
@@ -1360,6 +1356,7 @@ export const createRouterHttpServer = (
 
           const record = service.federation.jobs.get(submit.jobId);
           if (record) {
+            record.updatedAtMs = Date.now();
             record.result = jobResult;
           }
 
@@ -1387,15 +1384,15 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const parsed = parseSignedEnvelope<RouterJobResult>(
           body.value,
           validateRouterJobResult,
-          nonceStore,
+          store,
         );
         if (!parsed.ok) {
           return sendJson(res, 400, { error: parsed.error, details: parsed.details });
@@ -1445,9 +1442,9 @@ export const createRouterHttpServer = (
         if (existing.award.payload.winnerRouterId !== result.receipt.workerRouterId) {
           return sendJson(res, 403, { error: 'receipt-worker-not-awarded' });
         }
+        existing.updatedAtMs = Date.now();
         existing.result = result;
         existing.settlement = { ...(existing.settlement ?? {}), receipt: result.receipt };
-        service.federationPaymentReceipts.set(result.jobId, result.receipt);
         federationJobs.inc({ stage: 'result' });
         return sendJson(res, 200, { ok: true, jobId: result.jobId });
       } catch (error) {
@@ -1463,9 +1460,9 @@ export const createRouterHttpServer = (
         if (!config.privateKey) {
           return sendJson(res, 500, { error: 'router-private-key-missing' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateRouterReceipt(body.value);
@@ -1518,6 +1515,7 @@ export const createRouterHttpServer = (
           buildEnvelope(paymentRequest, receipt.jobId, Date.now(), config.keyId),
           config.privateKey,
         );
+        job.updatedAtMs = Date.now();
         job.settlement = { ...(job.settlement ?? {}), paymentRequest };
 
         return sendJson(res, 200, { payment: paymentEnvelope });
@@ -1531,9 +1529,9 @@ export const createRouterHttpServer = (
         if (!config.federation?.enabled) {
           return sendJson(res, 503, { error: 'federation-disabled' });
         }
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validatePaymentReceipt);
@@ -1542,6 +1540,9 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<PaymentReceipt>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
         const clientKey = parsePublicKey(envelope.keyId);
         if (!verifyEnvelope(envelope, clientKey)) {
           return sendJson(res, 401, { error: 'invalid-signature' });
@@ -1567,6 +1568,7 @@ export const createRouterHttpServer = (
         service.federationPaymentReceipts.set(receipt.requestId, envelope);
         const existing = service.federation.outboundJobs.get(receipt.requestId);
         if (existing) {
+          existing.updatedAtMs = Date.now();
           existing.settlement = { ...(existing.settlement ?? {}), paymentReceipt: envelope };
         }
         return sendJson(res, 200, { ok: true });
@@ -1577,9 +1579,9 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/stake/commit') {
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateStakeCommit);
@@ -1588,6 +1590,9 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<import('@fed-ai/protocol').StakeCommit>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
         if (envelope.payload.actorId !== envelope.keyId) {
           return sendJson(res, 400, { error: 'actor-key-mismatch' });
         }
@@ -1606,9 +1611,9 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/stake/slash') {
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateStakeSlash);
@@ -1617,6 +1622,9 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<import('@fed-ai/protocol').StakeSlash>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
         if (envelope.keyId !== config.keyId) {
           return sendJson(res, 403, { error: 'router-only' });
         }
@@ -1638,9 +1646,9 @@ export const createRouterHttpServer = (
 
     if (req.method === 'POST' && req.url === '/quote') {
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return sendJson(res, 400, { error: body.error });
+          return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateQuoteRequest);
@@ -1649,7 +1657,10 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<QuoteRequest>;
-        const replay = checkReplay(envelope, nonceStore);
+        if (!isNostrNpub(envelope.keyId)) {
+          return sendJson(res, 400, { error: 'invalid-key-id' });
+        }
+        const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return sendJson(res, 400, { error: replay.error });
         }
@@ -1715,10 +1726,10 @@ export const createRouterHttpServer = (
         sendJson(res, status, body);
       };
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
           paymentReceiptFailures.inc();
-          return respond(400, { error: body.error });
+          return respond(bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validatePaymentReceipt);
@@ -1728,6 +1739,10 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<PaymentReceipt>;
+        if (!isNostrNpub(envelope.keyId)) {
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'invalid-key-id' });
+        }
         const clientKey = parsePublicKey(envelope.keyId);
         if (!verifyEnvelope(envelope, clientKey)) {
           paymentReceiptFailures.inc();
@@ -1789,9 +1804,9 @@ export const createRouterHttpServer = (
         sendJson(res, status, body);
       };
       try {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, config.maxRequestBytes);
         if (!body.ok) {
-          return respond(400, { error: body.error });
+          return respond(bodyErrorStatus(body.error), { error: body.error });
         }
 
         const validation = validateEnvelope(body.value, validateInferenceRequest);
@@ -1800,7 +1815,10 @@ export const createRouterHttpServer = (
         }
 
         const envelope = body.value as Envelope<InferenceRequest>;
-        const replay = checkReplay(envelope, nonceStore);
+        if (!isNostrNpub(envelope.keyId)) {
+          return respond(400, { error: 'invalid-key-id' });
+        }
+        const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return respond(400, { error: replay.error });
         }
@@ -1860,7 +1878,11 @@ export const createRouterHttpServer = (
             config.privateKey!,
           );
 
-          const failNode = (status: number, body: { error: string; details?: string[] }, reason?: string) => {
+          const failNode = (
+            status: number,
+            body: { error: string; details?: string[] },
+            reason?: string,
+          ): { ok: false; status: number; body: { error: string; details?: string[] } } => {
             markNodeFailure(service, targetNode.nodeId);
             if (reason) {
               accountingFailures.inc({ reason });
@@ -1995,6 +2017,7 @@ export const createRouterHttpServer = (
         const candidates = rankCandidateNodes(
           filterActiveNodes(service, getWeightedNodes(service)),
           requestEstimate,
+          config.schedulerTopK,
         );
 
         let lastFailure: { status: number; body: { error: string; details?: string[] } } | null =

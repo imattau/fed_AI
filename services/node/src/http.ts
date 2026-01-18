@@ -7,6 +7,8 @@ import {
   checkReplay,
   FileNonceStore,
   InMemoryNonceStore,
+  NonceStore,
+  isNostrNpub,
   parsePublicKey,
   signEnvelope,
   validateEnvelope,
@@ -70,10 +72,14 @@ const hashPrompt = (prompt: string): string => {
   return createHash('sha256').update(prompt, 'utf8').digest('hex');
 };
 
-export const createNodeHttpServer = (service: NodeService, config: NodeConfig): http.Server => {
-  const nonceStore = config.nonceStorePath
+export const createNodeHttpServer = (
+  service: NodeService,
+  config: NodeConfig,
+  nonceStore?: NonceStore,
+): http.Server => {
+  const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
-    : new InMemoryNonceStore();
+    : new InMemoryNonceStore());
   const startedAtMs = Date.now();
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
@@ -135,6 +141,9 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
         }
 
         const envelope = body.value as Envelope<InferenceRequest>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return respond(400, { error: 'invalid-key-id' });
+        }
         const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
         if (config.maxPromptBytes !== undefined && promptBytes > config.maxPromptBytes) {
           return respond(413, { error: 'prompt-too-large' });
@@ -152,7 +161,7 @@ export const createNodeHttpServer = (service: NodeService, config: NodeConfig): 
           return respond(401, { error: 'invalid-signature' });
         }
 
-        const replay = checkReplay(envelope, nonceStore);
+        const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return respond(400, { error: replay.error });
         }

@@ -5,7 +5,7 @@ import { AddressInfo } from 'node:net';
 import { createHash, generateKeyPairSync, KeyObject } from 'node:crypto';
 import {
   buildEnvelope,
-  exportPublicKeyHex,
+  exportPublicKeyNpub,
   signEnvelope,
   signRouterMessage,
   signRouterReceipt,
@@ -231,7 +231,7 @@ const startFederationPeer = async (
 
 test('router /infer returns 503 when no nodes', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -243,7 +243,7 @@ test('router /infer returns 503 when no nodes', async () => {
 
   const { server, baseUrl } = await startRouter(config);
   const clientKeys = generateKeyPairSync('ed25519');
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-1',
     modelId: 'mock-model',
@@ -271,10 +271,10 @@ test('router /infer offloads to federation peer when no nodes', async () => {
   const peerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const peerKeyId = exportPublicKeyHex(peerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const peerKeyId = exportPublicKeyNpub(peerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const { server: peerServer, baseUrl: peerUrl } = await startFederationPeer(
     peerKeyId,
@@ -331,9 +331,9 @@ test('router /infer forwards to node and verifies signatures', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
     nodeKeyId,
@@ -416,10 +416,10 @@ test('router /infer falls back to another node on failure', async () => {
   const nodeAKeys = generateKeyPairSync('ed25519');
   const nodeBKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeAKeyId = exportPublicKeyHex(nodeAKeys.publicKey);
-  const nodeBKeyId = exportPublicKeyHex(nodeBKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeAKeyId = exportPublicKeyNpub(nodeAKeys.publicKey);
+  const nodeBKeyId = exportPublicKeyNpub(nodeBKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const failingServer = http.createServer((_req, res) => {
     res.writeHead(500, { 'content-type': 'application/json' });
@@ -525,9 +525,9 @@ test('router /infer enforces payment when required', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
     nodeKeyId,
@@ -655,9 +655,9 @@ test('router /quote returns signed quote response', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -725,9 +725,9 @@ test('router /manifest influences selection weight', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -830,9 +830,9 @@ test('router /stake/commit records stake and affects selection', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -934,9 +934,9 @@ test('router /manifest requires relay snapshot for promotion when configured', a
   const routerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1081,10 +1081,10 @@ test('router manifest trust decays as observed performance accumulates', async (
   const clientKeys = generateKeyPairSync('ed25519');
   const nodeAKeys = generateKeyPairSync('ed25519');
   const nodeBKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
-  const nodeAKeyId = exportPublicKeyHex(nodeAKeys.publicKey);
-  const nodeBKeyId = exportPublicKeyHex(nodeBKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const nodeAKeyId = exportPublicKeyNpub(nodeAKeys.publicKey);
+  const nodeBKeyId = exportPublicKeyNpub(nodeBKeys.publicKey);
 
   const { server: nodeAServer, baseUrl: nodeAUrl } = await startStubNode(
     nodeAKeyId,
@@ -1234,7 +1234,7 @@ test('router /metrics exposes Prometheus metrics', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: exportPublicKeyHex(routerKeys.publicKey),
+    keyId: exportPublicKeyNpub(routerKeys.publicKey),
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -1253,9 +1253,9 @@ test('router cools down nodes after repeated failures', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const nodeKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyHex(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1379,8 +1379,8 @@ test('router cools down nodes after repeated failures', async () => {
 test('router federation caps endpoint accepts signed message', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const peerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const peerKeyId = exportPublicKeyHex(peerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const peerKeyId = exportPublicKeyNpub(peerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1435,8 +1435,8 @@ test('router federation caps endpoint accepts signed message', async () => {
 test('router federation job submit/result validates receipt', async () => {
   const requesterKeys = generateKeyPairSync('ed25519');
   const workerKeys = generateKeyPairSync('ed25519');
-  const requesterKeyId = exportPublicKeyHex(requesterKeys.publicKey);
-  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+  const requesterKeyId = exportPublicKeyNpub(requesterKeys.publicKey);
+  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
 
   const workerConfig: RouterConfig = {
     routerId: 'worker-router',
@@ -1568,7 +1568,7 @@ test('router federation job submit/result validates receipt', async () => {
 
 test('router federation self caps returns signed message', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1612,7 +1612,7 @@ test('router federation self caps returns signed message', async () => {
 
 test('router federation self price returns signed message', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1654,7 +1654,7 @@ test('router federation self price returns signed message', async () => {
 
 test('router federation self status returns signed message', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1700,7 +1700,7 @@ test('router federation self status returns signed message', async () => {
 
 test('publishFederation posts signed messages to peers', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1777,7 +1777,7 @@ test('discoverFederationPeers deduplicates and normalizes', () => {
 
 test('runFederationAuction collects bid responses', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1843,7 +1843,7 @@ test('runFederationAuction collects bid responses', async () => {
 
 test('publishAward posts award to peer', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -1881,7 +1881,7 @@ test('publishAward posts award to peer', async () => {
 
 test('selectAwardFromBids builds signed award', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -1941,7 +1941,7 @@ test('selectAwardFromBids builds signed award', async () => {
 
 test('runAuctionAndAward publishes award to winning peer', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -2015,8 +2015,8 @@ test('runAuctionAndAward publishes award to winning peer', async () => {
 test('router federation payment request returns signed payment request', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const workerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -2104,9 +2104,9 @@ test('router federation payment receipt accepts signed receipt', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const workerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -2211,9 +2211,9 @@ test('router federation settlement tracks request and receipt', async () => {
   const routerKeys = generateKeyPairSync('ed25519');
   const workerKeys = generateKeyPairSync('ed25519');
   const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyHex(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyHex(workerKeys.publicKey);
-  const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
+  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
+  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
 
   const config: RouterConfig = {
     routerId: 'router-1',

@@ -16,12 +16,15 @@ const REDACT_KEYS = new Set([
   'paymentHash',
 ]);
 
-const sanitize = (value: RedactionValue, seen = new WeakSet<object>()): RedactionValue => {
+const sanitize = (value: unknown, seen = new WeakSet<object>()): RedactionValue => {
   if (value === null || value === undefined) {
     return value;
   }
   if (typeof value !== 'object') {
-    return value;
+    if (typeof value === 'bigint' || typeof value === 'symbol' || typeof value === 'function') {
+      return String(value);
+    }
+    return value as RedactionValue;
   }
   if (value instanceof Error) {
     return { name: value.name, message: value.message };
@@ -38,7 +41,7 @@ const sanitize = (value: RedactionValue, seen = new WeakSet<object>()): Redactio
     if (REDACT_KEYS.has(key)) {
       result[key] = '[REDACTED]';
     } else {
-      result[key] = sanitize(entry as RedactionValue, seen);
+      result[key] = sanitize(entry, seen);
     }
   }
   return result;
@@ -46,7 +49,7 @@ const sanitize = (value: RedactionValue, seen = new WeakSet<object>()): Redactio
 
 const serialize = (value: unknown): string => {
   try {
-    return JSON.stringify(sanitize(value as RedactionValue));
+    return JSON.stringify(sanitize(value));
   } catch {
     return '[unserializable]';
   }

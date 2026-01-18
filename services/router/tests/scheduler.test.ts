@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { exportPublicKeyNpub } from '@fed-ai/protocol';
 import { scoreNode, selectNode } from '../src/scheduler';
 import type { NodeDescriptor, QuoteRequest } from '@fed-ai/protocol';
 
@@ -11,20 +13,23 @@ const request: QuoteRequest = {
   outputTokensEstimate: 20,
 };
 
-const makeNode = (nodeId: string, inputRate: number, outputRate: number, currentLoad: number): NodeDescriptor => ({
-  nodeId,
-  keyId: nodeId,
-  endpoint: 'http://localhost:0',
-  capacity: { maxConcurrent: 10, currentLoad },
-  capabilities: [
-    {
-      modelId: 'mock-model',
-      contextWindow: 4096,
-      maxTokens: 1024,
-      pricing: { unit: 'token', inputRate, outputRate, currency: 'USD' },
-    },
-  ],
-});
+const makeNode = (nodeId: string, inputRate: number, outputRate: number, currentLoad: number): NodeDescriptor => {
+  const { publicKey } = generateKeyPairSync('ed25519');
+  return {
+    nodeId,
+    keyId: exportPublicKeyNpub(publicKey),
+    endpoint: 'http://localhost:0',
+    capacity: { maxConcurrent: 10, currentLoad },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate, outputRate, currency: 'USD' },
+      },
+    ],
+  };
+};
 
 test('scoreNode prefers lower price and lower load', () => {
   const cheap = makeNode('cheap', 0.01, 0.01, 2);

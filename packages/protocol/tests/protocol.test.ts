@@ -8,6 +8,7 @@ import {
   buildEnvelope,
   checkReplay,
   DEFAULT_REPLAY_WINDOW_MS,
+  exportPublicKeyNpub,
   FileNonceStore,
   InMemoryNonceStore,
   signEnvelope,
@@ -24,6 +25,7 @@ import type { Envelope, InferenceRequest, PaymentReceipt, PayeeType } from '../s
 
 test('signEnvelope and verifyEnvelope round-trip', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const keyId = exportPublicKeyNpub(publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-1',
     modelId: 'mock-model',
@@ -31,7 +33,7 @@ test('signEnvelope and verifyEnvelope round-trip', () => {
     maxTokens: 16,
   };
 
-  const envelope = buildEnvelope(payload, 'nonce-1', Date.now(), 'key-1');
+  const envelope = buildEnvelope(payload, 'nonce-1', Date.now(), keyId);
   const signed = signEnvelope(envelope, privateKey);
 
   assert.equal(verifyEnvelope(signed, publicKey), true);
@@ -43,8 +45,10 @@ test('signEnvelope and verifyEnvelope round-trip', () => {
 test('checkReplay enforces nonce and timestamp window', () => {
   const store = new InMemoryNonceStore();
   const now = Date.now();
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const keyId = exportPublicKeyNpub(publicKey);
   const payload = { ok: true };
-  const envelope = buildEnvelope(payload, 'nonce-2', now, 'key-2');
+  const envelope = buildEnvelope(payload, 'nonce-2', now, keyId);
 
   const first = checkReplay(envelope, store, { nowMs: now });
   assert.equal(first.ok, true);
@@ -53,7 +57,7 @@ test('checkReplay enforces nonce and timestamp window', () => {
   assert.equal(second.ok, false);
   assert.equal(second.error, 'nonce-reused');
 
-  const lateEnvelope = buildEnvelope(payload, 'nonce-3', now - DEFAULT_REPLAY_WINDOW_MS - 1, 'key-2');
+  const lateEnvelope = buildEnvelope(payload, 'nonce-3', now - DEFAULT_REPLAY_WINDOW_MS - 1, keyId);
   const lateResult = checkReplay(lateEnvelope, store, { nowMs: now });
   assert.equal(lateResult.ok, false);
   assert.equal(lateResult.error, 'ts-out-of-window');
@@ -73,22 +77,26 @@ test('FileNonceStore persists nonces across restarts', () => {
 });
 
 test('validateEnvelope validates payloads', () => {
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const keyId = exportPublicKeyNpub(publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-2',
     modelId: 'mock-model',
     prompt: 'hello',
     maxTokens: 8,
   };
-  const envelope = buildEnvelope(payload, 'nonce-4', Date.now(), 'key-3');
+  const envelope = buildEnvelope(payload, 'nonce-4', Date.now(), keyId);
   const result = validateEnvelope(envelope, validateInferenceRequest);
   assert.equal(result.ok, true);
 
-  const invalidEnvelope = buildEnvelope({ bad: true }, 'nonce-5', Date.now(), 'key-3');
+  const invalidEnvelope = buildEnvelope({ bad: true }, 'nonce-5', Date.now(), keyId);
   const invalidResult = validateEnvelope(invalidEnvelope, validateInferenceRequest);
   assert.equal(invalidResult.ok, false);
 });
 
 test('validateInferenceRequest accepts paymentReceipt envelopes', () => {
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const keyId = exportPublicKeyNpub(publicKey);
   const receipt: Envelope<PaymentReceipt> = {
     payload: {
       requestId: 'req-pay',
@@ -99,7 +107,7 @@ test('validateInferenceRequest accepts paymentReceipt envelopes', () => {
     },
     nonce: 'nonce-pay',
     ts: Date.now(),
-    keyId: 'client-key-1',
+    keyId,
     sig: 'sig',
   };
 
