@@ -7,8 +7,21 @@ const routerHealth = document.getElementById('router-health');
 const routerActive = document.getElementById('router-active');
 const routerTotal = document.getElementById('router-total');
 const routerNodes = document.getElementById('router-nodes');
+const routerFederationEnabled = document.getElementById('router-federation-enabled');
+const routerFederationRate = document.getElementById('router-federation-rate');
+const routerNostrEnabled = document.getElementById('router-nostr-enabled');
+const routerNostrRelays = document.getElementById('router-nostr-relays');
+const routerNostrFollow = document.getElementById('router-nostr-follow');
+const routerNostrMute = document.getElementById('router-nostr-mute');
+const routerNostrBlock = document.getElementById('router-nostr-block');
+const routerNostrRetry = document.getElementById('router-nostr-retry');
+const routerPostgres = document.getElementById('router-postgres');
 const nodeSummary = document.getElementById('node-summary');
 const nodeList = document.getElementById('node-list');
+const nodeFollow = document.getElementById('node-follow');
+const nodeMute = document.getElementById('node-mute');
+const nodeBlock = document.getElementById('node-block');
+const nodePostgres = document.getElementById('node-postgres');
 const tabButtons = document.querySelectorAll('[data-tab]');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
@@ -18,6 +31,13 @@ const appendMessage = (role, text) => {
   row.textContent = text;
   chat.appendChild(row);
   chat.scrollTop = chat.scrollHeight;
+};
+
+const formatList = (values) => {
+  if (!Array.isArray(values) || values.length === 0) {
+    return 'none';
+  }
+  return values.join(', ');
 };
 
 const refreshWallet = async () => {
@@ -127,6 +147,80 @@ const updateRouterDashboard = async () => {
 
 void updateRouterDashboard();
 setInterval(updateRouterDashboard, 5000);
+
+const updateConfigPanel = async () => {
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    const router = payload?.router ?? {};
+    const federation = router?.federation ?? {};
+    const nostr = federation?.nostr ?? {};
+    const nodes = payload?.nodes ?? [];
+
+    if (routerFederationEnabled) {
+      routerFederationEnabled.textContent = federation?.enabled ? 'Enabled' : 'Disabled';
+    }
+    if (routerFederationRate) {
+      const limit = federation?.rateLimitMax ?? 0;
+      const windowMs = federation?.rateLimitWindowMs ?? 0;
+      routerFederationRate.textContent = limit > 0 ? `${limit} / ${windowMs} ms` : 'Not set';
+    }
+    if (routerNostrEnabled) {
+      routerNostrEnabled.textContent = nostr?.enabled ? 'Enabled' : 'Disabled';
+    }
+    if (routerNostrRelays) {
+      routerNostrRelays.textContent = formatList(nostr?.relays);
+    }
+    if (routerNostrFollow) {
+      routerNostrFollow.textContent = formatList(nostr?.follow);
+    }
+    if (routerNostrMute) {
+      routerNostrMute.textContent = formatList(nostr?.mute);
+    }
+    if (routerNostrBlock) {
+      routerNostrBlock.textContent = formatList(nostr?.block);
+    }
+    if (routerNostrRetry) {
+      const min = nostr?.retryMinMs ?? 0;
+      const max = nostr?.retryMaxMs ?? 0;
+      routerNostrRetry.textContent = min && max ? `${min}–${max} ms` : 'Default';
+    }
+    if (routerPostgres) {
+      routerPostgres.textContent = router?.postgres ? 'Enabled' : 'Disabled';
+    }
+
+    if (nodes.length > 0) {
+      const node = nodes[0];
+      if (nodeFollow) {
+        nodeFollow.textContent = formatList(node?.routerFollow);
+      }
+      if (nodeMute) {
+        nodeMute.textContent = formatList(node?.routerMute);
+      }
+      if (nodeBlock) {
+        nodeBlock.textContent = formatList(node?.routerBlock);
+      }
+      if (nodePostgres) {
+        nodePostgres.textContent = node?.postgresNonce ? 'Enabled' : 'Disabled';
+      }
+    }
+  } catch {
+    if (routerFederationEnabled) {
+      routerFederationEnabled.textContent = 'Unavailable';
+    }
+    if (routerNostrEnabled) {
+      routerNostrEnabled.textContent = 'Unavailable';
+    }
+    if (routerPostgres) {
+      routerPostgres.textContent = 'Unavailable';
+    }
+  }
+};
+
+void updateConfigPanel();
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();

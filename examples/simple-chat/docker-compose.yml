@@ -26,6 +26,34 @@ services:
         "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi",
       ]
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fedai
+      POSTGRES_USER: fedai
+      POSTGRES_PASSWORD: fedai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fedai -d fedai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ln-adapter:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ../../tools/ln-adapter:/app
+    environment:
+      LN_ADAPTER_PORT: 4000
+      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-lnbits}
+      LNBITS_URL: ${LNBITS_URL}
+      LNBITS_API_KEY: ${LNBITS_API_KEY}
+      LND_REST_URL: ${LND_REST_URL}
+      LND_MACAROON_HEX: ${LND_MACAROON_HEX}
+    command: ["node", "server.js"]
+
   router:
     build:
       context: ../..
@@ -33,6 +61,8 @@ services:
     depends_on:
       keys:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       ln-adapter:
         condition: service_started
     environment:
@@ -41,11 +71,21 @@ services:
       ROUTER_REQUIRE_PAYMENT: "true"
       ROUTER_LN_INVOICE_URL: http://ln-adapter:4000/invoice
       ROUTER_LN_VERIFY_URL: http://ln-adapter:4000/verify
+      ROUTER_DB_URL: postgres://fedai:fedai@postgres:5432/fedai
+      ROUTER_DB_SSL: "false"
+      ROUTER_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      ROUTER_FEDERATION_ENABLED: "true"
+      ROUTER_FEDERATION_RATE_LIMIT_MAX: "60"
+      ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS: "10000"
+      ROUTER_FEDERATION_NOSTR: "true"
+      ROUTER_FEDERATION_NOSTR_RELAYS: "wss://relay.damus.io,wss://relay.snort.social"
+      ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS: "1000"
+      ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS: "30000"
     entrypoint:
       [
         "sh",
         "-c",
-        "export $$(cat /keys/keys.env | xargs) && pnpm --filter @fed-ai/router dev",
+        "export $$(cat /keys/keys.env | xargs) && export ROUTER_FEDERATION_NOSTR_FOLLOW=$$ROUTER_KEY_ID && pnpm --filter @fed-ai/router dev",
       ]
     volumes:
       - keys:/keys:ro
@@ -59,6 +99,8 @@ services:
     depends_on:
       keys:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       ln-adapter:
         condition: service_started
       model:
@@ -77,11 +119,12 @@ services:
       NODE_LLAMA_CPP_URL: http://llama:8080
       NODE_MODEL_ID: tinyllama
       ROUTER_ENDPOINT: http://router:8080
+      NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
     entrypoint:
       [
         "sh",
         "-c",
-        "export $$(cat /keys/keys.env | xargs) && pnpm --filter @fed-ai/node dev",
+        "export $$(cat /keys/keys.env | xargs) && export NODE_ROUTER_FOLLOW=$$ROUTER_KEY_ID && pnpm --filter @fed-ai/node dev",
       ]
     volumes:
       - keys:/keys:ro
@@ -93,6 +136,8 @@ services:
     depends_on:
       keys:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       ln-adapter:
         condition: service_started
       router:
@@ -106,11 +151,12 @@ services:
       NODE_RUNNER: cpu
       NODE_MODEL_ID: cpu-stats
       ROUTER_ENDPOINT: http://router:8080
+      NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
     entrypoint:
       [
         "sh",
         "-c",
-        "export $$(cat /keys/keys.env | xargs) && export NODE_KEY_ID=$$NODE2_KEY_ID NODE_PRIVATE_KEY_PEM=$$NODE2_PRIVATE_KEY_PEM && pnpm --filter @fed-ai/node dev",
+        "export $$(cat /keys/keys.env | xargs) && export NODE_KEY_ID=$$NODE2_KEY_ID NODE_PRIVATE_KEY_PEM=$$NODE2_PRIVATE_KEY_PEM NODE_ROUTER_FOLLOW=$$ROUTER_KEY_ID && pnpm --filter @fed-ai/node dev",
       ]
     volumes:
       - keys:/keys:ro
@@ -140,12 +186,24 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
+      - keys:/keys:ro
     environment:
       ROUTER_URL: http://router:8080
       MODEL_ID: auto
       MAX_TOKENS: 128
       WALLET_SATS: 2500
       PORT: 3000
+      ROUTER_DB_URL: postgres://fedai:fedai@postgres:5432/fedai
+      ROUTER_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      ROUTER_FEDERATION_ENABLED: "true"
+      ROUTER_FEDERATION_RATE_LIMIT_MAX: "60"
+      ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS: "10000"
+      ROUTER_FEDERATION_NOSTR: "true"
+      ROUTER_FEDERATION_NOSTR_RELAYS: "wss://relay.damus.io,wss://relay.snort.social"
+      ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS: "1000"
+      ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS: "30000"
+      NODE_ROUTER_FOLLOW: "ROUTER_KEY_ID"
     command: ["node", "server.js"]
     depends_on:
       router:
@@ -157,16 +215,4 @@ services:
 
 volumes:
   keys:
-  ln-adapter:
-    image: node:20-bookworm-slim
-    working_dir: /app
-    volumes:
-      - ../../tools/ln-adapter:/app
-    environment:
-      LN_ADAPTER_PORT: 4000
-      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-lnbits}
-      LNBITS_URL: ${LNBITS_URL}
-      LNBITS_API_KEY: ${LNBITS_API_KEY}
-      LND_REST_URL: ${LND_REST_URL}
-      LND_MACAROON_HEX: ${LND_MACAROON_HEX}
-    command: ["node", "server.js"]
+  pgdata:

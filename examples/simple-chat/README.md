@@ -1,6 +1,6 @@
 # Simple Chat Example
 
-This example spins up a tiny web chat client, a router, two nodes (LLM + CPU-only), a Lightning adapter, and a llama.cpp-backed tiny LLM inside Docker. It also exercises the Lightning payment flow.
+This example spins up a tiny web chat client, a router, two nodes (LLM + CPU-only), a Lightning adapter, Postgres for router/nonce storage, and a llama.cpp-backed tiny LLM inside Docker. It also exercises the Lightning payment flow.
 
 ## Prereqs
 
@@ -34,11 +34,13 @@ docker compose down -v
 Open `http://localhost:3000` and send a prompt.
 The router will auto-select between the LLM node and the CPU-only node.
 Use the Router and Node tabs to view a lightweight status dashboard.
+The Router tab also shows federation/Nostr settings and relay backoff configured by the compose stack.
 
 Ports:
 - Router: `http://localhost:18080`
 - llama.cpp: `http://localhost:18085`
 - Lightning adapter: `http://localhost:4000`
+- Postgres: internal only (`postgres:5432`)
 
 ## Lightning adapter configuration
 
@@ -66,3 +68,5 @@ export LND_MACAROON_HEX=your_hex_macaroon
 - The server issues a mock payment receipt against the router's payment request, then retries the inference call.
 - A mock wallet balance is displayed in the UI and decremented after each payment.
 - Adjust `MAX_TOKENS`, `MODEL_ID`, `WALLET_SATS`, or `PORT` for the chat server with env vars in `docker-compose.yml`.
+- Postgres stores router state and replay nonces for the example; delete the `pgdata` volume to reset the database.
+- Update `ROUTER_FEDERATION_NOSTR_RELAYS` in `docker-compose.yml` if you want to point at different relays.

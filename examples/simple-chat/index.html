@@ -44,6 +44,24 @@
               <span id="router-total">0</span> total
             </p>
           </div>
+          <div class="card">
+            <h3>Federation</h3>
+            <p>Enabled: <span id="router-federation-enabled">--</span></p>
+            <p>Rate limit: <span id="router-federation-rate">--</span></p>
+          </div>
+          <div class="card">
+            <h3>Nostr</h3>
+            <p>Enabled: <span id="router-nostr-enabled">--</span></p>
+            <p>Relays: <span id="router-nostr-relays">--</span></p>
+            <p>Follow: <span id="router-nostr-follow">--</span></p>
+            <p>Mute: <span id="router-nostr-mute">--</span></p>
+            <p>Block: <span id="router-nostr-block">--</span></p>
+            <p>Retry: <span id="router-nostr-retry">--</span></p>
+          </div>
+          <div class="card">
+            <h3>Postgres</h3>
+            <p>Status: <span id="router-postgres">--</span></p>
+          </div>
         </div>
         <div id="router-nodes" class="node-list"></div>
       </section>
@@ -52,6 +70,16 @@
           <div class="card">
             <h3>Node overview</h3>
             <p id="node-summary">Checking...</p>
+          </div>
+          <div class="card">
+            <h3>Router policy</h3>
+            <p>Follow: <span id="node-follow">--</span></p>
+            <p>Mute: <span id="node-mute">--</span></p>
+            <p>Block: <span id="node-block">--</span></p>
+          </div>
+          <div class="card">
+            <h3>Postgres</h3>
+            <p>Status: <span id="node-postgres">--</span></p>
           </div>
         </div>
         <div id="node-list" class="node-list"></div>

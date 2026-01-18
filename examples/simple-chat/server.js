@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const http = require('node:http');
 const { readFile } = require('node:fs/promises');
+const { readFileSync } = require('node:fs');
 const { randomUUID, generateKeyPairSync, sign } = require('node:crypto');
 const path = require('node:path');
 
@@ -9,8 +10,10 @@ const defaultModelId = process.env.MODEL_ID ?? 'auto';
 const maxTokens = Number(process.env.MAX_TOKENS ?? 128);
 const port = Number(process.env.PORT ?? 3000);
 const initialWalletSats = Number(process.env.WALLET_SATS ?? 2500);
+const keysEnvPath = process.env.KEYS_ENV_PATH ?? '/keys/keys.env';
 
 let walletBalanceSats = Number.isFinite(initialWalletSats) ? initialWalletSats : 0;
+let cachedKeys = {};
 
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
@@ -53,6 +56,23 @@ const signEnvelope = (payload, keyId, privateKey) => {
   return envelope;
 };
 
+const loadKeysEnv = () => {
+  try {
+    const raw = readFileSync(keysEnvPath, 'utf8');
+    const entries = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+    cachedKeys = entries.reduce((acc, line) => {
+      const [key, ...rest] = line.split('=');
+      if (!key || rest.length === 0) return acc;
+      acc[key] = rest.join('=');
+      return acc;
+    }, {});
+  } catch {
+    cachedKeys = {};
+  }
+};
+
+loadKeysEnv();
+
 const clientKeys = generateKeyPairSync('ed25519');
 const clientKeyId = exportPublicKeyHex(clientKeys.publicKey);
 
@@ -80,6 +100,66 @@ const fetchJson = async (url) => {
   return response.json();
 };
 
+const splitList = (value) => {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const normalizeRouterList = (value, routerKeyId) => {
+  if (!value || value === 'ROUTER_KEY_ID') {
+    return routerKeyId ? [routerKeyId] : [];
+  }
+  return splitList(value);
+};
+
+const readConfig = () => {
+  const routerKeyId = cachedKeys.ROUTER_KEY_ID;
+  const nodeKeyId = cachedKeys.NODE_KEY_ID;
+  const node2KeyId = cachedKeys.NODE2_KEY_ID;
+
+  return {
+    router: {
+      keyId: routerKeyId ?? null,
+      postgres: Boolean(process.env.ROUTER_DB_URL || process.env.ROUTER_NONCE_STORE_URL),
+      federation: {
+        enabled: process.env.ROUTER_FEDERATION_ENABLED === 'true',
+        rateLimitMax: Number(process.env.ROUTER_FEDERATION_RATE_LIMIT_MAX ?? 0) || 0,
+        rateLimitWindowMs: Number(process.env.ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS ?? 0) || 0,
+        nostr: {
+        enabled: process.env.ROUTER_FEDERATION_NOSTR === 'true',
+        relays: splitList(process.env.ROUTER_FEDERATION_NOSTR_RELAYS),
+        follow: normalizeRouterList(process.env.ROUTER_FEDERATION_NOSTR_FOLLOW, routerKeyId),
+        mute: splitList(process.env.ROUTER_FEDERATION_NOSTR_MUTE),
+        block: splitList(process.env.ROUTER_FEDERATION_NOSTR_BLOCK),
+        retryMinMs: Number(process.env.ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS ?? 0) || 0,
+        retryMaxMs: Number(process.env.ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS ?? 0) || 0,
+      },
+      },
+    },
+    nodes: [
+      {
+        nodeId: 'node-llm',
+        keyId: nodeKeyId ?? null,
+        routerFollow: normalizeRouterList(process.env.NODE_ROUTER_FOLLOW, routerKeyId),
+        routerMute: splitList(process.env.NODE_ROUTER_MUTE),
+        routerBlock: splitList(process.env.NODE_ROUTER_BLOCK),
+        postgresNonce: Boolean(process.env.NODE_NONCE_STORE_URL),
+      },
+      {
+        nodeId: 'node-cpu',
+        keyId: node2KeyId ?? null,
+        routerFollow: normalizeRouterList(process.env.NODE_ROUTER_FOLLOW, routerKeyId),
+        routerMute: splitList(process.env.NODE_ROUTER_MUTE),
+        routerBlock: splitList(process.env.NODE_ROUTER_BLOCK),
+        postgresNonce: Boolean(process.env.NODE_NONCE_STORE_URL),
+      },
+    ],
+  };
+};
+
 const issuePaymentReceipt = (payment, clientKeyId, clientPrivateKey) => {
   const receipt = {
     requestId: payment.requestId,
@@ -105,6 +185,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/wallet') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ sats: walletBalanceSats }));
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/api/config') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(readConfig()));
     return;
   }
   if (req.method === 'GET' && req.url === '/api/router') {
