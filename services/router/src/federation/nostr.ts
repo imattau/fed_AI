@@ -1,5 +1,5 @@
 import type { Event as NostrEvent, Filter } from 'nostr-tools';
-import { SimplePool, useWebSocketImplementation } from 'nostr-tools';
+import { SimplePool } from 'nostr-tools';
 import WebSocket from 'ws';
 import {
   buildRouterControlEvent,
@@ -29,7 +29,10 @@ import { canBidForRfb, estimateBidPrice } from './logic';
 import type { FederationRateLimiter } from './rate-limit';
 import { createFederationRelayManager } from './relay-manager';
 
-useWebSocketImplementation(WebSocket);
+const globalSocket = globalThis as typeof globalThis & { WebSocket?: typeof WebSocket };
+if (!globalSocket.WebSocket) {
+  globalSocket.WebSocket = WebSocket;
+}
 
 export type FederationNostrRuntime = {
   pool: SimplePool;
