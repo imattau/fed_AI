@@ -2212,7 +2212,7 @@ export const createRouterHttpServer = (
             const nodeAmountSats = Math.max(1, Math.round(nodeTotal));
             const routerFeeSats = computeRouterFeeSats(nodeAmountSats, config);
             const totalAmountSats = nodeAmountSats + routerFeeSats;
-            const splits =
+            const splits: PaymentSplit[] | undefined =
               routerFeeSats > 0
                 ? [
                     {
