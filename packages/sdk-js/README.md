@@ -11,6 +11,8 @@ const client = new FedAiClient({
   routerUrl: 'http://localhost:8080',
   keyId: '<client-pubkey>',
   privateKey: '<client-private-key-hex-or-pem>',
+  routerPublicKey: '<router-npub>',
+  verifyResponses: true,
 });
 
 const quote = await client.quote({
@@ -53,5 +55,11 @@ try {
 ## Features
 
 - Signing and encoding envelopes for quotes, inference requests, and receipts.
+- Optional response validation + signature verification when `routerPublicKey` is provided.
 - Automatic parsing of router payment requirements via `PaymentRequiredError`.
 - Helper to turn `PaymentRequest` envelopes into signed `PaymentReceipt`s.
+
+## Browser note
+
+The SDK uses `globalThis.crypto.randomUUID()` when available. Provide a secure RNG in older
+browser environments.

@@ -27,7 +27,8 @@ const startRouterStub = async () => {
     }
     const body = Buffer.concat(chunks).toString('utf8');
     if (req.url === '/quote') {
-      const request: QuoteRequest = JSON.parse(body);
+      const envelope = JSON.parse(body) as { payload: QuoteRequest };
+      const request = envelope.payload;
       const response = signEnvelope(
         buildEnvelope(
           {
@@ -58,6 +59,10 @@ const startRouterStub = async () => {
           amountSats: 10,
           invoice: 'lnbc1',
           expiresAtMs: Date.now() + 60000,
+          splits: [
+            { payeeType: 'node', payeeId: 'node-1', amountSats: 9, role: 'node-inference' },
+            { payeeType: 'router', payeeId: 'router-1', amountSats: 1, role: 'router-fee' },
+          ],
         };
         const envelope = signEnvelope(
           buildEnvelope(payment, 'nonce-pay', Date.now(), routerKeyId),
@@ -116,6 +121,7 @@ const startRouterStub = async () => {
   return {
     server,
     baseUrl: `http://127.0.0.1:${address.port}`,
+    routerKeyId,
   };
 };
 
@@ -127,6 +133,8 @@ test('FedAiClient handles quotes and payments', async () => {
     routerUrl: router.baseUrl,
     keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
     privateKey: exportPrivateKeyHex(clientPrivate),
+    routerPublicKey: router.routerKeyId,
+    verifyResponses: true,
   });
 
   const quoteEnvelope = await client.quote({
@@ -149,6 +157,7 @@ test('FedAiClient handles quotes and payments', async () => {
   } catch (error) {
     assert.ok(error instanceof PaymentRequiredError);
     const receipt = client.createPaymentReceipt(error.paymentRequest);
+    assert.deepEqual(receipt.payload.splits, error.paymentRequest.payload.splits);
     await client.sendPaymentReceipt(receipt);
     const result = await client.infer({
       requestId: 'req-pay',
