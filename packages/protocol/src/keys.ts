@@ -29,8 +29,11 @@ const decodeNip19Key = (value: string, expected: 'npub' | 'nsec'): string => {
   if (decoded.type !== expected) {
     throw new Error(`Expected ${expected} key, received ${decoded.type}`);
   }
-  const bytes = decoded.data as Uint8Array;
-  return Buffer.from(bytes).toString('hex');
+  const data = decoded.data as Uint8Array | string;
+  if (typeof data === 'string') {
+    return data;
+  }
+  return Buffer.from(data).toString('hex');
 };
 
 export const decodeNpubToHex = (value: string): string => decodeNip19Key(value, 'npub');
