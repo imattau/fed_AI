@@ -15,6 +15,7 @@ const buildKeys = () => {
 const router = buildKeys();
 const nodeKey = buildKeys();
 const nodeCpuKey = buildKeys();
+const nodeGrokKey = buildKeys();
 
 const lines = [
   `ROUTER_KEY_ID=${router.npub}`,
@@ -24,6 +25,8 @@ const lines = [
   `NODE_PRIVATE_KEY_PEM=${nodeKey.nsec}`,
   `NODE2_KEY_ID=${nodeCpuKey.npub}`,
   `NODE2_PRIVATE_KEY_PEM=${nodeCpuKey.nsec}`,
+  `NODE3_KEY_ID=${nodeGrokKey.npub}`,
+  `NODE3_PRIVATE_KEY_PEM=${nodeGrokKey.nsec}`,
 ];
 
 fs.mkdirSync(require('node:path').dirname(outputPath), { recursive: true });

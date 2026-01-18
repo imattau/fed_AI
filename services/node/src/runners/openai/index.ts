@@ -48,15 +48,15 @@ export class OpenAiRunner implements Runner {
     return `${this.baseUrl}${path}`;
   }
 
-  private buildHeaders(extra?: HeadersInit): HeadersInit {
+  private buildHeaders(extra?: HeadersInit, apiKey?: string): HeadersInit {
     return {
       'content-type': 'application/json',
-      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
       ...(extra ?? {}),
     };
   }
 
-  private async fetchJson<T>(path: string, init: RequestInit): Promise<T> {
+  private async fetchJson<T>(path: string, init: RequestInit, apiKey?: string): Promise<T> {
     const controller = this.timeoutMs ? new AbortController() : null;
     const timeout = this.timeoutMs
       ? setTimeout(() => controller?.abort(), this.timeoutMs)
@@ -64,7 +64,7 @@ export class OpenAiRunner implements Runner {
     const response = await fetch(this.buildUrl(path), {
       ...init,
       signal: controller?.signal,
-      headers: this.buildHeaders(init.headers),
+      headers: this.buildHeaders(init.headers, apiKey ?? this.apiKey),
     }).finally(() => {
       if (timeout) {
         clearTimeout(timeout);
@@ -99,6 +99,9 @@ export class OpenAiRunner implements Runner {
   }
 
   async infer(request: InferenceRequest): Promise<InferenceResponse> {
+    const metadataKey =
+      typeof request.metadata?.apiKey === 'string' ? request.metadata.apiKey : undefined;
+    const apiKey = metadataKey ?? this.apiKey;
     if (this.mode === 'completion') {
       const payload = await this.fetchJson<OpenAiCompletionResponse>('/v1/completions', {
         method: 'POST',
@@ -109,7 +112,7 @@ export class OpenAiRunner implements Runner {
           temperature: request.temperature ?? 0.7,
           top_p: request.topP ?? 0.95,
         }),
-      });
+      }, apiKey);
 
       const output = payload.choices?.[0]?.text ?? '';
       return {
@@ -133,7 +136,7 @@ export class OpenAiRunner implements Runner {
         temperature: request.temperature ?? 0.7,
         top_p: request.topP ?? 0.95,
       }),
-    });
+    }, apiKey);
 
     const output = payload.choices?.[0]?.message?.content ?? '';
     return {

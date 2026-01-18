@@ -171,6 +171,40 @@ services:
     volumes:
       - keys:/keys:ro
 
+  node_grok:
+    build:
+      context: ../..
+      dockerfile: services/node/Dockerfile
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      ln-adapter:
+        condition: service_started
+      router:
+        condition: service_started
+    environment:
+      NODE_ID: node-grok
+      NODE_ENDPOINT: http://node-grok:8083
+      NODE_PORT: 8083
+      NODE_REQUIRE_PAYMENT: "true"
+      NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
+      NODE_RUNNER: openai
+      NODE_OPENAI_URL: https://api.x.ai
+      NODE_OPENAI_MODEL: openai/gpt-oss-120b
+      NODE_MODEL_ID: openai/gpt-oss-120b
+      ROUTER_ENDPOINT: http://router:8080
+      NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "export $$(cat /keys/keys.env | xargs) && export NODE_KEY_ID=$$NODE3_KEY_ID NODE_PRIVATE_KEY_PEM=$$NODE3_PRIVATE_KEY_PEM NODE_ROUTER_FOLLOW=$$ROUTER_KEY_ID && pnpm --filter @fed-ai/node dev",
+      ]
+    volumes:
+      - keys:/keys:ro
+
   llama:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
     working_dir: /app

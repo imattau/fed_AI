@@ -118,6 +118,94 @@ header .wallet {
   gap: 12px;
 }
 
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.model-row label {
+  font-weight: 600;
+  color: #2a3146;
+}
+
+.model-row select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #d6d9e4;
+  background: #fff;
+}
+
+.status-pill {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f5e9ff;
+  color: #4b1a7a;
+}
+
+.status-pill.ok {
+  background: #e6f7ed;
+  color: #0f5132;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 32, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(20, 26, 40, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-card input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d6d9e4;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-actions button {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+}
+
+.modal-actions button#grok-cancel {
+  background: #e9ecf6;
+  color: #2a3146;
+}
+
+.modal-actions button#grok-save {
+  background: #111827;
+  color: #fff;
+}
+
 .composer input {
   flex: 1;
   padding: 12px 14px;

@@ -22,6 +22,12 @@ const nodeFollow = document.getElementById('node-follow');
 const nodeMute = document.getElementById('node-mute');
 const nodeBlock = document.getElementById('node-block');
 const nodePostgres = document.getElementById('node-postgres');
+const modelSelect = document.getElementById('model-select');
+const grokModal = document.getElementById('grok-modal');
+const grokApiKeyInput = document.getElementById('grok-api-key');
+const grokCancel = document.getElementById('grok-cancel');
+const grokSave = document.getElementById('grok-save');
+const grokKeyStatus = document.getElementById('grok-key-status');
 const tabButtons = document.querySelectorAll('[data-tab]');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
@@ -52,7 +58,70 @@ const refreshWallet = async () => {
   }
 };
 
+let selectedModel = 'auto';
+let grokApiKey = '';
+let previousModel = 'auto';
+
+const updateGrokStatus = () => {
+  if (!grokKeyStatus) return;
+  if (grokApiKey) {
+    grokKeyStatus.textContent = 'Grok key: set';
+    grokKeyStatus.classList.add('ok');
+  } else {
+    grokKeyStatus.textContent = 'Grok key: not set';
+    grokKeyStatus.classList.remove('ok');
+  }
+};
+
+const openGrokModal = () => {
+  if (!grokModal) return;
+  grokModal.classList.remove('hidden');
+  if (grokApiKeyInput) {
+    grokApiKeyInput.value = grokApiKey;
+    grokApiKeyInput.focus();
+  }
+};
+
+const closeGrokModal = () => {
+  if (!grokModal) return;
+  grokModal.classList.add('hidden');
+};
+
+if (modelSelect) {
+  modelSelect.addEventListener('change', () => {
+    const value = modelSelect.value;
+    if (value === 'openai/gpt-oss-120b') {
+      previousModel = selectedModel;
+      selectedModel = value;
+      if (!grokApiKey) {
+        openGrokModal();
+      }
+      return;
+    }
+    selectedModel = value;
+  });
+}
+
+if (grokCancel) {
+  grokCancel.addEventListener('click', () => {
+    closeGrokModal();
+    selectedModel = previousModel;
+    if (modelSelect) {
+      modelSelect.value = selectedModel;
+    }
+  });
+}
+
+if (grokSave) {
+  grokSave.addEventListener('click', () => {
+    grokApiKey = grokApiKeyInput ? grokApiKeyInput.value.trim() : '';
+    updateGrokStatus();
+    closeGrokModal();
+  });
+}
+
 void refreshWallet();
+updateGrokStatus();
 
 const setTab = (tabId) => {
   tabButtons.forEach((button) => {
@@ -232,10 +301,19 @@ form.addEventListener('submit', async (event) => {
   status.textContent = 'Thinking...';
 
   try {
+    if (selectedModel === 'openai/gpt-oss-120b' && !grokApiKey) {
+      openGrokModal();
+      status.textContent = 'Grok key required';
+      return;
+    }
     const response = await fetch('/api/infer', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({
+        prompt,
+        modelId: selectedModel,
+        apiKey: selectedModel === 'openai/gpt-oss-120b' ? grokApiKey : undefined,
+      }),
     });
     if (!response.ok) {
       const detail = await response.text();

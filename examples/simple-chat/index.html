@@ -22,6 +22,15 @@
         <button class="tab-button" data-tab="node">Node</button>
       </nav>
       <section id="tab-client" class="tab-panel active">
+        <div class="model-row">
+          <label for="model-select">Target</label>
+          <select id="model-select">
+            <option value="auto">Auto (router decides)</option>
+            <option value="tinyllama">TinyLlama (local)</option>
+            <option value="openai/gpt-oss-120b">Grok (xAI)</option>
+          </select>
+          <span id="grok-key-status" class="status-pill">Grok key: not set</span>
+        </div>
         <section id="chat" class="chat"></section>
         <form id="chat-form" class="composer">
           <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
@@ -85,6 +94,17 @@
         <div id="node-list" class="node-list"></div>
       </section>
     </main>
+    <div id="grok-modal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Enter Grok API key</h3>
+        <p>Your key is used for this browser session only and is not stored.</p>
+        <input id="grok-api-key" type="password" placeholder="xAI API key" />
+        <div class="modal-actions">
+          <button id="grok-cancel" type="button">Cancel</button>
+          <button id="grok-save" type="button">Save</button>
+        </div>
+      </div>
+    </div>
     <script src="/app.js"></script>
   </body>
 </html>

@@ -113,6 +113,7 @@ const readConfig = () => {
   const routerKeyId = cachedKeys.ROUTER_KEY_ID;
   const nodeKeyId = cachedKeys.NODE_KEY_ID;
   const node2KeyId = cachedKeys.NODE2_KEY_ID;
+  const node3KeyId = cachedKeys.NODE3_KEY_ID;
 
   return {
     router: {
@@ -145,6 +146,14 @@ const readConfig = () => {
       {
         nodeId: 'node-cpu',
         keyId: node2KeyId ?? null,
+        routerFollow: normalizeRouterList(process.env.NODE_ROUTER_FOLLOW, routerKeyId),
+        routerMute: splitList(process.env.NODE_ROUTER_MUTE),
+        routerBlock: splitList(process.env.NODE_ROUTER_BLOCK),
+        postgresNonce: Boolean(process.env.NODE_NONCE_STORE_URL),
+      },
+      {
+        nodeId: 'node-grok',
+        keyId: node3KeyId ?? null,
         routerFollow: normalizeRouterList(process.env.NODE_ROUTER_FOLLOW, routerKeyId),
         routerMute: splitList(process.env.NODE_ROUTER_MUTE),
         routerBlock: splitList(process.env.NODE_ROUTER_BLOCK),
@@ -241,6 +250,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const prompt = String(parsed.prompt ?? '');
+    const requestedModelId = typeof parsed.modelId === 'string' ? parsed.modelId : '';
+    const apiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
     if (!prompt) {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'missing-prompt' }));
@@ -249,9 +260,10 @@ const server = http.createServer(async (req, res) => {
 
     const request = {
       requestId: randomUUID(),
-      modelId: defaultModelId,
+      modelId: requestedModelId && requestedModelId !== 'auto' ? requestedModelId : defaultModelId,
       prompt,
       maxTokens,
+      metadata: apiKey ? { apiKey } : undefined,
     };
     const envelope = signEnvelope(request, clientKeyId, clientSecret);
 
