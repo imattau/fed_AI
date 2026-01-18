@@ -9,7 +9,7 @@ services:
       [
         "sh",
         "-c",
-        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 >/dev/null 2>&1 && node /scripts/gen-keys.js /keys/keys.env",
+        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 >/dev/null 2>&1 && NODE_PATH=/tmp/node_modules node /scripts/gen-keys.js /keys/keys.env",
       ]
 
   model:
