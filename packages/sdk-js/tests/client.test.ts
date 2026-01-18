@@ -171,3 +171,64 @@ test('FedAiClient handles quotes and payments', async () => {
     await new Promise<void>((resolve) => router.server.close(() => resolve()));
   }
 });
+
+test('FedAiClient rejects mismatched key id and private key', async () => {
+  const privateKey = generateSecretKey();
+  const otherPrivate = generateSecretKey();
+  assert.throws(
+    () =>
+      new FedAiClient({
+        routerUrl: 'http://127.0.0.1:1',
+        keyId: exportPublicKeyNpub(Buffer.from(getPublicKey(otherPrivate), 'hex')),
+        privateKey: exportPrivateKeyHex(privateKey),
+      }),
+    { message: 'key-id-mismatch' },
+  );
+});
+
+test('FedAiClient surfaces payment receipt rejection details', async () => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/payment-receipt') {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid-signature' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
+  const client = new FedAiClient({
+    routerUrl: baseUrl,
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    privateKey: exportPrivateKeyHex(clientPrivate),
+  });
+
+  try {
+    const paymentRequest = buildEnvelope(
+      {
+        requestId: 'req-1',
+        payeeType: 'node',
+        payeeId: 'node-1',
+        amountSats: 10,
+        invoice: 'lnbc1',
+        expiresAtMs: Date.now() + 1000,
+      },
+      'nonce-pay',
+      Date.now(),
+      exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    );
+    const receipt = client.createPaymentReceipt(paymentRequest);
+
+    await assert.rejects(
+      () => client.sendPaymentReceipt(receipt),
+      { message: /invalid-signature/ },
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
