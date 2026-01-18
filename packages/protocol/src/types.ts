@@ -8,6 +8,13 @@ export type Envelope<T> = {
 
 export type PayeeType = 'node' | 'router';
 
+export type PaymentSplit = {
+  payeeType: PayeeType;
+  payeeId: string;
+  amountSats: number;
+  role?: 'node-inference' | 'router-fee' | 'other';
+};
+
 export type Capability = {
   modelId: string;
   contextWindow: number;
@@ -77,6 +84,7 @@ export type PaymentRequest = {
   invoice: string;
   expiresAtMs: number;
   paymentHash?: string;
+  splits?: PaymentSplit[];
   metadata?: Record<string, string>;
 };
 
@@ -89,6 +97,7 @@ export type PaymentReceipt = {
   paymentHash?: string;
   preimage?: string;
   invoice?: string;
+  splits?: PaymentSplit[];
 };
 
 export type InferenceRequest = {

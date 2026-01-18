@@ -12,6 +12,7 @@ Provide a minimum observability baseline for router and node services.
 - `router_inference_duration_seconds` histogram
 - `router_payment_requests_total`
 - `router_payment_receipt_failures_total`
+- `router_payment_reconciliation_failures_total`
 - `router_node_failures_total`
 - `router_accounting_failures_total`
 - `router_federation_messages_total`

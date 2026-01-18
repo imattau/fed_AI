@@ -162,6 +162,7 @@ const issuePaymentReceipt = (payment, clientKeyId, clientPrivateKey) => {
     amountSats: payment.amountSats,
     paidAtMs: Date.now(),
     invoice: payment.invoice,
+    splits: payment.splits,
   };
   return signEnvelope(receipt, clientKeyId, clientPrivateKey);
 };
@@ -280,7 +281,6 @@ const server = http.createServer(async (req, res) => {
         );
         return;
       }
-      walletBalanceSats -= payment.amountSats;
 
       const receiptResponse = await postJson(
         `${routerUrl}/payment-receipt`,
@@ -292,11 +292,13 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'payment-receipt-rejected', details: errorText }));
         return;
       }
+      walletBalanceSats -= payment.amountSats;
 
       const retryEnvelope = signEnvelope(request, clientKeyId, clientSecret);
       const retryResponse = await postJson(`${routerUrl}/infer`, retryEnvelope);
       if (!retryResponse.ok) {
         const errorText = await retryResponse.text();
+        walletBalanceSats += payment.amountSats;
         res.writeHead(retryResponse.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'router-error', details: errorText }));
         return;

@@ -30,6 +30,7 @@ import type {
   NodeBidPayload,
   NodeOffloadRequest,
   NodeRfbPayload,
+  PaymentSplit,
   PaymentReceipt,
 } from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
@@ -77,6 +78,16 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
+};
+
+const sumSplits = (splits?: PaymentSplit[]): number => {
+  return (splits ?? []).reduce((sum, split) => sum + split.amountSats, 0);
+};
+
+const routerFeeFromSplits = (splits?: PaymentSplit[]): number => {
+  return (splits ?? [])
+    .filter((split) => split.payeeType === 'router')
+    .reduce((sum, split) => sum + split.amountSats, 0);
 };
 
 const hashPrompt = (prompt: string): string => {
@@ -548,6 +559,28 @@ export const createNodeHttpServer = (
           if (receipt.payload.requestId !== envelope.payload.requestId) {
             nodeReceiptFailures.inc();
             return respond(400, { error: 'payment-request-mismatch' });
+          }
+          if (receipt.payload.splits && receipt.payload.splits.length > 0) {
+            const splitTotal = sumSplits(receipt.payload.splits);
+            if (splitTotal !== receipt.payload.amountSats) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'payment-split-total-mismatch' });
+            }
+            const routerFeeSats = routerFeeFromSplits(receipt.payload.splits);
+            if (
+              config.routerFeeMaxSats !== undefined &&
+              routerFeeSats > config.routerFeeMaxSats
+            ) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'router-fee-exceeds-cap' });
+            }
+            if (
+              config.routerFeeMaxBps !== undefined &&
+              routerFeeSats > Math.floor((receipt.payload.amountSats * config.routerFeeMaxBps) / 10_000)
+            ) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'router-fee-exceeds-cap' });
+            }
           }
 
           const clientKey = parsePublicKey(receipt.keyId);

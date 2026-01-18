@@ -9,6 +9,14 @@ export type RouterConfig = {
   maxRequestBytes?: number;
   paymentRequestRetentionMs?: number;
   paymentReceiptRetentionMs?: number;
+  paymentReconcileIntervalMs?: number;
+  paymentReconcileGraceMs?: number;
+  routerFeeEnabled?: boolean;
+  routerFeeSplitEnabled?: boolean;
+  routerFeeBps?: number;
+  routerFeeFlatSats?: number;
+  routerFeeMinSats?: number;
+  routerFeeMaxSats?: number;
   federationJobRetentionMs?: number;
   nodeHealthRetentionMs?: number;
   nodeCooldownRetentionMs?: number;
@@ -42,11 +50,18 @@ export type PaymentVerificationConfig = {
   url: string;
   timeoutMs?: number;
   requirePreimage?: boolean;
+  retryMaxAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
 };
 
 export type PaymentInvoiceConfig = {
   url: string;
   timeoutMs?: number;
+  retryMaxAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
+  idempotencyHeader?: string;
 };
 
 export type RouterDbConfig = {
@@ -74,6 +89,14 @@ export const defaultRouterConfig: RouterConfig = {
   maxRequestBytes: undefined,
   paymentRequestRetentionMs: 10 * 60 * 1000,
   paymentReceiptRetentionMs: 60 * 60 * 1000,
+  paymentReconcileIntervalMs: 60_000,
+  paymentReconcileGraceMs: 15_000,
+  routerFeeEnabled: false,
+  routerFeeSplitEnabled: true,
+  routerFeeBps: 0,
+  routerFeeFlatSats: 0,
+  routerFeeMinSats: 0,
+  routerFeeMaxSats: undefined,
   federationJobRetentionMs: 10 * 60 * 1000,
   nodeHealthRetentionMs: 60 * 60 * 1000,
   nodeCooldownRetentionMs: 10 * 60 * 1000,

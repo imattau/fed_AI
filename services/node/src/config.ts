@@ -38,6 +38,8 @@ export type NodeConfig = {
   nonceStoreUrl?: string;
   tls?: NodeTlsConfig;
   paymentVerification?: PaymentVerificationConfig;
+  routerFeeMaxBps?: number;
+  routerFeeMaxSats?: number;
   capabilityJobTypes?: RouterJobType[];
   capabilityLatencyMs?: number;
 };
@@ -53,6 +55,9 @@ export type PaymentVerificationConfig = {
   url: string;
   timeoutMs?: number;
   requirePreimage?: boolean;
+  retryMaxAttempts?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
 };
 
 export const defaultNodeConfig: NodeConfig = {
@@ -89,6 +94,8 @@ export const defaultNodeConfig: NodeConfig = {
   offloadAuctionRateLimit: 30,
   tls: undefined,
   paymentVerification: undefined,
+  routerFeeMaxBps: 1000,
+  routerFeeMaxSats: 1000,
   capabilityJobTypes: undefined,
   capabilityLatencyMs: undefined,
 };

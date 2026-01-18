@@ -55,11 +55,16 @@ Phase 7 - Optional extensions
 
 ## Active tasks
 
-- [ ] Phase PR-1: authZ policy modules and ingress rate limits (in progress).
+- [x] Phase PR-1: authZ policy modules and ingress rate limits.
   - [x] Add authZ policy helpers for router/node ingress.
   - [x] Add ingress rate limiting for router/node endpoints.
   - [x] Add key rotation steps to router/node runbooks.
   - [x] Map threat-model mitigations to code references.
+- [x] Phase PR-2: payments and settlement hardening.
+  - [x] Add retries + idempotency for Lightning invoice creation.
+  - [x] Add retries for payment verification checks.
+  - [x] Add reconciliation alerts for missing/expired receipts.
+  - [x] Add settlement verification tests to CI.
 - [x] First real runner adapter (HTTP-backed).
 - [x] Plug the discovered relay list into manifest publication/advertisement flows to help routers/nodes publish to peers.
 - [x] Production hardening: settlement verification and state storage.

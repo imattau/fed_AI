@@ -1,5 +1,6 @@
 import type { PaymentReceipt } from '@fed-ai/protocol';
 import type { PaymentVerificationConfig } from '../config';
+import { withRetry } from './retry';
 
 type VerifyResponse = {
   paid: boolean;
@@ -32,31 +33,35 @@ export const verifyPaymentReceipt = async (
     return { ok: false, error: 'payment-proof-missing' };
   }
 
-  const controller = config.timeoutMs ? new AbortController() : null;
-  const timeout = config.timeoutMs
-    ? setTimeout(() => controller?.abort(), config.timeoutMs)
-    : null;
-
   try {
-    const response = await fetch(config.url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(buildPayload(receipt)),
-      signal: controller?.signal,
-    });
-    if (!response.ok) {
-      return { ok: false, error: 'payment-verify-failed' };
-    }
-    const payload = (await response.json()) as VerifyResponse;
+    const payload = await withRetry(async () => {
+      const controller = config.timeoutMs ? new AbortController() : null;
+      const timeout = config.timeoutMs
+        ? setTimeout(() => controller?.abort(), config.timeoutMs)
+        : null;
+
+      try {
+        const response = await fetch(config.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(buildPayload(receipt)),
+          signal: controller?.signal,
+        });
+        if (!response.ok) {
+          throw new Error('payment-verify-failed');
+        }
+        return (await response.json()) as VerifyResponse;
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      }
+    }, config);
     if (!payload.paid) {
       return { ok: false, error: payload.detail ?? 'payment-unsettled' };
     }
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'payment-verify-error' };
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
   }
 };

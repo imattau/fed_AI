@@ -48,6 +48,7 @@ import type {
   NodeDescriptor,
   NodeOffloadRequest,
   PayeeType,
+  PaymentSplit,
   PaymentReceipt,
   PaymentRequest,
   QuoteRequest,
@@ -113,6 +114,50 @@ const RELAY_DISCOVERY_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const FEDERATION_AUCTION_EXPIRY_MS = 1500;
 const FEDERATION_JOB_RUNTIME_MS = 10_000;
 const FEDERATION_JOB_RETURN_PATH = '/federation/job-result';
+
+const computeRouterFeeSats = (amountSats: number, config: RouterConfig): number => {
+  if (!config.routerFeeEnabled || !config.routerFeeSplitEnabled) {
+    return 0;
+  }
+  const bps = Math.max(0, config.routerFeeBps ?? 0);
+  const flat = Math.max(0, config.routerFeeFlatSats ?? 0);
+  let fee = Math.round((amountSats * bps) / 10_000 + flat);
+  if (config.routerFeeMinSats !== undefined) {
+    fee = Math.max(config.routerFeeMinSats, fee);
+  }
+  if (config.routerFeeMaxSats !== undefined) {
+    fee = Math.min(config.routerFeeMaxSats, fee);
+  }
+  return Math.max(0, fee);
+};
+
+const normalizeSplits = (splits?: PaymentSplit[]): PaymentSplit[] => {
+  return (splits ?? []).slice().sort((a, b) => {
+    const keyA = `${a.payeeType}:${a.payeeId}:${a.amountSats}:${a.role ?? ''}`;
+    const keyB = `${b.payeeType}:${b.payeeId}:${b.amountSats}:${b.role ?? ''}`;
+    return keyA.localeCompare(keyB);
+  });
+};
+
+const splitsMatch = (expected?: PaymentSplit[], actual?: PaymentSplit[]): boolean => {
+  if (!expected || expected.length === 0) {
+    return !actual || actual.length === 0;
+  }
+  if (!actual || actual.length !== expected.length) {
+    return false;
+  }
+  const sortedExpected = normalizeSplits(expected);
+  const sortedActual = normalizeSplits(actual);
+  return sortedExpected.every((split, index) => {
+    const candidate = sortedActual[index];
+    return (
+      split.payeeType === candidate.payeeType &&
+      split.payeeId === candidate.payeeId &&
+      split.amountSats === candidate.amountSats &&
+      split.role === candidate.role
+    );
+  });
+};
 
 const getNodeHealth = (service: RouterService, nodeId: string) => {
   const existing = service.nodeHealth.get(nodeId);
@@ -1909,6 +1954,17 @@ export const createRouterHttpServer = (
           paymentReceiptFailures.inc();
           return respond(400, { error: 'payment-amount-mismatch' });
         }
+        if (!splitsMatch(expectedRequest.splits, envelope.payload.splits)) {
+          paymentReceiptFailures.inc();
+          return respond(400, { error: 'payment-split-mismatch' });
+        }
+        if (envelope.payload.splits && envelope.payload.splits.length > 0) {
+          const splitTotal = envelope.payload.splits.reduce((sum, split) => sum + split.amountSats, 0);
+          if (splitTotal !== envelope.payload.amountSats) {
+            paymentReceiptFailures.inc();
+            return respond(400, { error: 'payment-split-total-mismatch' });
+          }
+        }
 
         if (
           expectedRequest.invoice &&
@@ -2130,16 +2186,37 @@ export const createRouterHttpServer = (
             if (!config.paymentInvoice) {
               return respond(503, { error: 'invoice-provider-required' });
             }
-            const total =
+            const nodeTotal =
               selectedCapability.pricing.inputRate * envelope.payload.prompt.length +
               selectedCapability.pricing.outputRate * envelope.payload.maxTokens;
+            const nodeAmountSats = Math.max(1, Math.round(nodeTotal));
+            const routerFeeSats = computeRouterFeeSats(nodeAmountSats, config);
+            const totalAmountSats = nodeAmountSats + routerFeeSats;
+            const splits =
+              routerFeeSats > 0
+                ? [
+                    {
+                      payeeType: 'node',
+                      payeeId,
+                      amountSats: nodeAmountSats,
+                      role: 'node-inference',
+                    },
+                    {
+                      payeeType: 'router',
+                      payeeId: config.keyId,
+                      amountSats: routerFeeSats,
+                      role: 'router-fee',
+                    },
+                  ]
+                : undefined;
 
             const now = Date.now();
             const invoiceResult = await requestInvoice(
               {
                 requestId: envelope.payload.requestId,
                 payeeId,
-                amountSats: Math.max(1, Math.round(total)),
+                amountSats: totalAmountSats,
+                splits,
               },
               config.paymentInvoice,
             );
@@ -2157,12 +2234,15 @@ export const createRouterHttpServer = (
                     requestId: envelope.payload.requestId,
                     payeeType,
                     payeeId,
-                    amountSats: Math.max(1, Math.round(total)),
+                    amountSats: totalAmountSats,
                     invoice,
                     expiresAtMs,
                     paymentHash,
+                    splits,
                     metadata: {
                       currency: selectedCapability.pricing.currency,
+                      nodeAmountSats: nodeAmountSats.toString(),
+                      routerFeeSats: routerFeeSats.toString(),
                     },
                   };
 

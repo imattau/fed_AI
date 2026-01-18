@@ -26,10 +26,25 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
 - `ROUTER_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
 - `ROUTER_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
+- `ROUTER_LN_VERIFY_RETRY_MAX_ATTEMPTS`: max verification retries (default `1`).
+- `ROUTER_LN_VERIFY_RETRY_MIN_DELAY_MS`: minimum retry delay in ms.
+- `ROUTER_LN_VERIFY_RETRY_MAX_DELAY_MS`: maximum retry delay in ms.
 - `ROUTER_LN_INVOICE_URL`: HTTP endpoint to generate Lightning invoices.
 - `ROUTER_LN_INVOICE_TIMEOUT_MS`: invoice generation timeout in ms.
+- `ROUTER_LN_INVOICE_RETRY_MAX_ATTEMPTS`: max invoice retries (default `1`).
+- `ROUTER_LN_INVOICE_RETRY_MIN_DELAY_MS`: minimum retry delay in ms.
+- `ROUTER_LN_INVOICE_RETRY_MAX_DELAY_MS`: maximum retry delay in ms.
+- `ROUTER_LN_INVOICE_IDEMPOTENCY_HEADER`: idempotency header for invoice generation (default `Idempotency-Key`).
+- `ROUTER_FEE_ENABLED`: `true|false` to add router fees to payment requests.
+- `ROUTER_FEE_SPLIT`: `true|false` to include router fees as invoice splits.
+- `ROUTER_FEE_BPS`: basis points added to invoice as router fee.
+- `ROUTER_FEE_FLAT_SATS`: flat sats added to invoice as router fee.
+- `ROUTER_FEE_MIN_SATS`: minimum router fee in sats.
+- `ROUTER_FEE_MAX_SATS`: maximum router fee in sats.
 - `ROUTER_DB_URL`: Postgres connection string for router persistence.
 - `ROUTER_DB_SSL`: `true|false` to enable SSL for Postgres.
+- `ROUTER_PAYMENT_RECONCILE_INTERVAL_MS`: reconciliation interval (ms) for missing receipts.
+- `ROUTER_PAYMENT_RECONCILE_GRACE_MS`: grace window (ms) added to payment request expiry.
 - `ROUTER_NONCE_STORE_URL`: Postgres connection string for replay nonce storage.
 - `ROUTER_TLS_CERT_PATH`: TLS cert path for HTTPS.
 - `ROUTER_TLS_KEY_PATH`: TLS key path for HTTPS.
@@ -102,6 +117,7 @@ Key metrics:
 - `router_inference_duration_seconds`
 - `router_payment_requests_total`
 - `router_payment_receipt_failures_total`
+- `router_payment_reconciliation_failures_total`
 - `router_node_failures_total`
 - `router_accounting_failures_total`
 - `router_federation_relay_failures_total`

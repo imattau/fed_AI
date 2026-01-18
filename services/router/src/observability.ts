@@ -30,6 +30,13 @@ export const paymentReceiptFailures = new Counter({
   registers: [routerRegistry],
 });
 
+export const paymentReconciliationFailures = new Counter({
+  name: 'router_payment_reconciliation_failures_total',
+  help: 'Payment reconciliation anomalies detected by the router',
+  labelNames: ['scope', 'reason'],
+  registers: [routerRegistry],
+});
+
 export const routerTracer = trace.getTracer('router');
 
 export const nodeFailureEvents = new Counter({

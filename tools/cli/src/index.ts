@@ -426,6 +426,7 @@ const run = async (): Promise<void> => {
       invoice: args.invoice ?? paymentEnvelope.payload.invoice,
       paymentHash: args['payment-hash'],
       preimage: args.preimage,
+      splits: paymentEnvelope.payload.splits,
     };
 
     const receiptEnvelope = signEnvelope(

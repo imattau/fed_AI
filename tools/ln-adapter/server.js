@@ -4,6 +4,8 @@ const { randomBytes } = require('node:crypto');
 
 const backend = (process.env.LN_ADAPTER_BACKEND ?? '').toLowerCase();
 const port = Number(process.env.LN_ADAPTER_PORT ?? 4000);
+const idempotencyTtlMs = Number(process.env.LN_ADAPTER_IDEMPOTENCY_TTL_MS ?? 10 * 60 * 1000);
+const idempotencyCache = new Map();
 
 const jsonResponse = (res, status, payload) => {
   const body = JSON.stringify(payload);
@@ -28,6 +30,40 @@ const readJson = async (req) => {
   } catch {
     return { ok: false, error: 'invalid-json' };
   }
+};
+
+const readIdempotencyKey = (req) => {
+  const header = req.headers['idempotency-key'];
+  if (Array.isArray(header)) {
+    return header[0];
+  }
+  if (typeof header === 'string' && header.length > 0) {
+    return header;
+  }
+  return null;
+};
+
+const getCachedIdempotency = (key) => {
+  const entry = idempotencyCache.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (entry.expiresAtMs <= Date.now()) {
+    idempotencyCache.delete(key);
+    return null;
+  }
+  return entry;
+};
+
+const setCachedIdempotency = (key, status, body) => {
+  if (!key || !idempotencyTtlMs || idempotencyTtlMs <= 0) {
+    return;
+  }
+  idempotencyCache.set(key, {
+    status,
+    body,
+    expiresAtMs: Date.now() + idempotencyTtlMs,
+  });
 };
 
 const hexToBase64 = (value) => {
@@ -90,12 +126,21 @@ const lndFetch = async (path, init = {}, signal) => {
 };
 
 const handleInvoice = async (payload, signal) => {
-  const { requestId, payeeId, amountSats } = payload;
+  const { requestId, payeeId, amountSats, splits } = payload;
   if (!requestId || !payeeId || !amountSats) {
     return { status: 400, body: { error: 'missing-fields' } };
   }
+  if (Array.isArray(splits) && splits.length > 0) {
+    const splitTotal = splits.reduce((sum, split) => sum + Number(split.amountSats ?? 0), 0);
+    if (Number(splitTotal) !== Number(amountSats)) {
+      return { status: 400, body: { error: 'split-total-mismatch' } };
+    }
+  }
 
   if (backend === 'lnbits') {
+    if (Array.isArray(splits) && splits.length > 0) {
+      return { status: 400, body: { error: 'split-not-supported' } };
+    }
     const response = await lnbitsFetch('/api/v1/payments', {
       method: 'POST',
       body: JSON.stringify({
@@ -115,6 +160,9 @@ const handleInvoice = async (payload, signal) => {
   }
 
   if (backend === 'lnd') {
+    if (Array.isArray(splits) && splits.length > 0) {
+      return { status: 400, body: { error: 'split-not-supported' } };
+    }
     const response = await lndFetch('/v1/invoices', {
       method: 'POST',
       body: JSON.stringify({
@@ -139,6 +187,7 @@ const handleInvoice = async (payload, signal) => {
         invoice: `lnmock-${requestId}-${Date.now()}`,
         paymentHash: randomBytes(32).toString('hex'),
         expiresAtMs: Date.now() + 5 * 60 * 1000,
+        splits: Array.isArray(splits) ? splits : undefined,
       },
     };
   }
@@ -215,11 +264,21 @@ const server = http.createServer(async (req, res) => {
     if (!body.ok) {
       return jsonResponse(res, 400, { error: body.error });
     }
+    const idempotencyKey = readIdempotencyKey(req);
+    if (idempotencyKey) {
+      const cached = getCachedIdempotency(idempotencyKey);
+      if (cached) {
+        return jsonResponse(res, cached.status, cached.body);
+      }
+    }
     try {
       const result = await withTimeout(
         (signal) => handleInvoice(body.value, signal),
         Number(process.env.LN_ADAPTER_TIMEOUT_MS),
       );
+      if (idempotencyKey) {
+        setCachedIdempotency(idempotencyKey, result.status, result.body);
+      }
       return jsonResponse(res, result.status, result.body);
     } catch (error) {
       return jsonResponse(res, 502, { error: error instanceof Error ? error.message : 'invoice-failed' });

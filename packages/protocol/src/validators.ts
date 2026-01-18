@@ -138,6 +138,13 @@ const quoteResponseSchema: z.ZodType<QuoteResponse> = z.object({
 
 const payeeTypeSchema: z.ZodType<PayeeType> = z.union([z.literal('node'), z.literal('router')]);
 
+const paymentSplitSchema = z.object({
+  payeeType: payeeTypeSchema,
+  payeeId: z.string(),
+  amountSats: z.number(),
+  role: z.union([z.literal('node-inference'), z.literal('router-fee'), z.literal('other')]).optional(),
+});
+
 const paymentRequestSchema: z.ZodType<PaymentRequest> = z.object({
   requestId: z.string(),
   payeeType: payeeTypeSchema,
@@ -146,6 +153,7 @@ const paymentRequestSchema: z.ZodType<PaymentRequest> = z.object({
   invoice: z.string(),
   expiresAtMs: z.number(),
   paymentHash: z.string().optional(),
+  splits: z.array(paymentSplitSchema).optional(),
   metadata: z.record(z.string()).optional(),
 });
 
@@ -158,6 +166,7 @@ const paymentReceiptSchema: z.ZodType<PaymentReceipt> = z.object({
   paymentHash: z.string().optional(),
   preimage: z.string().optional(),
   invoice: z.string().optional(),
+  splits: z.array(paymentSplitSchema).optional(),
 });
 
 const inferenceResponseSchema: z.ZodType<InferenceResponse> = z.object({

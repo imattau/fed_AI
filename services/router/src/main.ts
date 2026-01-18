@@ -19,6 +19,7 @@ import { pruneRouterState } from './prune';
 import { publishFederationToRelays, startFederationNostr } from './federation/nostr';
 import { createFederationRateLimiter } from './federation/rate-limit';
 import { createRateLimiter } from './rate-limit';
+import { reconcilePayments } from './payments/reconcile';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
@@ -112,10 +113,17 @@ const buildConfig = (): RouterConfig => {
     (getEnv('ROUTER_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
   const paymentVerifyUrl = getEnv('ROUTER_LN_VERIFY_URL');
   const paymentVerifyTimeoutMs = parseNumber(getEnv('ROUTER_LN_VERIFY_TIMEOUT_MS'));
+  const paymentVerifyRetryMaxAttempts = parseNumber(getEnv('ROUTER_LN_VERIFY_RETRY_MAX_ATTEMPTS'));
+  const paymentVerifyRetryMinDelayMs = parseNumber(getEnv('ROUTER_LN_VERIFY_RETRY_MIN_DELAY_MS'));
+  const paymentVerifyRetryMaxDelayMs = parseNumber(getEnv('ROUTER_LN_VERIFY_RETRY_MAX_DELAY_MS'));
   const paymentRequirePreimage =
     (getEnv('ROUTER_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
   const paymentInvoiceUrl = getEnv('ROUTER_LN_INVOICE_URL');
   const paymentInvoiceTimeoutMs = parseNumber(getEnv('ROUTER_LN_INVOICE_TIMEOUT_MS'));
+  const paymentInvoiceRetryMaxAttempts = parseNumber(getEnv('ROUTER_LN_INVOICE_RETRY_MAX_ATTEMPTS'));
+  const paymentInvoiceRetryMinDelayMs = parseNumber(getEnv('ROUTER_LN_INVOICE_RETRY_MIN_DELAY_MS'));
+  const paymentInvoiceRetryMaxDelayMs = parseNumber(getEnv('ROUTER_LN_INVOICE_RETRY_MAX_DELAY_MS'));
+  const paymentInvoiceIdempotencyHeader = getEnv('ROUTER_LN_INVOICE_IDEMPOTENCY_HEADER');
   const statePersistIntervalMs = parseNumber(getEnv('ROUTER_STATE_PERSIST_MS'));
   const dbUrl = getEnv('ROUTER_DB_URL');
   const dbSsl = (getEnv('ROUTER_DB_SSL') ?? 'false').toLowerCase() === 'true';
@@ -123,6 +131,15 @@ const buildConfig = (): RouterConfig => {
   const maxRequestBytes = parseNumber(getEnv('ROUTER_MAX_REQUEST_BYTES'));
   const paymentRequestRetentionMs = parseNumber(getEnv('ROUTER_PAYMENT_REQUEST_RETENTION_MS'));
   const paymentReceiptRetentionMs = parseNumber(getEnv('ROUTER_PAYMENT_RECEIPT_RETENTION_MS'));
+  const paymentReconcileIntervalMs = parseNumber(getEnv('ROUTER_PAYMENT_RECONCILE_INTERVAL_MS'));
+  const paymentReconcileGraceMs = parseNumber(getEnv('ROUTER_PAYMENT_RECONCILE_GRACE_MS'));
+  const routerFeeEnabled = (getEnv('ROUTER_FEE_ENABLED') ?? 'false').toLowerCase() === 'true';
+  const routerFeeSplitEnabled =
+    (getEnv('ROUTER_FEE_SPLIT') ?? 'true').toLowerCase() === 'true';
+  const routerFeeBps = parseNumber(getEnv('ROUTER_FEE_BPS'));
+  const routerFeeFlatSats = parseNumber(getEnv('ROUTER_FEE_FLAT_SATS'));
+  const routerFeeMinSats = parseNumber(getEnv('ROUTER_FEE_MIN_SATS'));
+  const routerFeeMaxSats = parseNumber(getEnv('ROUTER_FEE_MAX_SATS'));
   const federationJobRetentionMs = parseNumber(getEnv('ROUTER_FEDERATION_JOB_RETENTION_MS'));
   const nodeHealthRetentionMs = parseNumber(getEnv('ROUTER_NODE_HEALTH_RETENTION_MS'));
   const nodeCooldownRetentionMs = parseNumber(getEnv('ROUTER_NODE_COOLDOWN_RETENTION_MS'));
@@ -144,6 +161,14 @@ const buildConfig = (): RouterConfig => {
     maxRequestBytes,
     paymentRequestRetentionMs,
     paymentReceiptRetentionMs,
+    paymentReconcileIntervalMs,
+    paymentReconcileGraceMs,
+    routerFeeEnabled,
+    routerFeeSplitEnabled,
+    routerFeeBps,
+    routerFeeFlatSats,
+    routerFeeMinSats,
+    routerFeeMaxSats,
     federationJobRetentionMs,
     nodeHealthRetentionMs,
     nodeCooldownRetentionMs,
@@ -173,12 +198,19 @@ const buildConfig = (): RouterConfig => {
           url: paymentVerifyUrl,
           timeoutMs: paymentVerifyTimeoutMs,
           requirePreimage: paymentRequirePreimage,
+          retryMaxAttempts: paymentVerifyRetryMaxAttempts,
+          retryMinDelayMs: paymentVerifyRetryMinDelayMs,
+          retryMaxDelayMs: paymentVerifyRetryMaxDelayMs,
         }
       : undefined,
     paymentInvoice: paymentInvoiceUrl
       ? {
           url: paymentInvoiceUrl,
           timeoutMs: paymentInvoiceTimeoutMs,
+          retryMaxAttempts: paymentInvoiceRetryMaxAttempts,
+          retryMinDelayMs: paymentInvoiceRetryMinDelayMs,
+          retryMaxDelayMs: paymentInvoiceRetryMaxDelayMs,
+          idempotencyHeader: paymentInvoiceIdempotencyHeader ?? undefined,
         }
       : undefined,
     statePath: getEnv('ROUTER_STATE_PATH'),
@@ -318,6 +350,11 @@ const start = async (): Promise<void> => {
     setInterval(() => {
       pruneRouterState(service, config);
     }, config.pruneIntervalMs);
+  }
+  if (config.paymentReconcileIntervalMs && config.paymentReconcileIntervalMs > 0) {
+    const reconcile = () => reconcilePayments(service, config);
+    reconcile();
+    setInterval(reconcile, config.paymentReconcileIntervalMs);
   }
   void logRelayCandidates('router', buildDiscoveryOptions());
 

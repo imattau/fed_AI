@@ -92,6 +92,8 @@ Event payloads
 
 - `PaymentRequest` carries Lightning invoice details for peer-to-peer settlement.
 - `PaymentReceipt` confirms settlement for a request and payee.
+- `PaymentRequest.splits` can encode split payees (e.g. router fee + node inference) when the invoice backend supports it.
+- `PaymentReceipt.splits` echoes the split breakdown used for settlement verification.
 
 Payment lifecycle
 - Router coordinates payment requirements and returns invoice details (from nodes and optionally routers).

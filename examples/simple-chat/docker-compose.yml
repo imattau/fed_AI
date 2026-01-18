@@ -74,6 +74,12 @@ services:
       ROUTER_DB_URL: postgres://fedai:fedai@postgres:5432/fedai
       ROUTER_DB_SSL: "false"
       ROUTER_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      ROUTER_FEE_ENABLED: "true"
+      ROUTER_FEE_SPLIT: "true"
+      ROUTER_FEE_BPS: "500"
+      ROUTER_FEE_FLAT_SATS: "1"
+      ROUTER_FEE_MIN_SATS: "1"
+      ROUTER_FEE_MAX_SATS: "500"
       ROUTER_FEDERATION_ENABLED: "true"
       ROUTER_FEDERATION_RATE_LIMIT_MAX: "60"
       ROUTER_FEDERATION_RATE_LIMIT_WINDOW_MS: "10000"
@@ -120,6 +126,8 @@ services:
       NODE_MODEL_ID: tinyllama
       ROUTER_ENDPOINT: http://router:8080
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      NODE_ROUTER_FEE_MAX_BPS: "1000"
+      NODE_ROUTER_FEE_MAX_SATS: "1000"
     entrypoint:
       [
         "sh",
@@ -152,6 +160,8 @@ services:
       NODE_MODEL_ID: cpu-stats
       ROUTER_ENDPOINT: http://router:8080
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      NODE_ROUTER_FEE_MAX_BPS: "1000"
+      NODE_ROUTER_FEE_MAX_SATS: "1000"
     entrypoint:
       [
         "sh",

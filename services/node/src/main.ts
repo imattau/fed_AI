@@ -132,11 +132,16 @@ const buildConfig = (): NodeConfig => {
     (getEnv('NODE_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
   const paymentVerifyUrl = getEnv('NODE_LN_VERIFY_URL');
   const paymentVerifyTimeoutMs = parseNumber(getEnv('NODE_LN_VERIFY_TIMEOUT_MS'));
+  const paymentVerifyRetryMaxAttempts = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MAX_ATTEMPTS'));
+  const paymentVerifyRetryMinDelayMs = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MIN_DELAY_MS'));
+  const paymentVerifyRetryMaxDelayMs = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MAX_DELAY_MS'));
   const paymentRequirePreimage =
     (getEnv('NODE_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
   const nonceStoreUrl = getEnv('NODE_NONCE_STORE_URL');
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
+  const routerFeeMaxBps = parseNumber(getEnv('NODE_ROUTER_FEE_MAX_BPS'));
+  const routerFeeMaxSats = parseNumber(getEnv('NODE_ROUTER_FEE_MAX_SATS'));
 
   return {
     ...defaultNodeConfig,
@@ -201,8 +206,13 @@ const buildConfig = (): NodeConfig => {
           url: paymentVerifyUrl,
           timeoutMs: paymentVerifyTimeoutMs,
           requirePreimage: paymentRequirePreimage,
+          retryMaxAttempts: paymentVerifyRetryMaxAttempts,
+          retryMinDelayMs: paymentVerifyRetryMinDelayMs,
+          retryMaxDelayMs: paymentVerifyRetryMaxDelayMs,
         }
       : undefined,
+    routerFeeMaxBps,
+    routerFeeMaxSats,
   };
 };
 

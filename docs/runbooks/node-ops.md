@@ -56,6 +56,11 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `NODE_LN_VERIFY_URL`: HTTP endpoint to verify Lightning settlement for receipts.
 - `NODE_LN_VERIFY_TIMEOUT_MS`: verification timeout in ms.
 - `NODE_LN_REQUIRE_PREIMAGE`: `true|false` to require receipt preimages.
+- `NODE_LN_VERIFY_RETRY_MAX_ATTEMPTS`: max verification retries (default `1`).
+- `NODE_LN_VERIFY_RETRY_MIN_DELAY_MS`: minimum retry delay in ms.
+- `NODE_LN_VERIFY_RETRY_MAX_DELAY_MS`: maximum retry delay in ms.
+- `NODE_ROUTER_FEE_MAX_BPS`: maximum router fee basis points accepted in split receipts.
+- `NODE_ROUTER_FEE_MAX_SATS`: maximum router fee sats accepted in split receipts.
 - `NODE_TLS_CERT_PATH`: TLS cert path for HTTPS.
 - `NODE_TLS_KEY_PATH`: TLS key path for HTTPS.
 - `NODE_TLS_CA_PATH`: optional CA bundle for mTLS.
