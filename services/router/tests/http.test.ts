@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
-import { createHash, generateKeyPairSync, KeyObject } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import {
   buildEnvelope,
   exportPublicKeyNpub,
@@ -58,9 +59,36 @@ const startRouter = async (config: RouterConfig) => {
   return { server, baseUrl: `http://127.0.0.1:${address.port}`, service };
 };
 
+const createKeyPair = (): { privateKey: Uint8Array; publicKey: Uint8Array; keyId: string } => {
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
+  const keyId = exportPublicKeyNpub(publicKey);
+  return { privateKey, publicKey, keyId };
+};
+
+const startInvoiceStub = async () => {
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405);
+      res.end();
+      return;
+    }
+    const payload = JSON.stringify({
+      invoice: 'lnbc1testinvoice',
+      paymentHash: 'hash',
+      expiresAtMs: Date.now() + 60_000,
+    });
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
+    res.end(payload);
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+};
+
 const startStubNode = async (
   nodeKeyId: string,
-  privateKey: KeyObject,
+  privateKey: Uint8Array,
   nodeId = 'node-1',
   output = 'ok',
 ) => {
@@ -121,9 +149,9 @@ const startStubNode = async (
 
 const startFederationPeer = async (
   routerKeyId: string,
-  routerPrivateKey: KeyObject,
+  routerPrivateKey: Uint8Array,
   nodeKeyId: string,
-  nodePrivateKey: KeyObject,
+  nodePrivateKey: Uint8Array,
 ) => {
   const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/federation/rfb') {
@@ -230,8 +258,8 @@ const startFederationPeer = async (
 };
 
 test('router /infer returns 503 when no nodes', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -242,8 +270,8 @@ test('router /infer returns 503 when no nodes', async () => {
   };
 
   const { server, baseUrl } = await startRouter(config);
-  const clientKeys = generateKeyPairSync('ed25519');
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const clientKeys = createKeyPair();
+  const clientKeyId = clientKeys.keyId;
   const payload: InferenceRequest = {
     requestId: 'req-1',
     modelId: 'mock-model',
@@ -267,14 +295,14 @@ test('router /infer returns 503 when no nodes', async () => {
 });
 
 test('router /infer offloads to federation peer when no nodes', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const peerKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const peerKeyId = exportPublicKeyNpub(peerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const peerKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const peerKeyId = peerKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const { server: peerServer, baseUrl: peerUrl } = await startFederationPeer(
     peerKeyId,
@@ -328,12 +356,12 @@ test('router /infer offloads to federation peer when no nodes', async () => {
 });
 
 test('router /infer forwards to node and verifies signatures', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
     nodeKeyId,
@@ -412,14 +440,14 @@ test('router /infer forwards to node and verifies signatures', async () => {
 });
 
 test('router /infer falls back to another node on failure', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const nodeAKeys = generateKeyPairSync('ed25519');
-  const nodeBKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const nodeAKeyId = exportPublicKeyNpub(nodeAKeys.publicKey);
-  const nodeBKeyId = exportPublicKeyNpub(nodeBKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const nodeAKeys = createKeyPair();
+  const nodeBKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const nodeAKeyId = nodeAKeys.keyId;
+  const nodeBKeyId = nodeBKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const failingServer = http.createServer((_req, res) => {
     res.writeHead(500, { 'content-type': 'application/json' });
@@ -477,7 +505,7 @@ test('router /infer falls back to another node on failure', async () => {
     ],
   };
 
-  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: KeyObject) => {
+  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: Uint8Array) => {
     const envelope = signEnvelope(
       buildEnvelope(descriptor, `nonce-${descriptor.nodeId}`, Date.now(), keyId),
       privateKey,
@@ -522,13 +550,14 @@ test('router /infer falls back to another node on failure', async () => {
 });
 
 test('router /infer enforces payment when required', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
+  const { server: invoiceServer, baseUrl: invoiceUrl } = await startInvoiceStub();
   const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
     nodeKeyId,
     nodeKeys.privateKey,
@@ -541,6 +570,10 @@ test('router /infer enforces payment when required', async () => {
     port: 0,
     privateKey: routerKeys.privateKey,
     requirePayment: true,
+    paymentInvoice: {
+      url: invoiceUrl,
+      timeoutMs: 1000,
+    },
   };
 
   const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
@@ -648,16 +681,17 @@ test('router /infer enforces payment when required', async () => {
   } finally {
     routerServer.close();
     nodeServer.close();
+    invoiceServer.close();
   }
 });
 
 test('router /quote returns signed quote response', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -722,12 +756,12 @@ test('router /quote returns signed quote response', async () => {
 });
 
 test('router /manifest influences selection weight', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -827,12 +861,12 @@ test('router /manifest influences selection weight', async () => {
 });
 
 test('router /stake/commit records stake and affects selection', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -931,12 +965,12 @@ test('router /stake/commit records stake and affects selection', async () => {
 });
 
 test('router /manifest requires relay snapshot for promotion when configured', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1006,85 +1040,88 @@ test('router /manifest requires relay snapshot for promotion when configured', a
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
-  const quoteRequest: QuoteRequest = {
-    requestId: 'req-manifest-policy',
-    modelId: 'mock-model',
-    maxTokens: 32,
-    inputTokensEstimate: 10,
-    outputTokensEstimate: 5,
-  };
+  try {
+    const quoteRequest: QuoteRequest = {
+      requestId: 'req-manifest-policy',
+      modelId: 'mock-model',
+      maxTokens: 32,
+      inputTokensEstimate: 10,
+      outputTokensEstimate: 5,
+    };
 
-  const buildQuoteEnvelope = (nonce: string) =>
-    signEnvelope(buildEnvelope(quoteRequest, nonce, Date.now(), clientKeyId), clientKeys.privateKey);
+    const buildQuoteEnvelope = (nonce: string) =>
+      signEnvelope(buildEnvelope(quoteRequest, nonce, Date.now(), clientKeyId), clientKeys.privateKey);
 
-  const signedManifest = signManifest(manifest, nodeKeyId, nodeKeys.privateKey) as NodeManifest;
-  await fetch(`${baseUrl}/manifest`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(signedManifest),
-  });
+    const signedManifest = signManifest(manifest, nodeKeyId, nodeKeys.privateKey) as NodeManifest;
+    await fetch(`${baseUrl}/manifest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(signedManifest),
+    });
 
-  const requestEnvelope = buildQuoteEnvelope('nonce-manifest-policy-1');
-  const responseWithoutSnapshot = await fetch(`${baseUrl}/quote`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(requestEnvelope),
-  });
-  const bodyWithoutSnapshot = (await responseWithoutSnapshot.json()) as { quote: Envelope<QuoteResponse> };
-  assert.equal(bodyWithoutSnapshot.quote.payload.nodeId, 'node-b');
+    const requestEnvelope = buildQuoteEnvelope('nonce-manifest-policy-1');
+    const responseWithoutSnapshot = await fetch(`${baseUrl}/quote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(requestEnvelope),
+    });
+    const bodyWithoutSnapshot = (await responseWithoutSnapshot.json()) as { quote: Envelope<QuoteResponse> };
+    assert.equal(bodyWithoutSnapshot.quote.payload.nodeId, 'node-b');
 
-  const relaySnapshot: RelayDiscoverySnapshot = {
-    discoveredAtMs: Date.now(),
-    relays: [
-      {
-        url: 'wss://relay.example',
-        read: true,
-        write: true,
-        priority: 3,
-        score: 2,
-        tags: [],
-        lastSeenMs: Date.now(),
+    const relaySnapshot: RelayDiscoverySnapshot = {
+      discoveredAtMs: Date.now(),
+      relays: [
+        {
+          url: 'wss://relay.example',
+          read: true,
+          write: true,
+          priority: 3,
+          score: 2,
+          tags: [],
+          lastSeenMs: Date.now(),
+        },
+      ],
+      options: {
+        minScore: 1,
+        maxResults: 2,
       },
-    ],
-    options: {
-      minScore: 1,
-      maxResults: 2,
-    },
-  };
+    };
 
-  const promotedManifest = signManifest(
-    { ...manifest, relay_discovery: relaySnapshot },
-    nodeKeyId,
-    nodeKeys.privateKey,
-  ) as NodeManifest;
+    const promotedManifest = signManifest(
+      { ...manifest, relay_discovery: relaySnapshot },
+      nodeKeyId,
+      nodeKeys.privateKey,
+    ) as NodeManifest;
 
-  await fetch(`${baseUrl}/manifest`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(promotedManifest),
-  });
+    await fetch(`${baseUrl}/manifest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(promotedManifest),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
 
-  const requestEnvelopeWithSnapshot = buildQuoteEnvelope('nonce-manifest-policy-2');
-  const responseWithSnapshot = await fetch(`${baseUrl}/quote`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(requestEnvelopeWithSnapshot),
-  });
-  const bodyWithSnapshot = (await responseWithSnapshot.json()) as { quote: Envelope<QuoteResponse> };
-  assert.equal(bodyWithSnapshot.quote.payload.nodeId, 'node-a');
-
-  server.close();
+    const requestEnvelopeWithSnapshot = buildQuoteEnvelope('nonce-manifest-policy-2');
+    const responseWithSnapshot = await fetch(`${baseUrl}/quote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(requestEnvelopeWithSnapshot),
+    });
+    const bodyWithSnapshot = (await responseWithSnapshot.json()) as { quote: Envelope<QuoteResponse> };
+    assert.equal(bodyWithSnapshot.quote.payload.nodeId, 'node-a');
+  } finally {
+    server.close();
+  }
 });
 
 test('router manifest trust decays as observed performance accumulates', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const nodeAKeys = generateKeyPairSync('ed25519');
-  const nodeBKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
-  const nodeAKeyId = exportPublicKeyNpub(nodeAKeys.publicKey);
-  const nodeBKeyId = exportPublicKeyNpub(nodeBKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const nodeAKeys = createKeyPair();
+  const nodeBKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+  const nodeAKeyId = nodeAKeys.keyId;
+  const nodeBKeyId = nodeBKeys.keyId;
 
   const { server: nodeAServer, baseUrl: nodeAUrl } = await startStubNode(
     nodeAKeyId,
@@ -1136,7 +1173,7 @@ test('router manifest trust decays as observed performance accumulates', async (
     capabilities: baseCapabilities(0.5, 0.5),
   };
 
-  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: KeyObject) => {
+  const registerNode = async (descriptor: NodeDescriptor, keyId: string, privateKey: Uint8Array) => {
     const envelope = signEnvelope(
       buildEnvelope(descriptor, `nonce-${descriptor.nodeId}-${Date.now()}`, Date.now(), keyId),
       privateKey,
@@ -1214,6 +1251,7 @@ test('router manifest trust decays as observed performance accumulates', async (
     }
 
     await registerNode(nodeBCheap, nodeBKeyId, nodeBKeys.privateKey);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     const finalQuote = await fetch(`${routerUrl}/quote`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1231,10 +1269,10 @@ test('router manifest trust decays as observed performance accumulates', async (
 });
 
 test('router /metrics exposes Prometheus metrics', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
+  const routerKeys = createKeyPair();
   const config: RouterConfig = {
     routerId: 'router-1',
-    keyId: exportPublicKeyNpub(routerKeys.publicKey),
+    keyId: routerKeys.keyId,
     endpoint: 'http://localhost:0',
     port: 0,
     privateKey: routerKeys.privateKey,
@@ -1250,12 +1288,12 @@ test('router /metrics exposes Prometheus metrics', async () => {
 });
 
 test('router cools down nodes after repeated failures', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const nodeKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const nodeKeyId = exportPublicKeyNpub(nodeKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1377,10 +1415,10 @@ test('router cools down nodes after repeated failures', async () => {
 });
 
 test('router federation caps endpoint accepts signed message', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const peerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const peerKeyId = exportPublicKeyNpub(peerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const peerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const peerKeyId = peerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1433,10 +1471,10 @@ test('router federation caps endpoint accepts signed message', async () => {
 });
 
 test('router federation job submit/result validates receipt', async () => {
-  const requesterKeys = generateKeyPairSync('ed25519');
-  const workerKeys = generateKeyPairSync('ed25519');
-  const requesterKeyId = exportPublicKeyNpub(requesterKeys.publicKey);
-  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
+  const requesterKeys = createKeyPair();
+  const workerKeys = createKeyPair();
+  const requesterKeyId = requesterKeys.keyId;
+  const workerKeyId = workerKeys.keyId;
 
   const workerConfig: RouterConfig = {
     routerId: 'worker-router',
@@ -1567,8 +1605,8 @@ test('router federation job submit/result validates receipt', async () => {
 });
 
 test('router federation self caps returns signed message', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1611,8 +1649,8 @@ test('router federation self caps returns signed message', async () => {
 });
 
 test('router federation self price returns signed message', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1653,8 +1691,8 @@ test('router federation self price returns signed message', async () => {
 });
 
 test('router federation self status returns signed message', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1699,8 +1737,8 @@ test('router federation self status returns signed message', async () => {
 });
 
 test('publishFederation posts signed messages to peers', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1776,8 +1814,8 @@ test('discoverFederationPeers deduplicates and normalizes', () => {
 });
 
 test('runFederationAuction collects bid responses', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -1842,8 +1880,8 @@ test('runFederationAuction collects bid responses', async () => {
 });
 
 test('publishAward posts award to peer', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -1880,8 +1918,8 @@ test('publishAward posts award to peer', async () => {
 });
 
 test('selectAwardFromBids builds signed award', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -1940,8 +1978,8 @@ test('selectAwardFromBids builds signed award', async () => {
 });
 
 test('runAuctionAndAward publishes award to winning peer', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
   const config: RouterConfig = {
     routerId: 'router-1',
     keyId: routerKeyId,
@@ -2013,10 +2051,10 @@ test('runAuctionAndAward publishes award to winning peer', async () => {
 });
 
 test('router federation payment request returns signed payment request', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const workerKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const workerKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const workerKeyId = workerKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -2101,12 +2139,12 @@ test('router federation payment request returns signed payment request', async (
 });
 
 test('router federation payment receipt accepts signed receipt', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const workerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const workerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const workerKeyId = workerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',
@@ -2208,12 +2246,12 @@ test('router federation payment receipt accepts signed receipt', async () => {
 });
 
 test('router federation settlement tracks request and receipt', async () => {
-  const routerKeys = generateKeyPairSync('ed25519');
-  const workerKeys = generateKeyPairSync('ed25519');
-  const clientKeys = generateKeyPairSync('ed25519');
-  const routerKeyId = exportPublicKeyNpub(routerKeys.publicKey);
-  const workerKeyId = exportPublicKeyNpub(workerKeys.publicKey);
-  const clientKeyId = exportPublicKeyNpub(clientKeys.publicKey);
+  const routerKeys = createKeyPair();
+  const workerKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const workerKeyId = workerKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
 
   const config: RouterConfig = {
     routerId: 'router-1',

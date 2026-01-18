@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { exportPublicKeyNpub } from '@fed-ai/protocol';
 import { scoreNode, selectNode } from '../src/scheduler';
 import type { NodeDescriptor, QuoteRequest } from '@fed-ai/protocol';
@@ -14,7 +14,8 @@ const request: QuoteRequest = {
 };
 
 const makeNode = (nodeId: string, inputRate: number, outputRate: number, currentLoad: number): NodeDescriptor => {
-  const { publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
   return {
     nodeId,
     keyId: exportPublicKeyNpub(publicKey),

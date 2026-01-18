@@ -17,6 +17,12 @@ Operate the node service safely, monitor health, and troubleshoot failures.
 - `ROUTER_PUBLIC_KEY_PEM`: router public key (npub or 32-byte hex, optional if `ROUTER_KEY_ID` is set).
 - `ROUTER_KEY_ID`: router public key ID (npub) to enforce key-id match.
 - `NODE_ROUTER_ALLOWLIST`: optional comma-separated npub list to allow multiple routers.
+- `NODE_OFFLOAD_PEERS`: optional comma-separated node endpoints for peer offload.
+- `NODE_OFFLOAD_ROUTER`: `true|false` to allow router fallback when saturated or timed out.
+- `NODE_OFFLOAD_AUCTION`: `true|false` to enable node-to-node auctioning before offload.
+- `NODE_OFFLOAD_AUCTION_MS`: auction window in milliseconds (default 800).
+- `NODE_OFFLOAD_AUCTION_ALLOWLIST`: comma-separated npub list allowed to send auction requests.
+- `NODE_OFFLOAD_AUCTION_RATE_LIMIT`: per-minute request cap for `/offload/rfb` and `/offload/award`.
 
 ## Optional configuration
 

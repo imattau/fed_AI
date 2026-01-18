@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { exportPublicKeyNpub } from '@fed-ai/protocol';
 import { signManifest, verifyManifest } from '../src/index';
 import type { NodeManifest } from '../src/types';
 
@@ -22,7 +23,9 @@ const baseManifest: NodeManifest = {
 };
 
 test('signManifest and verifyManifest round-trip', () => {
-  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-  const signed = signManifest(baseManifest, 'node-key-1', privateKey) as NodeManifest;
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
+  const keyId = exportPublicKeyNpub(publicKey);
+  const signed = signManifest(baseManifest, keyId, privateKey) as NodeManifest;
   assert.equal(verifyManifest(signed, publicKey), true);
 });

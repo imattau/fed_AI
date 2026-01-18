@@ -29,7 +29,7 @@ import { canBidForRfb, estimateBidPrice } from './logic';
 import type { FederationRateLimiter } from './rate-limit';
 import { createFederationRelayManager } from './relay-manager';
 
-const globalSocket = globalThis as typeof globalThis & { WebSocket?: typeof WebSocket };
+const globalSocket = globalThis as unknown as { WebSocket?: unknown };
 if (!globalSocket.WebSocket) {
   globalSocket.WebSocket = WebSocket;
 }
@@ -191,7 +191,7 @@ const handleRfb = async (
     sig: '',
   };
   const event = buildRouterControlEvent(bid, config.privateKey);
-  await publishEvent(runtime.pool, runtime.relays, event);
+  await publishEvent(runtime.pool, runtime.relays, event, runtime.relayManager);
 };
 
 const shouldIgnore = (
@@ -343,7 +343,8 @@ export const startFederationNostr = (
               federationRelayFailures.inc({ stage: 'validation' });
               return;
             }
-            handleCaps(service, message);
+            const typed = message as RouterControlMessage<RouterCapabilityProfile>;
+            handleCaps(service, typed);
             break;
           }
           case 'PRICE_ANNOUNCE': {
@@ -351,7 +352,8 @@ export const startFederationNostr = (
               federationRelayFailures.inc({ stage: 'validation' });
               return;
             }
-            handlePrice(service, message);
+            const typed = message as RouterControlMessage<RouterPriceSheet>;
+            handlePrice(service, typed);
             break;
           }
           case 'STATUS_ANNOUNCE': {
@@ -359,7 +361,8 @@ export const startFederationNostr = (
               federationRelayFailures.inc({ stage: 'validation' });
               return;
             }
-            handleStatus(service, message);
+            const typed = message as RouterControlMessage<RouterStatusPayload>;
+            handleStatus(service, typed);
             break;
           }
           case 'RFB': {
@@ -370,7 +373,8 @@ export const startFederationNostr = (
             if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
               return;
             }
-            await handleRfb(service, config, runtime, message);
+            const typed = message as RouterControlMessage<RouterRfbPayload>;
+            await handleRfb(service, config, runtime, typed);
             break;
           }
           case 'BID': {
@@ -381,7 +385,8 @@ export const startFederationNostr = (
             if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
               return;
             }
-            handleBid(service, message);
+            const typed = message as RouterControlMessage<RouterBidPayload>;
+            handleBid(service, typed);
             break;
           }
           case 'AWARD': {
@@ -395,7 +400,8 @@ export const startFederationNostr = (
             if ((message.payload as RouterAwardPayload).winnerRouterId !== config.keyId) {
               return;
             }
-            handleAward(service, message);
+            const typed = message as RouterControlMessage<RouterAwardPayload>;
+            handleAward(service, typed);
             break;
           }
           default:

@@ -18,7 +18,7 @@ import { FedAiClient, PaymentRequiredError } from '../src';
 const startRouterStub = async () => {
   const routerPrivate = generateSecretKey();
   const routerPublic = getPublicKey(routerPrivate);
-  const routerKeyId = exportPublicKeyNpub(routerPublic);
+  const routerKeyId = exportPublicKeyNpub(Buffer.from(routerPublic, 'hex'));
   let inferAttempts = 0;
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -125,7 +125,7 @@ test('FedAiClient handles quotes and payments', async () => {
   const clientPublic = getPublicKey(clientPrivate);
   const client = new FedAiClient({
     routerUrl: router.baseUrl,
-    keyId: exportPublicKeyNpub(clientPublic),
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
     privateKey: exportPrivateKeyHex(clientPrivate),
   });
 

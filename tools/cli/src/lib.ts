@@ -52,10 +52,11 @@ export const generateKeyPairHex = (): {
 } => {
   const privateKey = generateSecretKey();
   const publicKey = getPublicKey(privateKey);
+  const publicKeyBytes = Buffer.from(publicKey, 'hex');
   return {
-    publicKey: exportPublicKeyHex(publicKey),
+    publicKey: exportPublicKeyHex(publicKeyBytes),
     privateKey: exportPrivateKeyHex(privateKey),
-    npub: exportPublicKeyNpub(publicKey),
+    npub: exportPublicKeyNpub(publicKeyBytes),
     nsec: exportPrivateKeyNsec(privateKey),
   };
 };

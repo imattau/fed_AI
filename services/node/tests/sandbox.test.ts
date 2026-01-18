@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { exportPublicKeyNpub } from '@fed-ai/protocol';
 import { enforceSandboxPolicy } from '../src/sandbox/policy';
 import type { NodeConfig } from '../src/config';
 
-const { publicKey } = generateKeyPairSync('ed25519');
+const publicKey = Buffer.from(getPublicKey(generateSecretKey()), 'hex');
 
 const baseConfig: NodeConfig = {
   nodeId: 'node-1',

@@ -127,6 +127,39 @@ export type MeteringRecord = {
   ts: number;
 };
 
+export type NodeOffloadRequest = {
+  requestId: string;
+  originNodeId: string;
+  request: InferenceRequest;
+  avoidNodeIds?: string[];
+};
+
+export type NodeRfbPayload = {
+  requestId: string;
+  jobType?: RouterJobType;
+  sizeEstimate: {
+    tokens: number;
+    bytes: number;
+  };
+  deadlineMs: number;
+  maxRuntimeMs?: number;
+};
+
+export type NodeBidPayload = {
+  requestId: string;
+  nodeId?: string;
+  priceMsat?: number;
+  etaMs: number;
+  bidExpiryMs: number;
+};
+
+export type NodeAwardPayload = {
+  requestId: string;
+  winnerKeyId: string;
+  acceptedPriceMsat?: number;
+  awardExpiryMs: number;
+};
+
 export type ProtocolError = {
   code: string;
   message: string;

@@ -13,8 +13,9 @@ import {
 test('parsePublicKey accepts npub and hex keys', () => {
   const secret = generateSecretKey();
   const publicKey = getPublicKey(secret);
-  const hex = exportPublicKeyHex(publicKey);
-  const npub = exportPublicKeyNpub(publicKey);
+  const publicKeyBytes = Buffer.from(publicKey, 'hex');
+  const hex = exportPublicKeyHex(publicKeyBytes);
+  const npub = exportPublicKeyNpub(publicKeyBytes);
 
   const fromHex = parsePublicKey(hex);
   const fromNpub = parsePublicKey(npub);

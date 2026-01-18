@@ -13,6 +13,11 @@ import {
   signEnvelope,
   validateEnvelope,
   validateInferenceRequest,
+  validateInferenceResponse,
+  validateMeteringRecord,
+  validateNodeAwardPayload,
+  validateNodeBidPayload,
+  validateNodeRfbPayload,
   validatePaymentReceipt,
   verifyEnvelope,
 } from '@fed-ai/protocol';
@@ -21,6 +26,10 @@ import type {
   InferenceRequest,
   InferenceResponse,
   MeteringRecord,
+  NodeAwardPayload,
+  NodeBidPayload,
+  NodeOffloadRequest,
+  NodeRfbPayload,
   PaymentReceipt,
 } from '@fed-ai/protocol';
 import type { NodeConfig } from './config';
@@ -81,6 +90,233 @@ export const createNodeHttpServer = (
     ? new FileNonceStore(config.nonceStorePath)
     : new InMemoryNonceStore());
   const startedAtMs = Date.now();
+  const auctionRateWindowMs = 60_000;
+  const auctionRateCounters = new Map<string, { count: number; resetAt: number }>();
+
+  const checkAuctionRateLimit = (keyId: string): boolean => {
+    if (!config.offloadAuctionRateLimit || config.offloadAuctionRateLimit <= 0) {
+      return true;
+    }
+    const now = Date.now();
+    const existing = auctionRateCounters.get(keyId);
+    if (!existing || existing.resetAt <= now) {
+      auctionRateCounters.set(keyId, { count: 1, resetAt: now + auctionRateWindowMs });
+      return true;
+    }
+    if (existing.count >= config.offloadAuctionRateLimit) {
+      return false;
+    }
+    existing.count += 1;
+    return true;
+  };
+
+  const validateOffloadResult = (
+    payload: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> },
+    expectedRequestId: string,
+  ): { ok: true } | { ok: false; error: string } => {
+    const responseValidation = validateEnvelope(payload.response, validateInferenceResponse);
+    if (!responseValidation.ok) {
+      return { ok: false, error: 'invalid-offload-response' };
+    }
+    const meteringValidation = validateEnvelope(payload.metering, validateMeteringRecord);
+    if (!meteringValidation.ok) {
+      return { ok: false, error: 'invalid-offload-metering' };
+    }
+    if (
+      payload.response.payload.requestId !== expectedRequestId ||
+      payload.metering.payload.requestId !== expectedRequestId
+    ) {
+      return { ok: false, error: 'offload-request-mismatch' };
+    }
+    if (payload.response.keyId !== payload.metering.keyId) {
+      return { ok: false, error: 'offload-key-mismatch' };
+    }
+    const publicKey = parsePublicKey(payload.response.keyId);
+    if (!verifyEnvelope(payload.response, publicKey) || !verifyEnvelope(payload.metering, publicKey)) {
+      return { ok: false, error: 'offload-signature-invalid' };
+    }
+    return { ok: true };
+  };
+
+  const attemptOffload = async (
+    envelope: Envelope<InferenceRequest>,
+  ): Promise<
+    | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
+    | { ok: false; status: number; error: string }
+  > => {
+    const peers = config.offloadPeers ?? [];
+    const forwardToPeer = async (
+      peer: string,
+    ): Promise<
+      | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
+      | { ok: false }
+    > => {
+      try {
+        const response = await fetch(`${peer.replace(/\/$/, '')}/infer`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(envelope),
+        });
+        if (!response.ok) {
+          return { ok: false };
+        }
+        const payload = (await response.json()) as {
+          response: Envelope<InferenceResponse>;
+          metering: Envelope<MeteringRecord>;
+        };
+        const validation = validateOffloadResult(payload, envelope.payload.requestId);
+        if (!validation.ok) {
+          return { ok: false };
+        }
+        return { ok: true, body: payload };
+      } catch {
+        return { ok: false };
+      }
+    };
+
+    const auctionPeers = peers.filter((peer) => peer && peer !== config.endpoint);
+    const auctionMs = Math.max(200, config.offloadAuctionMs ?? 800);
+    if (config.offloadAuctionEnabled && auctionPeers.length > 0) {
+      if (!config.privateKey) {
+        return { ok: false, status: 500, error: 'node-private-key-missing' };
+      }
+      const rfbPayload: NodeRfbPayload = {
+        requestId: envelope.payload.requestId,
+        jobType: envelope.payload.jobType,
+        sizeEstimate: {
+          tokens: envelope.payload.prompt.length + envelope.payload.maxTokens,
+          bytes: Buffer.byteLength(envelope.payload.prompt, 'utf8'),
+        },
+        deadlineMs: Date.now() + auctionMs,
+        maxRuntimeMs: config.maxInferenceMs,
+      };
+      const rfbEnvelope = signEnvelope(
+        buildEnvelope(rfbPayload, randomUUID(), Date.now(), config.keyId),
+        config.privateKey,
+      );
+      const bidResults = await Promise.allSettled(
+        auctionPeers.map(async (peer) => {
+          const response = await fetch(`${peer.replace(/\/$/, '')}/offload/rfb`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(rfbEnvelope),
+            signal: AbortSignal.timeout(auctionMs),
+          });
+          if (!response.ok) {
+            return null;
+          }
+          const bidEnvelope = (await response.json()) as Envelope<NodeBidPayload>;
+          const validation = validateEnvelope(bidEnvelope, validateNodeBidPayload);
+          if (!validation.ok || bidEnvelope.payload.requestId !== envelope.payload.requestId) {
+            return null;
+          }
+          if (!isNostrNpub(bidEnvelope.keyId)) {
+            return null;
+          }
+          const bidKey = parsePublicKey(bidEnvelope.keyId);
+          if (!verifyEnvelope(bidEnvelope, bidKey)) {
+            return null;
+          }
+          if (bidEnvelope.payload.bidExpiryMs < Date.now()) {
+            return null;
+          }
+          return { peer, bid: bidEnvelope };
+        }),
+      );
+
+      const bids = bidResults
+        .filter(
+          (result): result is PromiseFulfilledResult<{ peer: string; bid: Envelope<NodeBidPayload> } | null> =>
+            result.status === 'fulfilled',
+        )
+        .map((result) => result.value)
+        .filter((entry): entry is { peer: string; bid: Envelope<NodeBidPayload> } => Boolean(entry));
+
+      if (bids.length > 0) {
+        bids.sort((a, b) => {
+          if (a.bid.payload.etaMs !== b.bid.payload.etaMs) {
+            return a.bid.payload.etaMs - b.bid.payload.etaMs;
+          }
+          const priceA = a.bid.payload.priceMsat ?? Number.MAX_SAFE_INTEGER;
+          const priceB = b.bid.payload.priceMsat ?? Number.MAX_SAFE_INTEGER;
+          return priceA - priceB;
+        });
+
+        const winner = bids[0];
+        const awardPayload: NodeAwardPayload = {
+          requestId: envelope.payload.requestId,
+          winnerKeyId: winner.bid.keyId,
+          acceptedPriceMsat: winner.bid.payload.priceMsat,
+          awardExpiryMs: Date.now() + auctionMs,
+        };
+        const awardEnvelope = signEnvelope(
+          buildEnvelope(awardPayload, randomUUID(), Date.now(), config.keyId),
+          config.privateKey,
+        );
+        try {
+          await fetch(`${winner.peer.replace(/\/$/, '')}/offload/award`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(awardEnvelope),
+            signal: AbortSignal.timeout(auctionMs),
+          });
+        } catch {
+          // Best-effort award notification before forwarding the job.
+        }
+
+        const forwarded = await forwardToPeer(winner.peer);
+        if (forwarded.ok) {
+          return { ok: true, body: forwarded.body };
+        }
+      }
+    }
+
+    for (const peer of auctionPeers) {
+      const forwarded = await forwardToPeer(peer);
+      if (forwarded.ok) {
+        return { ok: true, body: forwarded.body };
+      }
+    }
+
+    if (config.offloadRouter) {
+      if (!config.privateKey) {
+        return { ok: false, status: 500, error: 'node-private-key-missing' };
+      }
+      const offload: NodeOffloadRequest = {
+        requestId: envelope.payload.requestId,
+        originNodeId: config.nodeId,
+        request: envelope.payload,
+        avoidNodeIds: [config.nodeId],
+      };
+      const offloadEnvelope = signEnvelope(
+        buildEnvelope(offload, randomUUID(), Date.now(), config.keyId),
+        config.privateKey,
+      );
+      try {
+        const response = await fetch(`${config.routerEndpoint.replace(/\/$/, '')}/node/offload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(offloadEnvelope),
+        });
+        if (!response.ok) {
+          return { ok: false, status: response.status, error: 'router-offload-failed' };
+        }
+        const payload = (await response.json()) as {
+          response: Envelope<InferenceResponse>;
+          metering: Envelope<MeteringRecord>;
+        };
+        const validation = validateOffloadResult(payload, envelope.payload.requestId);
+        if (!validation.ok) {
+          return { ok: false, status: 502, error: validation.error };
+        }
+        return { ok: true, body: payload };
+      } catch {
+        return { ok: false, status: 502, error: 'router-offload-unreachable' };
+      }
+    }
+
+    return { ok: false, status: 503, error: 'offload-unavailable' };
+  };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -116,6 +352,104 @@ export const createNodeHttpServer = (
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/offload/rfb') {
+      if (!config.offloadAuctionEnabled) {
+        return sendJson(res, 403, { error: 'offload-auction-disabled' });
+      }
+      const body = await readJsonBody(req, config.maxRequestBytes);
+      if (!body.ok) {
+        return sendJson(res, 400, { error: body.error });
+      }
+      const validation = validateEnvelope(body.value, validateNodeRfbPayload);
+      if (!validation.ok) {
+        return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+      }
+      const envelope = body.value as Envelope<NodeRfbPayload>;
+      if (!isNostrNpub(envelope.keyId)) {
+        return sendJson(res, 400, { error: 'invalid-key-id' });
+      }
+      if (
+        config.offloadAuctionAllowList?.length &&
+        !config.offloadAuctionAllowList.includes(envelope.keyId)
+      ) {
+        return sendJson(res, 403, { error: 'offload-auction-not-allowed' });
+      }
+      if (!checkAuctionRateLimit(envelope.keyId)) {
+        return sendJson(res, 429, { error: 'offload-auction-rate-limit' });
+      }
+      const senderKey = parsePublicKey(envelope.keyId);
+      if (!verifyEnvelope(envelope, senderKey)) {
+        return sendJson(res, 401, { error: 'invalid-signature' });
+      }
+      const replay = checkReplay(envelope, store);
+      if (!replay.ok) {
+        return sendJson(res, 400, { error: replay.error });
+      }
+      if (!config.privateKey) {
+        return sendJson(res, 500, { error: 'node-private-key-missing' });
+      }
+      const currentLoad = config.capacityCurrentLoad + service.inFlight;
+      if (config.capacityMaxConcurrent <= 0 || currentLoad >= config.capacityMaxConcurrent) {
+        return sendJson(res, 409, { error: 'node-saturated' });
+      }
+      const baseLatency = config.capabilityLatencyMs ?? 750;
+      const etaMs = baseLatency + Math.max(0, currentLoad) * baseLatency;
+      const bidPayload: NodeBidPayload = {
+        requestId: envelope.payload.requestId,
+        nodeId: config.nodeId,
+        etaMs,
+        bidExpiryMs: Date.now() + Math.max(200, config.offloadAuctionMs ?? 800),
+      };
+      const bidEnvelope = signEnvelope(
+        buildEnvelope(bidPayload, randomUUID(), Date.now(), config.keyId),
+        config.privateKey,
+      );
+      return sendJson(res, 200, bidEnvelope);
+    }
+
+    if (req.method === 'POST' && req.url === '/offload/award') {
+      if (!config.offloadAuctionEnabled) {
+        return sendJson(res, 403, { error: 'offload-auction-disabled' });
+      }
+      const body = await readJsonBody(req, config.maxRequestBytes);
+      if (!body.ok) {
+        return sendJson(res, 400, { error: body.error });
+      }
+      const validation = validateEnvelope(body.value, validateNodeAwardPayload);
+      if (!validation.ok) {
+        return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+      }
+      const envelope = body.value as Envelope<NodeAwardPayload>;
+      if (!isNostrNpub(envelope.keyId)) {
+        return sendJson(res, 400, { error: 'invalid-key-id' });
+      }
+      if (
+        config.offloadAuctionAllowList?.length &&
+        !config.offloadAuctionAllowList.includes(envelope.keyId)
+      ) {
+        return sendJson(res, 403, { error: 'offload-auction-not-allowed' });
+      }
+      if (!checkAuctionRateLimit(envelope.keyId)) {
+        return sendJson(res, 429, { error: 'offload-auction-rate-limit' });
+      }
+      const senderKey = parsePublicKey(envelope.keyId);
+      if (!verifyEnvelope(envelope, senderKey)) {
+        return sendJson(res, 401, { error: 'invalid-signature' });
+      }
+      const replay = checkReplay(envelope, store);
+      if (!replay.ok) {
+        return sendJson(res, 400, { error: replay.error });
+      }
+      if (envelope.payload.winnerKeyId !== config.keyId) {
+        return sendJson(res, 403, { error: 'award-not-for-node' });
+      }
+      const currentLoad = config.capacityCurrentLoad + service.inFlight;
+      if (config.capacityMaxConcurrent <= 0 || currentLoad >= config.capacityMaxConcurrent) {
+        return sendJson(res, 409, { error: 'node-saturated' });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (req.method === 'POST' && req.url === '/infer') {
       const span = nodeTracer.startSpan('node.infer', {
         attributes: { component: 'node', 'node.id': config.nodeId },
@@ -123,6 +457,7 @@ export const createNodeHttpServer = (
       const timer = nodeInferenceDuration.startTimer();
       let statusLabel = '200';
       let inFlightRegistered = false;
+      let envelope: Envelope<InferenceRequest> | null = null;
       const respond = (status: number, body: unknown): void => {
         statusLabel = status.toString();
         span.setAttribute('http.status_code', status);
@@ -140,7 +475,7 @@ export const createNodeHttpServer = (
           return respond(400, { error: 'invalid-envelope', details: validation.errors });
         }
 
-        const envelope = body.value as Envelope<InferenceRequest>;
+        envelope = body.value as Envelope<InferenceRequest>;
         if (!isNostrNpub(envelope.keyId)) {
           return respond(400, { error: 'invalid-key-id' });
         }
@@ -199,31 +534,31 @@ export const createNodeHttpServer = (
             return respond(400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
           }
 
-        const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
-        if (receipt.payload.amountSats < 1) {
-          nodeReceiptFailures.inc();
-          return respond(400, { error: 'payment-amount-invalid' });
-        }
+          const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
+          if (receipt.payload.amountSats < 1) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'payment-amount-invalid' });
+          }
           if (receipt.payload.requestId !== envelope.payload.requestId) {
             nodeReceiptFailures.inc();
             return respond(400, { error: 'payment-request-mismatch' });
           }
 
-        const clientKey = parsePublicKey(receipt.keyId);
-        if (!verifyEnvelope(receipt, clientKey)) {
-          nodeReceiptFailures.inc();
-          return respond(401, { error: 'invalid-payment-receipt-signature' });
-        }
+          const clientKey = parsePublicKey(receipt.keyId);
+          if (!verifyEnvelope(receipt, clientKey)) {
+            nodeReceiptFailures.inc();
+            return respond(401, { error: 'invalid-payment-receipt-signature' });
+          }
 
-        const verification = await verifyPaymentReceipt(
-          receipt.payload,
-          config.paymentVerification,
-        );
-        if (!verification.ok) {
-          nodeReceiptFailures.inc();
-          return respond(400, { error: verification.error });
+          const verification = await verifyPaymentReceipt(
+            receipt.payload,
+            config.paymentVerification,
+          );
+          if (!verification.ok) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: verification.error });
+          }
         }
-      }
 
         if (!config.privateKey) {
           return respond(500, { error: 'node-private-key-missing' });
@@ -231,7 +566,11 @@ export const createNodeHttpServer = (
 
         const currentLoad = config.capacityCurrentLoad + service.inFlight;
         if (config.capacityMaxConcurrent <= 0 || currentLoad >= config.capacityMaxConcurrent) {
-          return respond(429, { error: 'capacity-exhausted' });
+          const offload = await attemptOffload(envelope);
+          if (offload.ok) {
+            return respond(200, offload.body);
+          }
+          return respond(offload.status, { error: offload.error });
         }
         service.inFlight += 1;
         inFlightRegistered = true;
@@ -270,7 +609,19 @@ export const createNodeHttpServer = (
         return respond(200, { response: responseEnvelope, metering: meteringEnvelope });
       } catch (error) {
         if (error instanceof Error && error.message === 'runner-timeout') {
+          if (envelope) {
+            const offload = await attemptOffload(envelope);
+            if (offload.ok) {
+              return respond(200, offload.body);
+            }
+          }
           return respond(504, { error: 'runner-timeout' });
+        }
+        if (envelope) {
+          const offload = await attemptOffload(envelope);
+          if (offload.ok) {
+            return respond(200, offload.body);
+          }
         }
         return respond(500, { error: 'internal-error' });
       } finally {

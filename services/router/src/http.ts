@@ -17,6 +17,7 @@ import {
   validateInferenceResponse,
   validateMeteringRecord,
   validateNodeDescriptor,
+  validateNodeOffloadRequest,
   validatePaymentReceipt,
   validateRouterAwardPayload,
   validateRouterBidPayload,
@@ -45,6 +46,7 @@ import type {
   InferenceResponse,
   MeteringRecord,
   NodeDescriptor,
+  NodeOffloadRequest,
   PayeeType,
   PaymentReceipt,
   PaymentRequest,
@@ -706,6 +708,127 @@ export const createRouterHttpServer = (
     return { ok: true, body: { response: body.response, metering: body.metering } };
   };
 
+  const attemptNodeInference = async ({
+    targetNode,
+    payload,
+    nonce,
+    expectedRequestId,
+    allowDelegation,
+  }: {
+    targetNode: NodeDescriptor;
+    payload: InferenceRequest;
+    nonce: string;
+    expectedRequestId: string;
+    allowDelegation: boolean;
+  }): Promise<
+    | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
+    | { ok: false; status: number; body: { error: string; details?: string[] } }
+  > => {
+    if (!config.privateKey) {
+      return { ok: false, status: 500, body: { error: 'router-private-key-missing' } };
+    }
+    const forwardEnvelope = signEnvelope(
+      buildEnvelope(payload, nonce, Date.now(), config.keyId),
+      config.privateKey,
+    );
+
+    const failNode = (
+      status: number,
+      body: { error: string; details?: string[] },
+      reason?: string,
+    ): { ok: false; status: number; body: { error: string; details?: string[] } } => {
+      markNodeFailure(service, targetNode.nodeId);
+      if (reason) {
+        accountingFailures.inc({ reason });
+        logWarn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
+      }
+      return { ok: false, status, body };
+    };
+
+    let nodeResponse: Response;
+    try {
+      nodeResponse = await fetch(`${targetNode.endpoint}/infer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(forwardEnvelope),
+      });
+    } catch (error) {
+      return failNode(502, { error: 'node-unreachable' });
+    }
+
+    if (!nodeResponse.ok) {
+      return failNode(502, { error: 'node-error' });
+    }
+
+    const nodeBody = (await nodeResponse.json()) as {
+      response: Envelope<InferenceResponse>;
+      metering: Envelope<MeteringRecord>;
+    };
+
+    const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
+    if (!responseValidation.ok) {
+      return failNode(
+        502,
+        { error: 'invalid-node-response', details: responseValidation.errors },
+        'node-response-invalid',
+      );
+    }
+
+    const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
+    if (!meteringValidation.ok) {
+      return failNode(
+        502,
+        { error: 'invalid-metering', details: meteringValidation.errors },
+        'metering-invalid',
+      );
+    }
+
+    if (
+      nodeBody.response.payload.requestId !== expectedRequestId ||
+      nodeBody.metering.payload.requestId !== expectedRequestId
+    ) {
+      return failNode(502, { error: 'node-response-mismatch' }, 'response-mismatch');
+    }
+
+    const responseKeyId = nodeBody.response.keyId;
+    const meteringKeyId = nodeBody.metering.keyId;
+    if (responseKeyId !== meteringKeyId) {
+      return failNode(502, { error: 'node-response-key-mismatch' }, 'response-key-mismatch');
+    }
+
+    let resolvedNode: NodeDescriptor | undefined;
+    if (allowDelegation) {
+      resolvedNode =
+        responseKeyId === targetNode.keyId
+          ? targetNode
+          : service.nodes.find((entry) => entry.keyId === responseKeyId);
+      if (!resolvedNode) {
+        return failNode(502, { error: 'node-response-unknown' }, 'response-unknown');
+      }
+    } else if (responseKeyId !== targetNode.keyId) {
+      return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
+    } else {
+      resolvedNode = targetNode;
+    }
+
+    const responseKey = parsePublicKey(responseKeyId);
+    if (!verifyEnvelope(nodeBody.response, responseKey)) {
+      return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
+    }
+    if (!verifyEnvelope(nodeBody.metering, responseKey)) {
+      return failNode(502, { error: 'node-metering-signature-invalid' }, 'metering-signature');
+    }
+    recordNodeSuccess(service, resolvedNode.nodeId);
+    if (resolvedNode.nodeId !== targetNode.nodeId) {
+      logWarn('[router] node delegated response', {
+        target: targetNode.nodeId,
+        worker: resolvedNode.nodeId,
+      });
+    }
+
+    return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
+  };
+
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
@@ -1271,90 +1394,15 @@ export const createRouterHttpServer = (
           config.schedulerTopK,
         );
 
-        const attemptNode = async (
-          targetNode: NodeDescriptor,
-          payload: InferenceRequest,
-        ): Promise<
-          | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
-          | { ok: false; status: number; body: { error: string; details?: string[] } }
-        > => {
-          const forwardEnvelope = signEnvelope(
-            buildEnvelope(payload, randomUUID(), Date.now(), config.keyId),
-            config.privateKey!,
-          );
-
-          const failNode = (
-            status: number,
-            body: { error: string; details?: string[] },
-            reason?: string,
-          ): { ok: false; status: number; body: { error: string; details?: string[] } } => {
-            markNodeFailure(service, targetNode.nodeId);
-            if (reason) {
-              accountingFailures.inc({ reason });
-              logWarn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
-            }
-            return { ok: false, status, body };
-          };
-
-          let nodeResponse: Response;
-          try {
-            nodeResponse = await fetch(`${targetNode.endpoint}/infer`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(forwardEnvelope),
-            });
-          } catch (error) {
-            return failNode(502, { error: 'node-unreachable' });
-          }
-
-          if (!nodeResponse.ok) {
-            return failNode(502, { error: 'node-error' });
-          }
-
-          const nodeBody = (await nodeResponse.json()) as {
-            response: Envelope<InferenceResponse>;
-            metering: Envelope<MeteringRecord>;
-          };
-
-          const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
-          if (!responseValidation.ok) {
-            return failNode(
-              502,
-              { error: 'invalid-node-response', details: responseValidation.errors },
-              'node-response-invalid',
-            );
-          }
-
-          const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
-          if (!meteringValidation.ok) {
-            return failNode(
-              502,
-              { error: 'invalid-metering', details: meteringValidation.errors },
-              'metering-invalid',
-            );
-          }
-
-          const nodeKey = parsePublicKey(targetNode.keyId);
-          if (
-            nodeBody.response.keyId !== targetNode.keyId ||
-            !verifyEnvelope(nodeBody.response, nodeKey)
-          ) {
-            return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
-          }
-          if (
-            nodeBody.metering.keyId !== targetNode.keyId ||
-            !verifyEnvelope(nodeBody.metering, nodeKey)
-          ) {
-            return failNode(502, { error: 'node-metering-signature-invalid' }, 'metering-signature');
-          }
-          recordNodeSuccess(service, targetNode.nodeId);
-
-          return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
-        };
-
         let lastFailure: { status: number; body: { error: string; details?: string[] } } | null = null;
         for (const candidate of candidates) {
-          const result = await attemptNode(candidate, decoded.request);
+          const result = await attemptNodeInference({
+            targetNode: candidate,
+            payload: decoded.request,
+            nonce: randomUUID(),
+            expectedRequestId: decoded.request.requestId,
+            allowDelegation: true,
+          });
           if (!result.ok) {
             lastFailure = { status: result.status, body: result.body };
             continue;
@@ -1841,6 +1889,102 @@ export const createRouterHttpServer = (
       }
     }
 
+    if (req.method === 'POST' && req.url === '/node/offload') {
+      const span = routerTracer.startSpan('router.nodeOffload', {
+        attributes: { component: 'router', 'router.endpoint': config.endpoint },
+      });
+      const respond = (status: number, body: unknown): void => {
+        sendJson(res, status, body);
+      };
+      try {
+        const body = await readJsonBody(req, config.maxRequestBytes);
+        if (!body.ok) {
+          return respond(bodyErrorStatus(body.error), { error: body.error });
+        }
+
+        const validation = validateEnvelope(body.value, validateNodeOffloadRequest);
+        if (!validation.ok) {
+          return respond(400, { error: 'invalid-envelope', details: validation.errors });
+        }
+
+        const envelope = body.value as Envelope<NodeOffloadRequest>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return respond(400, { error: 'invalid-key-id' });
+        }
+        const nodeRecord = service.nodes.find(
+          (node) => node.nodeId === envelope.payload.originNodeId,
+        );
+        if (!nodeRecord || nodeRecord.keyId !== envelope.keyId) {
+          return respond(403, { error: 'node-not-registered' });
+        }
+        const nodeKey = parsePublicKey(envelope.keyId);
+        if (!verifyEnvelope(envelope, nodeKey)) {
+          return respond(401, { error: 'invalid-signature' });
+        }
+        const replay = checkReplay(envelope, store);
+        if (!replay.ok) {
+          return respond(400, { error: replay.error });
+        }
+        if (!config.privateKey) {
+          return respond(500, { error: 'router-private-key-missing' });
+        }
+
+        const requestEstimate: QuoteRequest = {
+          requestId: envelope.payload.request.requestId,
+          modelId: envelope.payload.request.modelId,
+          maxTokens: envelope.payload.request.maxTokens,
+          inputTokensEstimate: envelope.payload.request.prompt.length,
+          outputTokensEstimate: envelope.payload.request.maxTokens,
+          jobType: envelope.payload.request.jobType,
+        };
+
+        const avoidNodes = new Set<string>([
+          envelope.payload.originNodeId,
+          ...(envelope.payload.avoidNodeIds ?? []),
+        ]);
+        const candidates = filterActiveNodes(service, getWeightedNodes(service)).filter(
+          (node) => !avoidNodes.has(node.nodeId),
+        );
+
+        const ranked = rankCandidateNodes(candidates, requestEstimate, config.schedulerTopK);
+        for (const candidate of ranked) {
+          const capability = pickCapabilityForRequest(candidate, requestEstimate);
+          if (!capability) {
+            continue;
+          }
+          const candidatePayload: InferenceRequest = {
+            ...envelope.payload.request,
+            modelId: capability.modelId,
+          };
+          const result = await attemptNodeInference({
+            targetNode: candidate,
+            payload: candidatePayload,
+            nonce: envelope.nonce,
+            expectedRequestId: envelope.payload.request.requestId,
+            allowDelegation: true,
+          });
+          if (result.ok) {
+            return respond(200, result.body);
+          }
+        }
+
+        const offloadEnvelope = signEnvelope(
+          buildEnvelope(envelope.payload.request, randomUUID(), Date.now(), config.keyId),
+          config.privateKey,
+        );
+        const offload = await attemptFederationOffload(offloadEnvelope);
+        if (offload.ok) {
+          return respond(200, offload.body);
+        }
+
+        return respond(503, { error: 'no-nodes-available' });
+      } catch (error) {
+        return respond(500, { error: 'internal-error' });
+      } finally {
+        span.end();
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/infer') {
       const span = routerTracer.startSpan('router.infer', {
         attributes: { component: 'router', 'router.endpoint': config.endpoint },
@@ -1915,87 +2059,6 @@ export const createRouterHttpServer = (
           modelId: selectedCapability.modelId,
         };
 
-        const attemptNode = async (
-          targetNode: NodeDescriptor,
-          payload: InferenceRequest,
-        ): Promise<
-          | { ok: true; body: { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> } }
-          | { ok: false; status: number; body: { error: string; details?: string[] } }
-        > => {
-          const forwardEnvelope = signEnvelope(
-            buildEnvelope(payload, envelope.nonce, Date.now(), config.keyId),
-            config.privateKey!,
-          );
-
-          const failNode = (
-            status: number,
-            body: { error: string; details?: string[] },
-            reason?: string,
-          ): { ok: false; status: number; body: { error: string; details?: string[] } } => {
-            markNodeFailure(service, targetNode.nodeId);
-            if (reason) {
-              accountingFailures.inc({ reason });
-              logWarn(`[router] accounting failure (${reason}) for node ${targetNode.nodeId}`);
-            }
-            return { ok: false, status, body };
-          };
-
-          let nodeResponse: Response;
-          try {
-            nodeResponse = await fetch(`${targetNode.endpoint}/infer`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(forwardEnvelope),
-            });
-          } catch (error) {
-            return failNode(502, { error: 'node-unreachable' });
-          }
-
-          if (!nodeResponse.ok) {
-            return failNode(502, { error: 'node-error' });
-          }
-
-          const nodeBody = (await nodeResponse.json()) as {
-            response: Envelope<InferenceResponse>;
-            metering: Envelope<MeteringRecord>;
-          };
-
-          const responseValidation = validateEnvelope(nodeBody.response, validateInferenceResponse);
-          if (!responseValidation.ok) {
-            return failNode(
-              502,
-              { error: 'invalid-node-response', details: responseValidation.errors },
-              'node-response-invalid',
-            );
-          }
-
-          const meteringValidation = validateEnvelope(nodeBody.metering, validateMeteringRecord);
-          if (!meteringValidation.ok) {
-            return failNode(
-              502,
-              { error: 'invalid-metering', details: meteringValidation.errors },
-              'metering-invalid',
-            );
-          }
-
-          const nodeKey = parsePublicKey(targetNode.keyId);
-          if (
-            nodeBody.response.keyId !== targetNode.keyId ||
-            !verifyEnvelope(nodeBody.response, nodeKey)
-          ) {
-            return failNode(502, { error: 'node-response-signature-invalid' }, 'response-signature');
-          }
-          if (
-            nodeBody.metering.keyId !== targetNode.keyId ||
-            !verifyEnvelope(nodeBody.metering, nodeKey)
-          ) {
-            return failNode(502, { error: 'node-metering-signature-invalid' }, 'metering-signature');
-          }
-          recordNodeSuccess(service, targetNode.nodeId);
-
-          return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
-        };
-
         if (config.requirePayment) {
           const payeeType: PayeeType = 'node';
           const payeeId = node.nodeId;
@@ -2054,7 +2117,13 @@ export const createRouterHttpServer = (
           }
 
           const requestPayload = { ...resolvedRequest, paymentReceipts: [storedReceipt] };
-          const attempt = await attemptNode(node, requestPayload);
+          const attempt = await attemptNodeInference({
+            targetNode: node,
+            payload: requestPayload,
+            nonce: envelope.nonce,
+            expectedRequestId: envelope.payload.requestId,
+            allowDelegation: false,
+          });
           if (!attempt.ok) {
             respond(attempt.status, attempt.body);
             return;
@@ -2080,7 +2149,13 @@ export const createRouterHttpServer = (
             ...envelope.payload,
             modelId: capability.modelId,
           };
-          const result = await attemptNode(candidate, candidatePayload);
+          const result = await attemptNodeInference({
+            targetNode: candidate,
+            payload: candidatePayload,
+            nonce: envelope.nonce,
+            expectedRequestId: envelope.payload.requestId,
+            allowDelegation: false,
+          });
           if (result.ok) {
             respond(200, result.body);
             return;

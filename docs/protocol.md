@@ -31,6 +31,10 @@ Envelope<T> {
 - StakeCommit
 - StakeSlash
 - Attestation (optional in v0.1)
+- NodeOffloadRequest
+- NodeRfbPayload
+- NodeBidPayload
+- NodeAwardPayload
 - Router federation:
   - RouterControlMessage
   - RouterCapabilityProfile

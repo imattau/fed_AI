@@ -10,7 +10,7 @@ Responsibilities
 - Node selection and dispatch.
 - Metering aggregation.
 - Use Nostr-compatible keys for verifying node envelopes.
-- Service is independently deployable and exposes `/health`, `/status`, `/register-node`, `/manifest`, `/quote`, `/infer`, and `/payment-receipt`.
+- Service is independently deployable and exposes `/health`, `/status`, `/register-node`, `/manifest`, `/quote`, `/infer`, `/node/offload`, and `/payment-receipt`.
 
 Health tracking
 - Router tracks `lastHeartbeatMs` and filters stale nodes during selection.

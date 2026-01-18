@@ -10,7 +10,7 @@ Responsibilities
 - Collect and sign metering data.
 - Advertise capabilities via heartbeat.
 - Use Nostr-compatible keys for node identity and signing.
-- Service is independently deployable and exposes `/health`, `/status`, and `/infer`.
+- Service is independently deployable and exposes `/health`, `/status`, `/infer`, `/offload/rfb`, and `/offload/award`.
 
 Heartbeat
 - Nodes periodically sign and send `NodeDescriptor` updates to the router.
@@ -21,6 +21,11 @@ Payments
 - Routers include the verified receipts inside the `paymentReceipts` array so downstream nodes can pick the one targeting them.
 - Clients can issue receipts via `fedai receipt` and supply them on subsequent calls (e.g., `fedai infer ... --receipts node-receipt.json`).
 - The receipt is forwarded by the router inside the inference payload.
+
+Offload behavior
+- When saturated or timing out, nodes can forward the original signed inference envelope to peer nodes (`NODE_OFFLOAD_PEERS`).
+- Nodes can also ask the router to re-run scheduling via `/node/offload` (`NODE_OFFLOAD_ROUTER=true`), which may trigger the federation auction if the router has no local capacity.
+- When `NODE_OFFLOAD_AUCTION=true`, nodes request bids from peer nodes before selecting an offload target.
 
 Runner interface
 - `listModels()`
@@ -60,6 +65,9 @@ Prohibitions
 Configuration
 - Core: `NODE_ID`, `NODE_KEY_ID` (npub), `NODE_PRIVATE_KEY_PEM` (nsec or hex), `NODE_ENDPOINT`, `NODE_PORT`.
 - Router linkage: `ROUTER_ENDPOINT`, `ROUTER_PUBLIC_KEY_PEM` (npub or hex), `ROUTER_KEY_ID` (npub), `NODE_ROUTER_ALLOWLIST` (npub list).
+- Offload: `NODE_OFFLOAD_PEERS` (comma-separated node endpoints), `NODE_OFFLOAD_ROUTER` (`true|false` to allow router fallback).
+- Offload auction: `NODE_OFFLOAD_AUCTION` (`true|false`), `NODE_OFFLOAD_AUCTION_MS` (auction timeout for bids).
+- Offload auction access: `NODE_OFFLOAD_AUCTION_ALLOWLIST` (npub list), `NODE_OFFLOAD_AUCTION_RATE_LIMIT` (requests per minute).
 - Router preferences: `NODE_ROUTER_FOLLOW`, `NODE_ROUTER_MUTE`, `NODE_ROUTER_BLOCK` (npub lists).
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.

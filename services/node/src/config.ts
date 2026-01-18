@@ -7,6 +7,12 @@ export type NodeConfig = {
   routerEndpoint: string;
   routerKeyId?: string;
   routerAllowList?: string[];
+  offloadPeers?: string[];
+  offloadRouter?: boolean;
+  offloadAuctionEnabled?: boolean;
+  offloadAuctionMs?: number;
+  offloadAuctionAllowList?: string[];
+  offloadAuctionRateLimit?: number;
   heartbeatIntervalMs: number;
   runnerName: string;
   port: number;
@@ -71,6 +77,12 @@ export const defaultNodeConfig: NodeConfig = {
   routerFollowList: undefined,
   routerMuteList: undefined,
   routerBlockList: undefined,
+  offloadPeers: undefined,
+  offloadRouter: false,
+  offloadAuctionEnabled: false,
+  offloadAuctionMs: 800,
+  offloadAuctionAllowList: undefined,
+  offloadAuctionRateLimit: 30,
   tls: undefined,
   paymentVerification: undefined,
   capabilityJobTypes: undefined,

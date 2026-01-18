@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -24,7 +24,8 @@ import {
 import type { Envelope, InferenceRequest, PaymentReceipt, PayeeType } from '../src/types';
 
 test('signEnvelope and verifyEnvelope round-trip', () => {
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
   const keyId = exportPublicKeyNpub(publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-1',
@@ -38,14 +39,16 @@ test('signEnvelope and verifyEnvelope round-trip', () => {
 
   assert.equal(verifyEnvelope(signed, publicKey), true);
 
-  const { publicKey: otherPublicKey } = generateKeyPairSync('ed25519');
+  const otherPrivateKey = generateSecretKey();
+  const otherPublicKey = Buffer.from(getPublicKey(otherPrivateKey), 'hex');
   assert.equal(verifyEnvelope(signed, otherPublicKey), false);
 });
 
 test('checkReplay enforces nonce and timestamp window', () => {
   const store = new InMemoryNonceStore();
   const now = Date.now();
-  const { publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
   const keyId = exportPublicKeyNpub(publicKey);
   const payload = { ok: true };
   const envelope = buildEnvelope(payload, 'nonce-2', now, keyId);
@@ -63,12 +66,21 @@ test('checkReplay enforces nonce and timestamp window', () => {
   assert.equal(lateResult.error, 'ts-out-of-window');
 });
 
-test('FileNonceStore persists nonces across restarts', () => {
+test('FileNonceStore persists nonces across restarts', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fed-ai-replay-'));
   const filePath = join(dir, 'nonces.json');
 
   const store = new FileNonceStore(filePath, { persistIntervalMs: 0 });
   store.add('nonce-file-1', Date.now());
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (existsSync(filePath)) {
+      const raw = readFileSync(filePath, 'utf8');
+      if (raw.includes('nonce-file-1')) {
+        break;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 
   const reloaded = new FileNonceStore(filePath, { persistIntervalMs: 0 });
   assert.equal(reloaded.has('nonce-file-1'), true);
@@ -77,7 +89,8 @@ test('FileNonceStore persists nonces across restarts', () => {
 });
 
 test('validateEnvelope validates payloads', () => {
-  const { publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
   const keyId = exportPublicKeyNpub(publicKey);
   const payload: InferenceRequest = {
     requestId: 'req-2',
@@ -95,7 +108,8 @@ test('validateEnvelope validates payloads', () => {
 });
 
 test('validateInferenceRequest accepts paymentReceipt envelopes', () => {
-  const { publicKey } = generateKeyPairSync('ed25519');
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
   const keyId = exportPublicKeyNpub(publicKey);
   const receipt: Envelope<PaymentReceipt> = {
     payload: {

@@ -173,6 +173,14 @@ const buildConfig = (): NodeConfig => {
     routerFollowList: parseNpubList(getEnv('NODE_ROUTER_FOLLOW')),
     routerMuteList: parseNpubList(getEnv('NODE_ROUTER_MUTE')),
     routerBlockList: parseNpubList(getEnv('NODE_ROUTER_BLOCK')),
+    offloadPeers: parseList(getEnv('NODE_OFFLOAD_PEERS')),
+    offloadRouter: (getEnv('NODE_OFFLOAD_ROUTER') ?? 'false').toLowerCase() === 'true',
+    offloadAuctionEnabled: (getEnv('NODE_OFFLOAD_AUCTION') ?? 'false').toLowerCase() === 'true',
+    offloadAuctionMs: parseNumber(getEnv('NODE_OFFLOAD_AUCTION_MS'), true) ?? defaultNodeConfig.offloadAuctionMs,
+    offloadAuctionAllowList: parseNpubList(getEnv('NODE_OFFLOAD_AUCTION_ALLOWLIST')),
+    offloadAuctionRateLimit:
+      parseNumber(getEnv('NODE_OFFLOAD_AUCTION_RATE_LIMIT'), true) ??
+      defaultNodeConfig.offloadAuctionRateLimit,
     nonceStorePath: getEnv('NODE_NONCE_STORE_PATH'),
     nonceStoreUrl,
     capabilityJobTypes: parseJobTypes(getEnv('NODE_JOB_TYPES')),

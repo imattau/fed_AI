@@ -8,6 +8,10 @@ import type {
   MeteringRecord,
   ModelInfo,
   NodeDescriptor,
+  NodeOffloadRequest,
+  NodeRfbPayload,
+  NodeBidPayload,
+  NodeAwardPayload,
   PayeeType,
   PaymentReceipt,
   PaymentRequest,
@@ -178,6 +182,39 @@ const meteringRecordSchema: z.ZodType<MeteringRecord> = z.object({
   bytesIn: z.number(),
   bytesOut: z.number(),
   ts: z.number(),
+});
+
+const nodeOffloadRequestSchema = z.object({
+  requestId: z.string(),
+  originNodeId: z.string(),
+  request: z.unknown(),
+  avoidNodeIds: z.array(z.string()).optional(),
+});
+
+const nodeRfbPayloadSchema: z.ZodType<NodeRfbPayload> = z.object({
+  requestId: z.string(),
+  jobType: routerJobTypeSchema.optional(),
+  sizeEstimate: z.object({
+    tokens: z.number(),
+    bytes: z.number(),
+  }),
+  deadlineMs: z.number(),
+  maxRuntimeMs: z.number().optional(),
+});
+
+const nodeBidPayloadSchema: z.ZodType<NodeBidPayload> = z.object({
+  requestId: z.string(),
+  nodeId: z.string().optional(),
+  priceMsat: z.number().optional(),
+  etaMs: z.number(),
+  bidExpiryMs: z.number(),
+});
+
+const nodeAwardPayloadSchema: z.ZodType<NodeAwardPayload> = z.object({
+  requestId: z.string(),
+  winnerKeyId: z.string(),
+  acceptedPriceMsat: z.number().optional(),
+  awardExpiryMs: z.number(),
 });
 
 const protocolErrorSchema: z.ZodType<ProtocolError> = z.object({
@@ -470,6 +507,11 @@ const inferenceRequestSchema: z.ZodType<InferenceRequest> = z.object({
   paymentReceipts: z.array(envelopeSchema(paymentReceiptSchema)).optional(),
 });
 
+const nodeOffloadRequestSchemaTyped: z.ZodType<NodeOffloadRequest> =
+  nodeOffloadRequestSchema.extend({
+    request: inferenceRequestSchema,
+  });
+
 export const validateCapability: Validator<Capability> = (value) =>
   validateWithSchema(capabilitySchema, value);
 
@@ -499,6 +541,18 @@ export const validateInferenceResponse: Validator<InferenceResponse> = (value) =
 
 export const validateMeteringRecord: Validator<MeteringRecord> = (value) =>
   validateWithSchema(meteringRecordSchema, value);
+
+export const validateNodeOffloadRequest: Validator<NodeOffloadRequest> = (value) =>
+  validateWithSchema(nodeOffloadRequestSchemaTyped, value);
+
+export const validateNodeRfbPayload: Validator<NodeRfbPayload> = (value) =>
+  validateWithSchema(nodeRfbPayloadSchema, value);
+
+export const validateNodeBidPayload: Validator<NodeBidPayload> = (value) =>
+  validateWithSchema(nodeBidPayloadSchema, value);
+
+export const validateNodeAwardPayload: Validator<NodeAwardPayload> = (value) =>
+  validateWithSchema(nodeAwardPayloadSchema, value);
 
 export const validateProtocolError: Validator<ProtocolError> = (value) =>
   validateWithSchema(protocolErrorSchema, value);

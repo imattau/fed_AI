@@ -12,7 +12,7 @@ import type { RouterControlMessage, RouterCapabilityProfile } from '../src/types
 test('buildRouterControlEvent and parseRouterControlEvent round-trip', () => {
   const privateKey = generateSecretKey();
   const publicKey = getPublicKey(privateKey);
-  const routerId = exportPublicKeyNpub(publicKey);
+  const routerId = exportPublicKeyNpub(Buffer.from(publicKey, 'hex'));
   const payload: RouterCapabilityProfile = {
     routerId,
     transportEndpoints: ['https://router.example'],
