@@ -49,6 +49,8 @@ Operate the router service safely, monitor health, and troubleshoot failures.
 - `ROUTER_FEDERATION_NOSTR_FOLLOW`: optional comma-separated npub follow list (biases WoT and relay subscriptions).
 - `ROUTER_FEDERATION_NOSTR_MUTE`: optional comma-separated npub mute list (ignored inbound messages).
 - `ROUTER_FEDERATION_NOSTR_BLOCK`: optional comma-separated npub block list (rejected inbound messages).
+- `ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS`: minimum backoff (ms) before retrying failed relays.
+- `ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS`: maximum backoff (ms) before retrying failed relays.
 - `ROUTER_FEDERATION_NOSTR_WOT`: enable Web-of-Trust scoring for relay events.
 - `ROUTER_FEDERATION_NOSTR_WOT_TRUSTED`: comma-separated npub list of trusted peers for WoT scoring.
 - `ROUTER_FEDERATION_NOSTR_WOT_MIN_SCORE`: minimum WoT score required to accept events.
@@ -97,6 +99,7 @@ Key metrics:
 - `router_payment_receipt_failures_total`
 - `router_node_failures_total`
 - `router_accounting_failures_total`
+- `router_federation_relay_failures_total`
 
 Tracing:
 

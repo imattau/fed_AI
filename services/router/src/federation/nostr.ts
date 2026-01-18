@@ -24,9 +24,10 @@ import type {
 import type { RouterConfig } from '../config';
 import type { RouterService } from '../server';
 import { logInfo, logWarn } from '../logging';
-import { federationMessages } from '../observability';
+import { federationMessages, federationRelayFailures } from '../observability';
 import { canBidForRfb, estimateBidPrice } from './logic';
 import type { FederationRateLimiter } from './rate-limit';
+import { createFederationRelayManager } from './relay-manager';
 
 useWebSocketImplementation(WebSocket);
 
@@ -34,6 +35,7 @@ export type FederationNostrRuntime = {
   pool: SimplePool;
   relays: string[];
   peerScores: Map<string, number>;
+  relayManager: ReturnType<typeof createFederationRelayManager>;
   close: () => void;
 };
 
@@ -58,9 +60,21 @@ const publishEvent = async (
   pool: SimplePool,
   relays: string[],
   event: NostrEvent,
+  relayManager: ReturnType<typeof createFederationRelayManager>,
 ): Promise<void> => {
   const results = pool.publish(relays, event);
-  await Promise.allSettled(results);
+  const settled = await Promise.allSettled(results);
+  for (const [index, result] of settled.entries()) {
+    const relay = relays[index];
+    if (result.status === 'rejected') {
+      federationRelayFailures.inc({ stage: 'publish' });
+      if (relay) {
+        relayManager.recordFailure(relay);
+      }
+    } else if (relay) {
+      relayManager.recordSuccess(relay);
+    }
+  }
 };
 
 const publishLocalMessages = async (
@@ -112,7 +126,7 @@ const publishLocalMessages = async (
     events.push(buildRouterControlEvent(message, config.privateKey));
   }
 
-  await Promise.all(events.map((event) => publishEvent(runtime.pool, runtime.relays, event)));
+  await Promise.all(events.map((event) => publishEvent(runtime.pool, runtime.relays, event, runtime.relayManager)));
 };
 
 const handleCaps = (service: RouterService, message: RouterControlMessage<RouterCapabilityProfile>): void => {
@@ -268,92 +282,144 @@ export const startFederationNostr = (
   rateLimiter?: FederationRateLimiter,
 ): FederationNostrRuntime => {
   const pool = new SimplePool({ enableReconnect: true });
+  const relayManager = createFederationRelayManager(
+    relays,
+    config.federation?.nostrRelayRetryMinMs ?? 1000,
+    config.federation?.nostrRelayRetryMaxMs ?? 30_000,
+  );
+  let subscriptionClose: { close: () => void } | null = null;
+  let retryTimer: NodeJS.Timeout | null = null;
   const runtime: FederationNostrRuntime = {
     pool,
     relays,
     peerScores: new Map(),
+    relayManager,
     close: () => undefined,
   };
   const filter = buildSubscriptionFilter(config);
-  const close = pool.subscribe(relays, filter, {
-    onevent: async (event) => {
-      if (!withinContentLimit(config, event)) {
-        return;
-      }
-      const parsed = parseRouterControlEvent(event);
-      if (!parsed.ok) {
-        return;
-      }
-      const message = parsed.message;
-      const peerScore = computePeerScore(runtime, config, message.routerId, event.id);
-      if (shouldIgnore(config, message, peerScore)) {
-        return;
-      }
-      switch (message.type) {
-        case 'CAPS_ANNOUNCE': {
-          if (!validatePayload(message, validateRouterCapabilityProfile)) {
-            return;
-          }
-          handleCaps(service, message);
-          break;
+  const scheduleRetry = (): void => {
+    if (retryTimer) {
+      return;
+    }
+    const delay = relayManager.nextRetryDelayMs();
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      subscribeToRelays();
+    }, delay ?? 1000);
+  };
+
+  const subscribeToRelays = (): void => {
+    if (subscriptionClose) {
+      subscriptionClose.close();
+      subscriptionClose = null;
+    }
+    const activeRelays = relayManager.getActiveRelays();
+    if (activeRelays.length === 0) {
+      scheduleRetry();
+      return;
+    }
+    runtime.relays = activeRelays;
+    subscriptionClose = pool.subscribe(activeRelays, filter, {
+      onevent: async (event) => {
+        if (!withinContentLimit(config, event)) {
+          return;
         }
-        case 'PRICE_ANNOUNCE': {
-          if (!validatePayload(message, validateRouterPriceSheet)) {
-            return;
-          }
-          handlePrice(service, message);
-          break;
+        const parsed = parseRouterControlEvent(event);
+        if (!parsed.ok) {
+          federationRelayFailures.inc({ stage: 'parse' });
+          return;
         }
-        case 'STATUS_ANNOUNCE': {
-          if (!validatePayload(message, validateRouterStatusPayload)) {
-            return;
-          }
-          handleStatus(service, message);
-          break;
+        const message = parsed.message;
+        const peerScore = computePeerScore(runtime, config, message.routerId, event.id);
+        if (shouldIgnore(config, message, peerScore)) {
+          return;
         }
-        case 'RFB': {
-          if (!validatePayload(message, validateRouterRfbPayload)) {
-            return;
+        switch (message.type) {
+          case 'CAPS_ANNOUNCE': {
+            if (!validatePayload(message, validateRouterCapabilityProfile)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            handleCaps(service, message);
+            break;
           }
-          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
-            return;
+          case 'PRICE_ANNOUNCE': {
+            if (!validatePayload(message, validateRouterPriceSheet)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            handlePrice(service, message);
+            break;
           }
-          await handleRfb(service, config, runtime, message);
-          break;
+          case 'STATUS_ANNOUNCE': {
+            if (!validatePayload(message, validateRouterStatusPayload)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            handleStatus(service, message);
+            break;
+          }
+          case 'RFB': {
+            if (!validatePayload(message, validateRouterRfbPayload)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
+              return;
+            }
+            await handleRfb(service, config, runtime, message);
+            break;
+          }
+          case 'BID': {
+            if (!validatePayload(message, validateRouterBidPayload)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
+              return;
+            }
+            handleBid(service, message);
+            break;
+          }
+          case 'AWARD': {
+            if (!validatePayload(message, validateRouterAwardPayload)) {
+              federationRelayFailures.inc({ stage: 'validation' });
+              return;
+            }
+            if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
+              return;
+            }
+            if ((message.payload as RouterAwardPayload).winnerRouterId !== config.keyId) {
+              return;
+            }
+            handleAward(service, message);
+            break;
+          }
+          default:
+            break;
         }
-        case 'BID': {
-          if (!validatePayload(message, validateRouterBidPayload)) {
-            return;
-          }
-          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
-            return;
-          }
-          handleBid(service, message);
-          break;
+      },
+      onclose: (reason) => {
+        federationRelayFailures.inc({ stage: 'subscribe' });
+        for (const relay of activeRelays) {
+          relayManager.recordFailure(relay);
         }
-        case 'AWARD': {
-          if (!validatePayload(message, validateRouterAwardPayload)) {
-            return;
-          }
-          if (rateLimiter && !rateLimiter.allow(message.routerId, message.type)) {
-            return;
-          }
-          if ((message.payload as RouterAwardPayload).winnerRouterId !== config.keyId) {
-            return;
-          }
-          handleAward(service, message);
-          break;
-        }
-        default:
-          break;
-      }
-    },
-    onclose: (reason) => {
-      logWarn('[router] nostr federation subscription closed', { reason });
-    },
-  });
+        logWarn('[router] nostr federation subscription closed', { reason });
+        scheduleRetry();
+      },
+    });
+  };
+
+  subscribeToRelays();
   runtime.close = () => {
-    close.close();
+    if (subscriptionClose) {
+      subscriptionClose.close();
+      subscriptionClose = null;
+    }
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     pool.close(relays);
     pool.destroy();
   };

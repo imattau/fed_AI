@@ -52,6 +52,32 @@ Envelope<T> {
 - `keyId` is the Nostr public key (`npub...`)
 - Services accept keys as npub/nsec, PEM, or 32-byte hex
 
+## Nostr event layer (router federation)
+
+Required NIPs
+- NIP-01 (basic event model, signatures)
+- NIP-19 (npub/nsec encoding for identifiers)
+
+Event kinds (v0.1)
+- `30020` `CAPS_ANNOUNCE`
+- `30021` `PRICE_ANNOUNCE`
+- `30022` `STATUS_ANNOUNCE`
+- `30023` `RECEIPT_SUMMARY`
+- `20020` `RFB`
+- `20021` `BID`
+- `20022` `AWARD`
+- `20023` `CANCEL`
+
+Event tags
+- `t`: message type (e.g. `RFB`)
+- `v`: protocol version (e.g. `0.1`)
+- `msg`: message id
+- `exp`: expiry timestamp (ms since epoch)
+
+Event payloads
+- `content` is the JSON-encoded `RouterControlMessage.payload`.
+- `pubkey` maps to the router identity; `routerId` is derived as `npub` from `pubkey`.
+
 ## Security posture
 
 - All requests and responses use signed envelopes.
@@ -87,5 +113,5 @@ Scheduling hints
 ## Router federation (v0.1)
 
 Router-to-router offload, pricing, privacy levels, control-plane messages, and receipts are
-specified in `docs/router-federation-v0.1.md`. Protocol types for federation messaging will
-consolidate into the canonical protocol package once implemented.
+specified in `docs/router-federation-v0.1.md`. Protocol types for federation messaging live
+in `packages/protocol` and are the canonical source for validation and signing.

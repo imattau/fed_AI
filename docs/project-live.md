@@ -182,17 +182,17 @@ Phase 7 - Optional extensions
   - [x] Implement relay publish/subscribe path for federation control-plane messages.
   - [x] Add tests for event signing/verification and relay publish flow.
 - [ ] Nostr relay operations
-  - [ ] Add relay connection manager with retry/backoff and configurable relay lists.
-  - [ ] Verify inbound events against router/node allowlists and expiry windows.
-  - [ ] Add metrics for relay publish/subscribe failures.
+  - [x] Add relay connection manager with retry/backoff and configurable relay lists.
+  - [x] Verify inbound events against router/node allowlists and expiry windows.
+  - [x] Add metrics for relay publish/subscribe failures.
   - [x] Enforce Nostr allowlists for federation peers and control-plane endpoints.
   - [x] Add follow/mute/block lists for Nostr federation peers and router ingress checks.
   - [x] Add rate limiting/budgets for inbound federation RFB/BID/AWARD events.
   - [x] Add Nostr event content size bounds before JSON parsing.
   - [x] Document relay allowlist and access controls in runbooks.
 - [ ] Docs update
-  - [ ] Document required NIPs, identity format (NIP-19), and relay usage.
-  - [ ] Update protocol/architecture docs with event kind mapping and tag definitions.
+  - [x] Document required NIPs, identity format (NIP-19), and relay usage.
+  - [x] Update protocol/architecture docs with event kind mapping and tag definitions.
 
 ## Scratchpad
 

@@ -550,7 +550,12 @@ export const createRouterHttpServer = (
     config.federation?.peers,
     config.federation?.discovery?.bootstrapPeers,
   ).map((peer) => peer.url);
-  const getPeerRestriction = (routerId: string): 'blocked' | 'muted' | null => {
+  const getPeerRestriction = (routerId: string): 'blocked' | 'muted' | 'not-allowed' | null => {
+    if (config.federation?.nostrAllowedPeers?.length) {
+      if (!config.federation.nostrAllowedPeers.includes(routerId)) {
+        return 'not-allowed';
+      }
+    }
     if (config.federation?.nostrBlockPeers?.includes(routerId)) {
       return 'blocked';
     }

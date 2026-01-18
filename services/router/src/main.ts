@@ -191,6 +191,8 @@ const buildConfig = (): RouterConfig => {
       nostrMutePeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_MUTE')),
       nostrBlockPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_BLOCK')),
       nostrMaxContentBytes: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_MAX_CONTENT_BYTES')),
+      nostrRelayRetryMinMs: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS')),
+      nostrRelayRetryMaxMs: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS')),
       nostrWotEnabled: (getEnv('ROUTER_FEDERATION_NOSTR_WOT') ?? 'false').toLowerCase() === 'true',
       nostrWotTrustedPeers: parseNpubList(getEnv('ROUTER_FEDERATION_NOSTR_WOT_TRUSTED')),
       nostrWotMinScore: parseNumber(getEnv('ROUTER_FEDERATION_NOSTR_WOT_MIN_SCORE')),

@@ -59,3 +59,10 @@ export const federationJobs = new Counter({
   labelNames: ['stage'],
   registers: [routerRegistry],
 });
+
+export const federationRelayFailures = new Counter({
+  name: 'router_federation_relay_failures_total',
+  help: 'Federation relay publish/subscribe failures',
+  labelNames: ['stage'],
+  registers: [routerRegistry],
+});

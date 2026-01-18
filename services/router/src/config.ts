@@ -92,6 +92,8 @@ export const defaultRouterConfig: RouterConfig = {
     nostrMutePeers: undefined,
     nostrBlockPeers: undefined,
     nostrMaxContentBytes: 16_384,
+    nostrRelayRetryMinMs: 1_000,
+    nostrRelayRetryMaxMs: 30_000,
     nostrWotEnabled: false,
     nostrWotTrustedPeers: undefined,
     nostrWotMinScore: 3,
@@ -120,6 +122,8 @@ export type RouterFederationConfig = {
   nostrMutePeers?: string[];
   nostrBlockPeers?: string[];
   nostrMaxContentBytes?: number;
+  nostrRelayRetryMinMs?: number;
+  nostrRelayRetryMaxMs?: number;
   nostrWotEnabled?: boolean;
   nostrWotTrustedPeers?: string[];
   nostrWotMinScore?: number;

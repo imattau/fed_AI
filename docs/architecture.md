@@ -18,6 +18,9 @@ Compute plane
 - Discovery and reputation can be relay-backed while keeping prompts and outputs off relays.
 - Nostr relays are used for discovery and trust signaling; operational traffic is peer-to-peer between client, router, and node (direct HTTP).
 - Relay discovery uses the `@fed-ai/nostr-relay-discovery` package to fetch, normalise, score, and deduplicate aggregator directories, so routers and installers always have a fresh candidate set while keeping discovery logic decoupled from core services.
+- Router federation control-plane messages map to dedicated Nostr kinds (20020-20023 for ephemeral auctions, 30020-30023 for replaceable announcements).
+- Routers can enforce allowlists, follow/mute/block preferences, and WoT scoring to filter inbound relay traffic.
+- Relay connections use retry/backoff to avoid flapping relays and reduce noisy reconnect loops.
 
 ## Federation model
 
