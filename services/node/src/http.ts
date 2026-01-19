@@ -215,6 +215,7 @@ export const createNodeHttpServer = (
         taskTimeoutMs: config.workerThreads.taskTimeoutMs,
       })
     : null;
+  const adminHandler = createAdminHandler(service, config);
   const startedAtMs = Date.now();
   const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
   const checkIngressRateLimit = (
@@ -502,7 +503,19 @@ export const createNodeHttpServer = (
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
-    const requestId = ensureRequestId(req, res);
+    const url = req.url || '';
+    if (url.startsWith('/admin/')) {
+      return adminHandler(req, res);
+    }
+
+    if (config.setupMode && url !== '/health' && url !== '/status') {
+      return sendJson(res, 503, {
+        error: 'service-unconfigured',
+        details: 'The service is in Setup Mode. Please use the Admin Dashboard to configure it.',
+      });
+    }
+
+    const requestId = randomUUID();
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
     }

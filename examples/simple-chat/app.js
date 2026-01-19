@@ -498,6 +498,10 @@ form.addEventListener('submit', async (event) => {
           msg = 'No nodes found that support this model and context size. Try reducing Max Tokens.';
       }
       
+      if (response.status === 503 && msg.includes('Setup Mode')) {
+          msg = 'Service is in Setup Mode. Please visit the Admin Dashboard (port 3001) to configure it.';
+      }
+      
       appendMessage('system', `Error: ${msg}`);
       if (statusEl) {
         statusEl.textContent = 'Error';

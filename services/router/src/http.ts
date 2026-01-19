@@ -1115,9 +1115,18 @@ export const createRouterHttpServer = (
   const adminHandler = createAdminHandler(service, config);
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url?.startsWith('/admin/')) {
+    const url = req.url || '';
+    if (url.startsWith('/admin/')) {
       return adminHandler(req, res);
     }
+
+    if (config.setupMode && url !== '/health' && url !== '/status') {
+      return sendJson(res, 503, {
+        error: 'service-unconfigured',
+        details: 'The service is in Setup Mode. Please use the Admin Dashboard to configure it.',
+      });
+    }
+
     const requestId = ensureRequestId(req, res);
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
