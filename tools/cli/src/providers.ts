@@ -68,3 +68,24 @@ export const fetchModels = async (baseUrl: string, apiKey: string): Promise<stri
     throw new Error(`Error fetching models from ${baseUrl}: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
+
+export const resolveModelLimit = (modelId: string, fallback: number = 4096): number => {
+  // Exact match
+  if (KNOWN_LIMITS[modelId]) {
+    return KNOWN_LIMITS[modelId].maxTokens;
+  }
+
+  // Fuzzy match for common patterns
+  const lower = modelId.toLowerCase();
+  if (lower.includes('llama-3.1') || lower.includes('llama-3_1')) {
+    return 128000;
+  }
+  if (lower.includes('llama-3') || lower.includes('llama-3')) {
+    return 8192;
+  }
+  if (lower.includes('mistral') || lower.includes('mixtral')) {
+    return 32768;
+  }
+
+  return fallback;
+};
