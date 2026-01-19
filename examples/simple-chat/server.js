@@ -4,7 +4,14 @@ const { readFile } = require('node:fs/promises');
 const { readFileSync } = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
-const { ApiError, FedAiClient, generateKeyPair, parseErrorDetail } = require('@fed-ai/sdk-js');
+const {
+  ApiError,
+  FedAiClient,
+  generateKeyPair,
+  parseErrorDetail,
+  listModels,
+  fitsContextWindow,
+} = require('../../packages/sdk-js/dist');
 
 const routerUrl = process.env.ROUTER_URL ?? 'http://localhost:8080';
 const groqUrl = process.env.GROQ_URL ?? process.env.GROK_URL ?? 'https://api.groq.com';
@@ -48,6 +55,7 @@ const client = new FedAiClient({
   keyId: clientKeyId,
   privateKey: clientKeys.privateKeyNsec,
   routerPublicKey,
+  verifyResponses: false,
   retry: {
     maxAttempts: 3,
     minDelayMs: 100,
@@ -184,6 +192,23 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (req.method === 'GET' && req.url === '/api/models') {
+    try {
+      const { active } = await client.nodes();
+      const models = listModels(active);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(models));
+    } catch (error) {
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: 'models-unavailable',
+          details: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return;
+  }
 
   if (req.method === 'POST' && req.url === '/api/infer') {
     const chunks = [];
@@ -223,6 +248,24 @@ const server = http.createServer(async (req, res) => {
       request.metadata = { apiKey };
     }
     try {
+      if (request.modelId !== 'auto') {
+        const { active } = await client.nodes();
+        const models = listModels(active);
+        const targetModel = models.find((m) => m.id === request.modelId);
+        if (targetModel && targetModel.contextWindow) {
+          if (!fitsContextWindow(prompt, maxTokens, targetModel.contextWindow)) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: 'context-window-exceeded',
+                details: `Prompt + max output (${maxTokens}) exceeds model context (${targetModel.contextWindow})`,
+              }),
+            );
+            return;
+          }
+        }
+      }
+
       const result = await client.inferWithPayment(request, {
         sendReceipt: true,
         onPaymentRequired: async (paymentRequest) => {

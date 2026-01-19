@@ -10,6 +10,7 @@ import {
   parsePublicKey,
   validateEnvelope,
   validateInferenceResponse,
+  validateInferenceStreamEvent,
   validateMeteringRecord,
   validatePaymentRequest,
   validateQuoteResponse,
@@ -28,6 +29,7 @@ import {
   verifyRouterMessage,
   verifyRouterReceipt,
   verifyEnvelope,
+  estimateTokensFromText,
 } from '@fed-ai/protocol';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import type {
@@ -35,6 +37,7 @@ import type {
   Envelope,
   InferenceRequest,
   InferenceResponse,
+  InferenceStreamEvent,
   MeteringRecord,
   ModelInfo,
   NodeDescriptor,
@@ -95,6 +98,8 @@ export type RetryOptions = {
 
 export type RequestOptions = {
   retry?: RetryOptions;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export type FedAiClientConfig = {
@@ -136,6 +141,12 @@ export type RouterMessageOptions = {
 };
 
 export type RouterReceiptInput = Omit<RouterReceipt, 'sig'>;
+
+export type PollOptions = {
+  intervalMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
 
 export const deriveKeyId = (privateKey: string, format: 'npub' | 'hex' = 'npub'): string => {
   const parsed = parsePrivateKey(privateKey);
@@ -338,6 +349,65 @@ export const signReceipt = (receipt: RouterReceiptInput, privateKey: string | Ui
   return signRouterReceipt(full, privateKey);
 };
 
+export const pollUntil = async <T>(
+  check: () => Promise<T | null>,
+  options: PollOptions = {},
+): Promise<T> => {
+  const intervalMs = Math.max(10, options.intervalMs ?? 250);
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const start = Date.now();
+  let lastError: unknown;
+
+  while (Date.now() - start < timeoutMs) {
+    if (options.signal?.aborted) {
+      throw new Error('poll-aborted');
+    }
+    try {
+      const result = await check();
+      if (result !== null) {
+        return result;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  if (lastError instanceof Error) {
+    throw new Error(`poll-timeout: ${lastError.message}`);
+  }
+  throw new Error('poll-timeout');
+};
+
+const iterateResponseBody = async function* (body: unknown): AsyncIterable<Uint8Array> {
+  if (!body) {
+    return;
+  }
+  const isAsyncIterable = (value: unknown): value is AsyncIterable<Uint8Array> =>
+    Boolean(value && typeof (value as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function');
+  const hasGetReader = (
+    value: unknown,
+  ): value is { getReader: () => { read: () => Promise<{ done: boolean; value?: Uint8Array }> } } =>
+    Boolean(value && typeof (value as { getReader?: unknown }).getReader === 'function');
+  if (isAsyncIterable(body)) {
+    for await (const chunk of body as AsyncIterable<Uint8Array>) {
+      yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    }
+    return;
+  }
+  if (hasGetReader(body)) {
+    const reader = body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        yield Buffer.from(value);
+      }
+    }
+  }
+};
+
 export const pickCapability = (node: NodeDescriptor, modelId: string): Capability | undefined => {
   return node.capabilities.find((cap) => cap.modelId === modelId);
 };
@@ -390,6 +460,37 @@ export const listModels = (nodes: NodeDescriptor[]): ModelInfo[] => {
     }
   }
   return Array.from(seen.values());
+};
+
+export const truncateTextToTokens = (text: string, maxTokens: number): string => {
+  if (!text) return '';
+  const maxChars = maxTokens * 4;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars);
+};
+
+export const fitsContextWindow = (
+  prompt: string,
+  maxOutputTokens: number,
+  contextWindow: number,
+): boolean => {
+  const inputTokens = estimateTokensFromText(prompt);
+  return inputTokens + maxOutputTokens <= contextWindow;
+};
+
+export const estimateInferenceCost = (
+  capability: Capability,
+  prompt: string,
+  outputTokens: number,
+): number | null => {
+  const inputTokens = estimateTokensFromText(prompt);
+  if (capability.pricing.unit === 'token') {
+    return (
+      capability.pricing.inputRate * inputTokens + capability.pricing.outputRate * outputTokens
+    );
+  }
+  // Cannot reliably estimate time-based pricing without a duration prediction
+  return null;
 };
 
 export type RouterCandidate = { url: string; label?: string };
@@ -488,7 +589,29 @@ export class FedAiClient {
   ): Promise<Response> {
     const config = options?.retry ?? this.retry;
     if (!config) {
-      return this.fetchImpl(`${this.routerUrl}${path}`, { method, ...(init ?? {}) });
+      const controller = options?.timeoutMs || options?.signal ? new AbortController() : null;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      if (controller && options?.signal) {
+        if (options.signal.aborted) {
+          throw new Error('request-aborted');
+        }
+        const abortHandler = () => controller.abort();
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+      }
+      if (controller && options?.timeoutMs) {
+        timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+      }
+      try {
+        return await this.fetchImpl(`${this.routerUrl}${path}`, {
+          method,
+          ...(init ?? {}),
+          signal: controller?.signal,
+        });
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      }
     }
     const maxAttempts = Math.max(1, config.maxAttempts ?? 1);
     const minDelayMs = Math.max(0, config.minDelayMs ?? 100);
@@ -504,7 +627,27 @@ export class FedAiClient {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await this.fetchImpl(`${this.routerUrl}${path}`, { method, ...(init ?? {}) });
+        const controller = options?.timeoutMs || options?.signal ? new AbortController() : null;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        if (controller && options?.signal) {
+          if (options.signal.aborted) {
+            throw new Error('request-aborted');
+          }
+          const abortHandler = () => controller.abort();
+          options.signal.addEventListener('abort', abortHandler, { once: true });
+        }
+        if (controller && options?.timeoutMs) {
+          timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+        }
+        const response = await this.fetchImpl(`${this.routerUrl}${path}`, {
+          method,
+          ...(init ?? {}),
+          signal: controller?.signal,
+        }).finally(() => {
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+        });
         if (!shouldRetryMethod || !statusCodes.includes(response.status) || attempt >= maxAttempts) {
           return response;
         }
@@ -662,6 +805,115 @@ export class FedAiClient {
       response: this.parseEnvelope(body.response, validateInferenceResponse, 'response'),
       metering: this.parseEnvelope(body.metering, validateMeteringRecord, 'metering'),
     };
+  }
+
+  public async *inferStream(
+    request: InferenceRequest,
+    options?: RequestOptions,
+  ): AsyncIterable<InferenceStreamEvent> {
+    const payload: InferenceRequest = {
+      ...request,
+      paymentReceipts: request.paymentReceipts,
+    };
+    const envelope = this.signPayload(payload);
+    const response = await this.post('/infer/stream', envelope, options);
+    if (!response.ok) {
+      if (response.status === 402) {
+        const body = await response.json();
+        const payment = this.parseEnvelope(body.payment, validatePaymentRequest, 'payment');
+        throw new PaymentRequiredError(payment);
+      }
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/infer/stream', response.status, detail);
+    }
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/event-stream')) {
+      throw new Error('stream-unavailable');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for await (const chunk of iterateResponseBody(response.body)) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let separatorIndex = buffer.indexOf('\n\n');
+      while (separatorIndex !== -1) {
+        const raw = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+        separatorIndex = buffer.indexOf('\n\n');
+        if (!raw.trim()) {
+          continue;
+        }
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim());
+          }
+        }
+        const dataText = dataLines.join('\n');
+        if (!dataText) {
+          continue;
+        }
+        let data: unknown;
+        try {
+          data = JSON.parse(dataText);
+        } catch {
+          throw new Error('stream-invalid-json');
+        }
+        const streamEvent = { type: event, data } as InferenceStreamEvent;
+        const validation = validateInferenceStreamEvent(streamEvent);
+        if (!validation.ok) {
+          throw new Error('stream-invalid-event');
+        }
+        yield streamEvent;
+        if (streamEvent.type === 'final') {
+          return;
+        }
+      }
+    }
+  }
+
+  public async *inferStreamWithPayment(
+    request: InferenceRequest,
+    options?: {
+      onPaymentRequired?: (
+        paymentRequest: Envelope<PaymentRequest>,
+      ) => Promise<Envelope<PaymentReceipt>>;
+      paymentReceiptOverrides?: {
+        amountSats?: number;
+        paidAtMs?: number;
+        preimage?: string;
+        invoice?: string;
+        paymentHash?: string;
+        splits?: PaymentRequest['splits'];
+      };
+      sendReceipt?: boolean;
+      requestOptions?: RequestOptions;
+    },
+  ): AsyncIterable<InferenceStreamEvent> {
+    try {
+      for await (const event of this.inferStream(request, options?.requestOptions)) {
+        yield event;
+      }
+      return;
+    } catch (error) {
+      if (!(error instanceof PaymentRequiredError)) {
+        throw error;
+      }
+      const receipt = options?.onPaymentRequired
+        ? await options.onPaymentRequired(error.paymentRequest)
+        : this.createPaymentReceipt(error.paymentRequest, options?.paymentReceiptOverrides);
+      const shouldSend = options?.sendReceipt ?? !options?.onPaymentRequired;
+      if (shouldSend) {
+        await this.sendPaymentReceipt(receipt, options?.requestOptions);
+      }
+      const retryRequest = { ...request, paymentReceipts: [receipt] };
+      for await (const event of this.inferStream(retryRequest, options?.requestOptions)) {
+        yield event;
+      }
+    }
   }
 
   public async sendPaymentReceipt(
@@ -907,3 +1159,4 @@ export class FedAiClient {
 
 export { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 export type { DiscoveryOptions, RelayDescriptor } from '@fed-ai/nostr-relay-discovery';
+export { estimateTokensFromText };

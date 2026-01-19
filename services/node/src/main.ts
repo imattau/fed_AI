@@ -20,6 +20,7 @@ import { OpenAiRunner } from './runners/openai';
 import { AnthropicRunner } from './runners/anthropic';
 import { VllmRunner } from './runners/vllm';
 import { CpuStatsRunner } from './runners/cpu';
+import { MockRunner } from './runners/mock';
 import { createNodeHttpServer } from './http';
 import type { Runner } from './runners/types';
 import { enforceSandboxPolicy } from './sandbox/policy';
@@ -145,6 +146,12 @@ const buildConfig = (): NodeConfig => {
   const pricingInputSats = parseNumber(getEnv('NODE_PRICE_INPUT_SATS'));
   const pricingOutputSats = parseNumber(getEnv('NODE_PRICE_OUTPUT_SATS'));
   const pricingUnit = getEnv('NODE_PRICE_UNIT') as NodeConfig['pricingUnit'] | undefined;
+  const exposeErrors = (getEnv('NODE_EXPOSE_ERRORS') ?? 'false').toLowerCase() === 'true';
+  const workerThreadsEnabled =
+    (getEnv('NODE_WORKER_THREADS_ENABLED') ?? 'false').toLowerCase() === 'true';
+  const workerThreadsMax = parseNumber(getEnv('NODE_WORKER_THREADS_MAX'));
+  const workerThreadsQueueMax = parseNumber(getEnv('NODE_WORKER_THREADS_QUEUE_MAX'));
+  const workerThreadsTimeoutMs = parseNumber(getEnv('NODE_WORKER_THREADS_TIMEOUT_MS'));
 
   return {
     ...defaultNodeConfig,
@@ -219,6 +226,13 @@ const buildConfig = (): NodeConfig => {
     pricingInputSats,
     pricingOutputSats,
     pricingUnit,
+    exposeErrors,
+    workerThreads: {
+      enabled: workerThreadsEnabled,
+      maxWorkers: workerThreadsMax,
+      maxQueue: workerThreadsQueueMax,
+      taskTimeoutMs: workerThreadsTimeoutMs,
+    },
   };
 };
 
@@ -269,6 +283,11 @@ const buildRunner = (config: NodeConfig): Runner => {
   if (config.runnerName === 'openai') {
     const runnerUrl = getEnv('NODE_OPENAI_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.openai.com';
     const mode = (getEnv('NODE_OPENAI_MODE') as 'chat' | 'completion' | undefined) ?? 'chat';
+    const apiKeyHeaderRaw = (getEnv('NODE_OPENAI_API_KEY_HEADER') ?? '').toLowerCase();
+    const apiKeyHeader =
+      apiKeyHeaderRaw === 'authorization' || apiKeyHeaderRaw === 'x-api-key' || apiKeyHeaderRaw === 'both'
+        ? (apiKeyHeaderRaw as 'authorization' | 'x-api-key' | 'both')
+        : undefined;
     ensureEndpointAllowed(runnerUrl);
     return new OpenAiRunner({
       baseUrl: runnerUrl,
@@ -276,6 +295,7 @@ const buildRunner = (config: NodeConfig): Runner => {
       apiKey: getEnv('NODE_OPENAI_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
       timeoutMs: config.runnerTimeoutMs,
       mode,
+      apiKeyHeader,
     });
   }
   if (config.runnerName === 'anthropic') {
@@ -290,6 +310,9 @@ const buildRunner = (config: NodeConfig): Runner => {
   }
   if (config.runnerName === 'cpu') {
     return new CpuStatsRunner(getEnv('NODE_MODEL_ID') ?? 'cpu-stats');
+  }
+  if (config.runnerName === 'mock') {
+    return new MockRunner();
   }
   throw new Error(`unsupported-runner:${config.runnerName}`);
 };

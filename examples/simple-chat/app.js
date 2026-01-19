@@ -280,7 +280,7 @@ const updateRouterDashboard = async () => {
         nodeList.appendChild(buildNodeCard(node, activeSet));
       });
     }
-  } catch (error) {
+  } catch {
     routerHealth.textContent = 'Unavailable';
     routerHealth.className = 'status-warn';
     if (nodeSummary) {
@@ -289,8 +289,52 @@ const updateRouterDashboard = async () => {
   }
 };
 
+const updateModelList = async () => {
+  if (!modelSelect) return;
+  try {
+    const response = await fetch('/api/models');
+    if (!response.ok) return;
+    const models = await response.json();
+    
+    const current = modelSelect.value;
+    const autoOption = document.createElement('option');
+    autoOption.value = 'auto';
+    autoOption.textContent = 'Auto (router decides)';
+
+    // We rebuild the list but keep 'auto' at top
+    const options = [autoOption];
+    models.forEach((model) => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = `${model.id} (${model.contextWindow})`;
+      options.push(option);
+    });
+
+    // Only update DOM if changed to avoid flicker/reset
+    // Simple check: compare length and values
+    if (modelSelect.options.length !== options.length || 
+        !Array.from(modelSelect.options).every((opt, i) => opt.value === options[i].value)) {
+          modelSelect.innerHTML = '';
+          options.forEach(opt => modelSelect.appendChild(opt));
+          
+          if (Array.from(modelSelect.options).some(opt => opt.value === current)) {
+            modelSelect.value = current;
+          } else {
+            selectedModel = 'auto'; // Reset if selected model disappeared
+            modelSelect.value = 'auto';
+          }
+    }
+  } catch {
+    // ignore
+  }
+};
+
 void updateRouterDashboard();
-setInterval(updateRouterDashboard, 5000);
+void updateModelList();
+setInterval(() => {
+  void updateRouterDashboard();
+  void updateModelList();
+}, 5000);
 
 const updateConfigPanel = async () => {
   try {
