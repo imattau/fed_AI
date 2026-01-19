@@ -103,6 +103,7 @@ import {
   federationJobs,
 } from './observability';
 import { validateEndpoint } from './security';
+import { createAdminHandler } from './admin';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
@@ -1111,7 +1112,12 @@ export const createRouterHttpServer = (
     return { ok: false, error: 'stream-ended' };
   };
 
+  const adminHandler = createAdminHandler(service, config);
+
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.url?.startsWith('/admin/')) {
+      return adminHandler(req, res);
+    }
     const requestId = ensureRequestId(req, res);
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });

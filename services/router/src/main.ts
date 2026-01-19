@@ -157,6 +157,8 @@ const buildConfig = (): RouterConfig => {
   const workerThreadsQueueMax = parseNumber(getEnv('ROUTER_WORKER_THREADS_QUEUE_MAX'));
   const workerThreadsTimeoutMs = parseNumber(getEnv('ROUTER_WORKER_THREADS_TIMEOUT_MS'));
   const allowPrivateEndpoints = (getEnv('ROUTER_ALLOW_PRIVATE_ENDPOINTS') ?? 'false').toLowerCase() === 'true';
+  const adminKey = getEnv('ROUTER_ADMIN_KEY');
+  const adminNpub = getEnv('ROUTER_ADMIN_NPUB');
 
   return {
     ...defaultRouterConfig,
@@ -165,6 +167,8 @@ const buildConfig = (): RouterConfig => {
     endpoint: getEnv('ROUTER_ENDPOINT') ?? defaultRouterConfig.endpoint,
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
     allowPrivateEndpoints,
+    adminKey,
+    adminNpub,
     maxRequestBytes,
     paymentRequestRetentionMs,
     paymentReceiptRetentionMs,

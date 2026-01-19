@@ -39,6 +39,8 @@ export type RouterConfig = {
   relayAdmission?: RelayAdmissionPolicy;
   federation?: RouterFederationConfig;
   allowPrivateEndpoints?: boolean;
+  adminKey?: string;
+  adminNpub?: string;
 };
 
 export type WorkerThreadsConfig = {
