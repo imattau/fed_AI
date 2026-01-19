@@ -1,0 +1,49 @@
+version: "3.9"
+services:
+  node:
+    image: fed-ai-node
+    build:
+      context: ../..
+      dockerfile: services/node/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${NODE_PORT:-8081}:8081"
+    env_file:
+      - .env
+    environment:
+      # Defaults if not in .env
+      NODE_PORT: 8081
+      NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
+      NODE_ADMIN_KEY: ${NODE_ADMIN_KEY:-admin-secret}
+      NODE_ADMIN_NPUB: ${NODE_ADMIN_NPUB:-}
+    depends_on:
+      - ln-adapter
+    volumes:
+      - ./models:/app/models # Mount for local models
+
+  ln-adapter:
+    image: fed-ai-ln-adapter
+    build:
+      context: ../..
+      dockerfile: services/node/Dockerfile # Temp hack: adapter is usually just a script.
+                                          # Ideally: build context: tools/ln-adapter
+    command: ["node", "tools/ln-adapter/server.js"]
+    restart: unless-stopped
+    env_file:
+      - .env.ln-adapter
+    environment:
+      LN_ADAPTER_PORT: 4000
+      LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-nwc}
+      NWC_URL: ${NWC_URL}
+
+  admin:
+    image: fed-ai-admin
+    build:
+      context: ../..
+      dockerfile: services/node/Dockerfile # Reusing node image which has nodejs
+    command: ["sh", "-c", "cd examples/admin-dashboard && npm install && node server.js"]
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
