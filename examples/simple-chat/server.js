@@ -289,6 +289,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ output, walletSats: walletBalanceSats }));
       return;
     } catch (error) {
+      console.error(`Inference failed: ${error instanceof Error ? error.stack : String(error)}`);
       const err = /** @type {Error & { code?: string }} */ (error ?? new Error('unknown-error'));
       if (err.code === 'insufficient-balance') {
         res.writeHead(402, { 'content-type': 'application/json' });

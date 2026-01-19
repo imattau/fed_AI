@@ -211,7 +211,10 @@ const buildConfig = (): NodeConfig => {
     maxRequestBytes: parseNumber(getEnv('NODE_MAX_REQUEST_BYTES')),
     maxInferenceMs: parseNumber(getEnv('NODE_MAX_RUNTIME_MS')),
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
-    privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
+    privateKey: (() => {
+        try { return privateKey ? parsePrivateKey(privateKey) : undefined; }
+        catch { return undefined; }
+    })(),
     routerPublicKey: routerPublicKey
       ? parsePublicKey(routerPublicKey)
       : routerKeyId
@@ -402,63 +405,68 @@ const validateConfig = (config: NodeConfig): string[] => {
 };
 
 const start = async (): Promise<void> => {
-  let config = buildConfig();
-  const dynamic = loadDynamicConfig();
-  // Shallow merge dynamic config
-  config = { ...config, ...dynamic };
+  try {
+    let config = buildConfig();
+    const dynamic = loadDynamicConfig();
+    // Shallow merge dynamic config
+    config = { ...config, ...dynamic };
 
-  if (!config.routerKeyId && config.routerPublicKey) {
-    config.routerKeyId = exportPublicKeyNpub(config.routerPublicKey);
-  }
-  const issues = validateConfig(config);
-  
-  // If config is invalid or setupMode is flagged, start in restricted mode
-  if (issues.length > 0 || config.setupMode) {
-    logWarn('[node] starting in SETUP MODE', { issues });
-    config.setupMode = true;
-    
-    // Ensure minimal valid state for the service container
-    const runner = new MockRunner();
-    const service = createNodeService(config, runner);
-    const nonceStore = new InMemoryNonceStore();
-    
-    const server = createNodeHttpServer(service, config, nonceStore);
-    server.listen(config.port);
-    logInfo(`[node] listening on ${config.port} (Setup Mode)`);
-    return;
-  }
-
-  validateNostrIdentity(config.keyId, config.privateKey);
-  validateRouterIdentity(config.routerKeyId, config.routerPublicKey);
-  const sandboxCheck = enforceSandboxPolicy(config);
-  if (!sandboxCheck.ok) {
-    throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
-  }
-  const runner = buildRunner(config);
-  const service = createNodeService(config, runner);
-  let nonceStore: NonceStore = config.nonceStorePath
-    ? new FileNonceStore(config.nonceStorePath)
-    : new InMemoryNonceStore();
-  if (config.nonceStoreUrl) {
-    try {
-      nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
-    } catch (error) {
-      logWarn('[node] failed to initialize nonce store', error);
+    if (!config.routerKeyId && config.routerPublicKey) {
+      config.routerKeyId = exportPublicKeyNpub(config.routerPublicKey);
     }
-  } else if (!config.nonceStorePath) {
-    logWarn('[node] using in-memory nonce store; replay protection will not persist across restarts');
-  }
-  const server = createNodeHttpServer(service, config, nonceStore);
+    const issues = validateConfig(config);
+    
+    // If config is invalid or setupMode is flagged, start in restricted mode
+    if (issues.length > 0 || config.setupMode) {
+      logWarn('[node] starting in SETUP MODE', { issues });
+      config.setupMode = true;
+      
+      // Ensure minimal valid state for the service container
+      const runner = new MockRunner();
+      const service = createNodeService(config, runner);
+      const nonceStore = new InMemoryNonceStore();
+      
+      const server = createNodeHttpServer(service, config, nonceStore);
+      server.listen(config.port);
+      logInfo(`[node] listening on ${config.port} (Setup Mode)`);
+      return;
+    }
 
-  server.listen(config.port);
-  void logRelayCandidates('node', buildDiscoveryOptions(config));
+    validateNostrIdentity(config.keyId, config.privateKey);
+    validateRouterIdentity(config.routerKeyId, config.routerPublicKey);
+    const sandboxCheck = enforceSandboxPolicy(config);
+    if (!sandboxCheck.ok) {
+      throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
+    }
+    const runner = buildRunner(config);
+    const service = createNodeService(config, runner);
+    let nonceStore: NonceStore = config.nonceStorePath
+      ? new FileNonceStore(config.nonceStorePath)
+      : new InMemoryNonceStore();
+    if (config.nonceStoreUrl) {
+      try {
+        nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
+      } catch (error) {
+        logWarn('[node] failed to initialize nonce store', error);
+      }
+    } else if (!config.nonceStorePath) {
+      logWarn('[node] using in-memory nonce store; replay protection will not persist across restarts');
+    }
+    const server = createNodeHttpServer(service, config, nonceStore);
 
-  if (config.privateKey) {
-    void startHeartbeat(service, config).catch((error) => {
-      logWarn('heartbeat-start-failed', error);
-    });
-  } else {
-    logWarn('heartbeat-disabled: node private key missing');
+    server.listen(config.port);
+    void logRelayCandidates('node', buildDiscoveryOptions(config));
+
+    if (config.privateKey) {
+      void startHeartbeat(service, config).catch((error) => {
+        logWarn('heartbeat-start-failed', error);
+      });
+    } else {
+      logWarn('heartbeat-disabled: node private key missing');
+    }
+  } catch (error) {
+    logWarn('[node] fatal startup error', error);
+    process.exit(1);
   }
 };
 

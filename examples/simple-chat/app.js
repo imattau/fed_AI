@@ -454,8 +454,8 @@ form.addEventListener('submit', async (event) => {
     const promptEstimate = Math.ceil(prompt.length / 4);
 
     // If we have model info, we can warn or adjust before sending
-    if (modelSelect && modelSelect.selectedOptions[0]) {
-        const label = modelSelect.selectedOptions[0].textContent;
+    if (modelSelect && modelSelect.selectedOptions && modelSelect.selectedOptions[0]) {
+        const label = modelSelect.selectedOptions[0].textContent || '';
         const match = label.match(/\((\d+)\)/);
         if (match) {
             const contextWindow = parseInt(match[1], 10);
@@ -466,8 +466,8 @@ form.addEventListener('submit', async (event) => {
             }
 
             if (promptEstimate + requestedMaxTokens > contextWindow) {
-                const adjusted = contextWindow - promptEstimate - 10; // 10 token buffer
-                if (adjusted < 16) {
+                const adjusted = Math.max(16, contextWindow - promptEstimate - 10);
+                if (adjusted < 16 && contextWindow > 0) {
                     appendMessage('system', `Error: Prompt is too long for the selected model context (${contextWindow}).`);
                     if (statusEl) statusEl.textContent = 'Error';
                     return;
@@ -493,8 +493,8 @@ form.addEventListener('submit', async (event) => {
       const payload = await response.json().catch(() => ({}));
       const detail = payload.details || payload.error || response.statusText;
       
-      let msg = detail;
-      if (detail.includes('no-capable-nodes')) {
+      let msg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      if (msg.includes('no-capable-nodes')) {
           msg = 'No nodes found that support this model and context size. Try reducing Max Tokens.';
       }
       

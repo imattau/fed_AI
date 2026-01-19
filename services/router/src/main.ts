@@ -223,7 +223,10 @@ const buildConfig = (): RouterConfig => {
       maxQueue: workerThreadsQueueMax,
       taskTimeoutMs: workerThreadsTimeoutMs,
     },
-    privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
+    privateKey: (() => {
+        try { return privateKey ? parsePrivateKey(privateKey) : undefined; }
+        catch { return undefined; }
+    })(),
     nonceStorePath: getEnv('ROUTER_NONCE_STORE_PATH'),
     nonceStoreUrl,
     requirePayment: (getEnv('ROUTER_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
@@ -338,126 +341,131 @@ const validateConfig = (config: RouterConfig): string[] => {
 };
 
 const start = async (): Promise<void> => {
-  let config = buildConfig();
-  const dynamic = loadDynamicConfig();
-  config = { ...config, ...dynamic };
+  try {
+    let config = buildConfig();
+    const dynamic = loadDynamicConfig();
+    config = { ...config, ...dynamic };
 
-  const issues = validateConfig(config);
-  if (issues.length > 0 || config.setupMode) {
-    logWarn('[router] starting in SETUP MODE', { issues });
-    config.setupMode = true;
-    if (!config.keyId) config.keyId = 'npub1setup...';
-    
-    // Ensure minimal valid state
-    const service = createRouterService(config);
-    const nonceStore = new InMemoryNonceStore();
-    const server = createRouterHttpServer(service, config, nonceStore);
+    const issues = validateConfig(config);
+    if (issues.length > 0 || config.setupMode) {
+      logWarn('[router] starting in SETUP MODE', { issues });
+      config.setupMode = true;
+      if (!config.keyId) config.keyId = 'npub1setup...';
+      
+      // Ensure minimal valid state
+      const service = createRouterService(config);
+      const nonceStore = new InMemoryNonceStore();
+      const server = createRouterHttpServer(service, config, nonceStore);
+      server.listen(config.port);
+      logInfo(`[router] listening on ${config.port} (Setup Mode)`);
+      return;
+    }
+
+    logInfo('[router] starting', { keyId: config.keyId, endpoint: config.endpoint });
+    validateNostrIdentity(config.keyId, config.privateKey);
+    const store = config.db
+      ? await createPostgresRouterStore(config.db, {
+          nodeRetentionMs: config.nodeRetentionMs,
+          paymentRequestRetentionMs: config.paymentRequestRetentionMs,
+          paymentReceiptRetentionMs: config.paymentReceiptRetentionMs,
+          manifestRetentionMs: config.nodeRetentionMs,
+          manifestAdmissionRetentionMs: config.nodeRetentionMs,
+        })
+      : undefined;
+    const service = createRouterService(config, store);
+    if (store) {
+      try {
+        const snapshot = await store.load();
+        hydrateRouterService(service, snapshot);
+      } catch (error) {
+        logWarn('[router] failed to hydrate store snapshot', error);
+      }
+    } else {
+      loadRouterState(service, config.statePath);
+    }
+    let nonceStore: NonceStore = config.nonceStorePath
+      ? new FileNonceStore(config.nonceStorePath)
+      : new InMemoryNonceStore();
+    if (config.nonceStoreUrl) {
+      try {
+        nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
+      } catch (error) {
+        logWarn('[router] failed to initialize nonce store', error);
+      }
+    } else if (!config.nonceStorePath) {
+      logWarn('[router] using in-memory nonce store; replay protection will not persist across restarts');
+    }
+
+    const federationRateLimiter = createFederationRateLimiter(config.federation);
+    const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
+    const server = createRouterHttpServer(
+      service,
+      config,
+      nonceStore,
+      federationRateLimiter,
+      ingressRateLimiter,
+    );
+
     server.listen(config.port);
-    logInfo(`[router] listening on ${config.port} (Setup Mode)`);
-    return;
-  }
-
-  logInfo('[router] starting', { keyId: config.keyId, endpoint: config.endpoint });
-  validateNostrIdentity(config.keyId, config.privateKey);
-  const store = config.db
-    ? await createPostgresRouterStore(config.db, {
-        nodeRetentionMs: config.nodeRetentionMs,
-        paymentRequestRetentionMs: config.paymentRequestRetentionMs,
-        paymentReceiptRetentionMs: config.paymentReceiptRetentionMs,
-        manifestRetentionMs: config.nodeRetentionMs,
-        manifestAdmissionRetentionMs: config.nodeRetentionMs,
-      })
-    : undefined;
-  const service = createRouterService(config, store);
-  if (store) {
-    try {
-      const snapshot = await store.load();
-      hydrateRouterService(service, snapshot);
-    } catch (error) {
-      logWarn('[router] failed to hydrate store snapshot', error);
+    startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);
+    pruneRouterState(service, config);
+    if (config.pruneIntervalMs && config.pruneIntervalMs > 0) {
+      setInterval(() => {
+        pruneRouterState(service, config);
+      }, config.pruneIntervalMs);
     }
-  } else {
-    loadRouterState(service, config.statePath);
-  }
-  let nonceStore: NonceStore = config.nonceStorePath
-    ? new FileNonceStore(config.nonceStorePath)
-    : new InMemoryNonceStore();
-  if (config.nonceStoreUrl) {
-    try {
-      nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
-    } catch (error) {
-      logWarn('[router] failed to initialize nonce store', error);
+    if (config.paymentReconcileIntervalMs && config.paymentReconcileIntervalMs > 0) {
+      const reconcile = () => reconcilePayments(service, config);
+      reconcile();
+      setInterval(reconcile, config.paymentReconcileIntervalMs);
     }
-  } else if (!config.nonceStorePath) {
-    logWarn('[router] using in-memory nonce store; replay protection will not persist across restarts');
-  }
+    void logRelayCandidates('router', buildDiscoveryOptions());
 
-  const federationRateLimiter = createFederationRateLimiter(config.federation);
-  const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
-  const server = createRouterHttpServer(
-    service,
-    config,
-    nonceStore,
-    federationRateLimiter,
-    ingressRateLimiter,
-  );
-
-  server.listen(config.port);
-  startRouterStatePersistence(service, config.statePath, config.statePersistIntervalMs);
-  pruneRouterState(service, config);
-  if (config.pruneIntervalMs && config.pruneIntervalMs > 0) {
-    setInterval(() => {
-      pruneRouterState(service, config);
-    }, config.pruneIntervalMs);
-  }
-  if (config.paymentReconcileIntervalMs && config.paymentReconcileIntervalMs > 0) {
-    const reconcile = () => reconcilePayments(service, config);
-    reconcile();
-    setInterval(reconcile, config.paymentReconcileIntervalMs);
-  }
-  void logRelayCandidates('router', buildDiscoveryOptions());
-
-  const discoveredPeers = discoverFederationPeers(
-    config.federation?.peers,
-    config.federation?.discovery?.bootstrapPeers,
-  );
-  const peerUrls = discoveredPeers.map((peer) => peer.url);
-  if (config.federation?.enabled && peerUrls.length > 0) {
-    const intervalMs = config.federation.publishIntervalMs ?? 30_000;
-    const publish = async () => {
-      try {
-        await publishFederation(service, config, peerUrls);
-      } catch (error) {
-        logWarn('[router] federation publish failed', error);
-      }
-    };
-    void publish();
-    setInterval(publish, intervalMs);
-  }
-
-  if (config.federation?.enabled && config.federation.nostrEnabled) {
-    let relayUrls = config.federation.nostrRelays ?? [];
-    if (relayUrls.length === 0) {
-      try {
-        const relays = await discoverRelays(buildDiscoveryOptions());
-        relayUrls = relays.map((entry) => entry.url);
-      } catch (error) {
-        logWarn('[router] nostr relay discovery failed', error);
-      }
-    }
-    if (relayUrls.length > 0 && config.privateKey) {
-      const runtime = startFederationNostr(service, config, relayUrls, federationRateLimiter);
-      const intervalMs = config.federation.nostrPublishIntervalMs ?? 30_000;
+    const discoveredPeers = discoverFederationPeers(
+      config.federation?.peers,
+      config.federation?.discovery?.bootstrapPeers,
+    );
+    const peerUrls = discoveredPeers.map((peer) => peer.url);
+    if (config.federation?.enabled && peerUrls.length > 0) {
+      const intervalMs = config.federation.publishIntervalMs ?? 30_000;
       const publish = async () => {
         try {
-          await publishFederationToRelays(service, config, runtime);
+          await publishFederation(service, config, peerUrls);
         } catch (error) {
-          logWarn('[router] nostr federation publish failed', error);
+          logWarn('[router] federation publish failed', error);
         }
       };
       void publish();
       setInterval(publish, intervalMs);
     }
+
+    if (config.federation?.enabled && config.federation.nostrEnabled) {
+      let relayUrls = config.federation.nostrRelays ?? [];
+      if (relayUrls.length === 0) {
+        try {
+          const relays = await discoverRelays(buildDiscoveryOptions());
+          relayUrls = relays.map((entry) => entry.url);
+        } catch (error) {
+          logWarn('[router] nostr relay discovery failed', error);
+        }
+      }
+      if (relayUrls.length > 0 && config.privateKey) {
+        const runtime = startFederationNostr(service, config, relayUrls, federationRateLimiter);
+        const intervalMs = config.federation.nostrPublishIntervalMs ?? 30_000;
+        const publish = async () => {
+          try {
+            await publishFederationToRelays(service, config, runtime);
+          } catch (error) {
+            logWarn('[router] nostr federation publish failed', error);
+          }
+        };
+        void publish();
+        setInterval(publish, intervalMs);
+      }
+    }
+  } catch (error) {
+    logWarn('[router] fatal startup error', error);
+    process.exit(1);
   }
 };
 
