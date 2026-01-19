@@ -102,6 +102,7 @@ import {
   federationMessages,
   federationJobs,
 } from './observability';
+import { validateEndpoint } from './security';
 
 const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
@@ -1173,6 +1174,11 @@ export const createRouterHttpServer = (
         }
         if (envelope.payload.keyId !== envelope.keyId) {
           return sendJson(res, 400, { error: 'key-id-mismatch' });
+        }
+
+        const endpointValidation = validateEndpoint(envelope.payload.endpoint, config.allowPrivateEndpoints);
+        if (!endpointValidation.ok) {
+          return sendJson(res, 400, { error: endpointValidation.error });
         }
 
         const replay = checkReplay(envelope, store);

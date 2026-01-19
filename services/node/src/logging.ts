@@ -38,7 +38,7 @@ const sanitize = (value: unknown, seen = new WeakSet<object>()): RedactionValue 
   }
   const result: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (REDACT_KEYS.has(key)) {
+    if (REDACT_KEYS.has(key) || /key|secret|token|auth|password|sig/i.test(key)) {
       result[key] = '[REDACTED]';
     } else {
       result[key] = sanitize(entry, seen);

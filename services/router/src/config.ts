@@ -38,6 +38,7 @@ export type RouterConfig = {
   db?: RouterDbConfig;
   relayAdmission?: RelayAdmissionPolicy;
   federation?: RouterFederationConfig;
+  allowPrivateEndpoints?: boolean;
 };
 
 export type WorkerThreadsConfig = {
@@ -123,6 +124,7 @@ export const defaultRouterConfig: RouterConfig = {
   clientMuteList: undefined,
   rateLimitMax: undefined,
   rateLimitWindowMs: undefined,
+  allowPrivateEndpoints: false,
   relayAdmission: defaultRelayAdmissionPolicy,
   federation: {
     enabled: false,

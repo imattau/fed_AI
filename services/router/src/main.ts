@@ -156,6 +156,7 @@ const buildConfig = (): RouterConfig => {
   const workerThreadsMax = parseNumber(getEnv('ROUTER_WORKER_THREADS_MAX'));
   const workerThreadsQueueMax = parseNumber(getEnv('ROUTER_WORKER_THREADS_QUEUE_MAX'));
   const workerThreadsTimeoutMs = parseNumber(getEnv('ROUTER_WORKER_THREADS_TIMEOUT_MS'));
+  const allowPrivateEndpoints = (getEnv('ROUTER_ALLOW_PRIVATE_ENDPOINTS') ?? 'false').toLowerCase() === 'true';
 
   return {
     ...defaultRouterConfig,
@@ -163,6 +164,7 @@ const buildConfig = (): RouterConfig => {
     keyId: getEnv('ROUTER_KEY_ID') ?? defaultRouterConfig.keyId,
     endpoint: getEnv('ROUTER_ENDPOINT') ?? defaultRouterConfig.endpoint,
     port: Number(getEnv('ROUTER_PORT') ?? defaultRouterConfig.port),
+    allowPrivateEndpoints,
     maxRequestBytes,
     paymentRequestRetentionMs,
     paymentReceiptRetentionMs,
@@ -343,6 +345,8 @@ const start = async (): Promise<void> => {
     } catch (error) {
       logWarn('[router] failed to initialize nonce store', error);
     }
+  } else if (!config.nonceStorePath) {
+    logWarn('[router] using in-memory nonce store; replay protection will not persist across restarts');
   }
 
   const federationRateLimiter = createFederationRateLimiter(config.federation);

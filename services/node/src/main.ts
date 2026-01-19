@@ -395,6 +395,8 @@ const start = async (): Promise<void> => {
     } catch (error) {
       logWarn('[node] failed to initialize nonce store', error);
     }
+  } else if (!config.nonceStorePath) {
+    logWarn('[node] using in-memory nonce store; replay protection will not persist across restarts');
   }
   const server = createNodeHttpServer(service, config, nonceStore);
 
