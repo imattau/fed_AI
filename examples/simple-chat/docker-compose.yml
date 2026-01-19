@@ -91,6 +91,8 @@ services:
       ROUTER_FEDERATION_NOSTR_RELAYS: "wss://relay.damus.io,wss://relay.snort.social"
       ROUTER_FEDERATION_NOSTR_RETRY_MIN_MS: "1000"
       ROUTER_FEDERATION_NOSTR_RETRY_MAX_MS: "30000"
+      ROUTER_ADMIN_KEY: "admin-secret"
+      ROUTER_ADMIN_NPUB: ${ROUTER_ADMIN_NPUB:-}
     entrypoint:
       [
         "sh",
@@ -136,6 +138,8 @@ services:
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
       NODE_ROUTER_FEE_MAX_BPS: "1000"
       NODE_ROUTER_FEE_MAX_SATS: "1000"
+      NODE_ADMIN_KEY: "admin-secret"
+      NODE_ADMIN_NPUB: ${NODE_ADMIN_NPUB:-}
     entrypoint:
       [
         "sh",
@@ -174,6 +178,8 @@ services:
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
       NODE_ROUTER_FEE_MAX_BPS: "1000"
       NODE_ROUTER_FEE_MAX_SATS: "1000"
+      NODE_ADMIN_KEY: "admin-secret"
+      NODE_ADMIN_NPUB: ${NODE_ADMIN_NPUB:-}
     entrypoint:
       [
         "sh",
@@ -214,6 +220,8 @@ services:
       NODE_EXPOSE_ERRORS: "true"
       ROUTER_ENDPOINT: http://router:8080
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
+      NODE_ADMIN_KEY: "admin-secret"
+      NODE_ADMIN_NPUB: ${NODE_ADMIN_NPUB:-}
     entrypoint:
       [
         "sh",
@@ -283,6 +291,23 @@ services:
         condition: service_started
     ports:
       - "3000:3000"
+
+  admin:
+    image: node:20-bookworm-slim
+    working_dir: /repo
+    volumes:
+      - ../../:/repo
+    environment:
+      PORT: 3001
+    command:
+      [
+        "sh",
+        "-c",
+        "cd examples/admin-dashboard && npm install && node server.js",
+      ]
+    ports:
+      - "3001:3001"
+
 
 volumes:
   keys:
