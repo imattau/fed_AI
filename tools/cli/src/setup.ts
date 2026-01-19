@@ -29,6 +29,25 @@ export const runSetupInteractive = async () => {
     const port = await ask('Router Port', '8080');
     const requirePayment = await choose('Require Payment?', ['true', 'false']);
     
+    let lnConfig = '';
+    if (requirePayment === 'true') {
+        const lnInvoice = await ask('Lightning Invoice URL', 'http://localhost:4000/invoice');
+        const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
+        lnConfig = `ROUTER_LN_INVOICE_URL=${lnInvoice}\nROUTER_LN_VERIFY_URL=${lnVerify}`;
+    }
+
+    const nonceType = await choose('Nonce Store (Replay Protection)', ['File (Simple)', 'Postgres (Scalable)', 'Memory (Dev only - risky)']);
+    let nonceConfig = '';
+    if (nonceType === 'File (Simple)') {
+        const noncePath = await ask('Nonce Store Path', './router-nonce.json');
+        nonceConfig = `ROUTER_NONCE_STORE_PATH=${noncePath}`;
+    } else if (nonceType === 'Postgres (Scalable)') {
+        const nonceUrl = await ask('Postgres URL', 'postgresql://user:pass@localhost:5432/router_nonce');
+        nonceConfig = `ROUTER_NONCE_STORE_URL=${nonceUrl}`;
+    } else {
+        nonceConfig = `# ROUTER_NONCE_STORE_PATH not set (using memory)`;
+    }
+
     routerEnv = [
       `ROUTER_ID=router-${keys.npub.slice(0, 8)}`,
       `ROUTER_KEY_ID=${keys.npub}`,
@@ -36,7 +55,9 @@ export const runSetupInteractive = async () => {
       `ROUTER_ENDPOINT=${endpoint}`,
       `ROUTER_PORT=${port}`,
       `ROUTER_REQUIRE_PAYMENT=${requirePayment}`,
-    ].join('\n');
+      lnConfig,
+      nonceConfig,
+    ].filter(Boolean).join('\n');
   }
 
   if (isNode) {
@@ -48,6 +69,25 @@ export const runSetupInteractive = async () => {
     const endpoint = await ask('Node Public Endpoint', 'http://localhost:8081');
     const port = await ask('Node Port', '8081');
     const routerUrl = await ask('Router Endpoint to Connect to', isRouter ? 'http://localhost:8080' : 'http://router.example.com');
+    
+    const requirePayment = await choose('Require Payment?', ['true', 'false']);
+    let lnConfig = '';
+    if (requirePayment === 'true') {
+        const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
+        lnConfig = `NODE_LN_VERIFY_URL=${lnVerify}`;
+    }
+
+    const nonceType = await choose('Nonce Store (Replay Protection)', ['File (Simple)', 'Postgres (Scalable)', 'Memory (Dev only - risky)']);
+    let nonceConfig = '';
+    if (nonceType === 'File (Simple)') {
+        const noncePath = await ask('Nonce Store Path', './node-nonce.json');
+        nonceConfig = `NODE_NONCE_STORE_PATH=${noncePath}`;
+    } else if (nonceType === 'Postgres (Scalable)') {
+        const nonceUrl = await ask('Postgres URL', 'postgresql://user:pass@localhost:5432/node_nonce');
+        nonceConfig = `NODE_NONCE_STORE_URL=${nonceUrl}`;
+    } else {
+        nonceConfig = `# NODE_NONCE_STORE_PATH not set (using memory)`;
+    }
 
     // Runner Configuration
     const runnerType = await choose('Select Runner Type', [
@@ -195,8 +235,11 @@ export const runSetupInteractive = async () => {
       `NODE_ENDPOINT=${endpoint}`,
       `NODE_PORT=${port}`,
       `ROUTER_ENDPOINT=${routerUrl}`,
+      `NODE_REQUIRE_PAYMENT=${requirePayment}`,
+      lnConfig,
+      nonceConfig,
       runnerConfig
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     
     if (isRouter) {
         nodeEnv += `\nNODE_ROUTER_FOLLOW=${routerKeys.npub}`;
