@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
 import { NodeConfig } from './config';
@@ -68,7 +68,7 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
     // Setup Endpoints (Public if unclaimed)
     if (req.url === '/admin/setup/status' && req.method === 'GET') {
         const claimed = Boolean(config.adminKey || config.adminNpub);
-        return sendJson(res, 200, { claimed });
+        return sendJson(res, 200, { claimed, setupMode: config.setupMode });
     }
 
     if (req.url === '/admin/setup/claim' && req.method === 'POST') {
@@ -110,6 +110,28 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
     if (req.method === 'GET' && req.url === '/admin/config') {
       const safeConfig = { ...config, privateKey: '[REDACTED]', adminKey: '[REDACTED]' };
       return sendJson(res, 200, safeConfig);
+    }
+
+    if (req.method === 'POST' && req.url === '/admin/config') {
+      try {
+        const body = await readJson(req);
+        let current = {};
+        try { current = JSON.parse(readFileSync('config.json', 'utf8')); } catch {}
+        
+        const restart = body._restart;
+        delete body._restart;
+        
+        const newConfig = { ...current, ...body };
+        writeFileSync('config.json', JSON.stringify(newConfig, null, 2));
+        
+        if (restart) {
+             setTimeout(() => process.exit(0), 1000);
+             return sendJson(res, 200, { status: 'restarting' });
+        }
+        return sendJson(res, 200, { status: 'saved' });
+      } catch (error) {
+        return sendJson(res, 500, { error: String(error) });
+      }
     }
 
     if (req.method === 'POST' && req.url === '/admin/models/search') {

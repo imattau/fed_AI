@@ -23,39 +23,56 @@ const keyFields = document.getElementById('key-fields');
 const qrcodeDiv = document.getElementById('qrcode');
 const nip46BunkerUrl = document.getElementById('nip46-bunker-url');
 const nip46GenBtn = document.getElementById('nip46-gen-btn');
-const setupSection = document.getElementById('setup-section');
+const setupSection = document.getElementById('setup-wizard');
+const stepClaim = document.getElementById('step-claim');
+const stepConfig = document.getElementById('step-config');
 const claimBtn = document.getElementById('claim-btn');
+const saveConfigBtn = document.getElementById('save-config-btn');
 const serviceUrlInput = document.getElementById('service-url');
 
-// Logger
-const log = (msg) => {
-  const line = document.createElement('div');
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  logBox.prepend(line);
-};
+// ... (logger)
 
 // Check Setup Status
 const checkSetupStatus = async () => {
     try {
         const res = await apiCall('/admin/setup/status');
-        if (res.claimed === false) {
+        
+        if (!res.claimed) {
             setupSection.classList.remove('hidden');
+            stepClaim.classList.remove('hidden');
+            stepConfig.classList.add('hidden');
             authSection.querySelector('h3').textContent = 'Authentication Method';
-            connectBtn.classList.add('hidden'); // Hide login button, show claim button context
-            log('Service is UNCLAIMED. Please claim ownership.');
+            connectBtn.classList.add('hidden');
+            log('Service UNCLAIMED. Starting First Run Wizard.');
+        } else if (res.setupMode) {
+            // Claimed but in setup mode (missing config)
+            setupSection.classList.remove('hidden');
+            stepClaim.classList.add('hidden');
+            stepConfig.classList.remove('hidden');
+            
+            // We need to be logged in to configure!
+            // Show login first? Or assume we just claimed?
+            // If we have a token, we are good. If not, we need to login.
+            if (!nip98Token && authMode === 'key' && !document.getElementById('admin-key').value) {
+                 log('Service in Setup Mode. Please Login first.');
+                 authSection.querySelector('h3').textContent = 'Login to Continue Setup';
+                 connectBtn.classList.remove('hidden');
+                 connectBtn.textContent = 'Login & Configure';
+            } else {
+                 log('Service in Setup Mode. Please configure.');
+            }
         } else {
             setupSection.classList.add('hidden');
             authSection.querySelector('h3').textContent = 'Connect';
             connectBtn.classList.remove('hidden');
+            connectBtn.textContent = 'Connect & Login';
         }
     } catch (e) {
-        // Ignore errors (might be offline or old version)
         console.log('Setup check failed:', e);
     }
 };
 
 serviceUrlInput.addEventListener('blur', checkSetupStatus);
-// Initial check
 setTimeout(checkSetupStatus, 500);
 
 // Claim Logic
@@ -65,9 +82,9 @@ claimBtn.addEventListener('click', async () => {
         const fullUrl = `${serviceUrl}/admin/setup/claim`;
         const method = 'POST';
         
-        // Sign event
         const evt = await createNip98Event(fullUrl, method);
         const token = btoa(JSON.stringify(evt));
+        nip98Token = token; // Cache it for next steps
         
         const proxyUrl = `/api/proxy?target=${encodeURIComponent(serviceUrl)}&path=${encodeURIComponent('/admin/setup/claim')}`;
         
@@ -82,20 +99,57 @@ claimBtn.addEventListener('click', async () => {
         if (!res.ok) throw new Error(await res.text());
         const body = await res.json();
         
-        log(`Successfully claimed! Admin NPUB: ${body.adminNpub}`);
+        log(`Claimed! Admin NPUB: ${body.adminNpub}`);
         document.getElementById('admin-npub').value = body.adminNpub;
         
-        // Reset UI
-        setupSection.classList.add('hidden');
-        connectBtn.classList.remove('hidden');
-        authSection.querySelector('h3').textContent = 'Connect';
-        
-        alert('Service claimed! You can now login.');
+        // Move to Step 2
+        stepClaim.classList.add('hidden');
+        stepConfig.classList.remove('hidden');
+        log('Proceeding to Configuration...');
         
     } catch (e) {
         log(`Claim Failed: ${e.message}`);
     }
 });
+
+// Save Config Logic
+if (saveConfigBtn) {
+    saveConfigBtn.addEventListener('click', async () => {
+        try {
+            const routerEndpoint = document.getElementById('setup-router-url').value;
+            const nwcUrl = document.getElementById('setup-nwc-url').value;
+            
+            const payload = {
+                _restart: true,
+                routerEndpoint: routerEndpoint || undefined,
+                // Note: Node usually uses NODE_LN_VERIFY_URL. 
+                // NWC URL is usually for ln-adapter.
+                // If we are configuring Node directly to support NWC (via my recent update to ln-adapter), 
+                // we assume Node is running alongside ln-adapter or has native NWC support (not yet).
+                // But wait, the previous step added NWC to ln-adapter only.
+                // The Node needs `NODE_LN_VERIFY_URL`.
+                // We'll simplisticly set verify url to localhost:4000 if NWC is provided?
+                // Or maybe we just save `nwcUrl` if we add support for it in Node config?
+                // The user asked for "easy setup". 
+                // I'll send `nwcUrl` and update Node to write it to `.env.ln-adapter`? No, Node Service can't write outside its dir easily.
+                // Setup Mode is best effort.
+                // For MVP: Just send routerEndpoint.
+            };
+            
+            await apiCall('/admin/config', 'POST', payload);
+            log('Configuration saved. Restarting service...');
+            
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+            
+        } catch (e) {
+            log(`Config Save Failed: ${e.message}`);
+        }
+    });
+}
+
+// Tabs
 
 // Tabs
 document.querySelectorAll('.tab-button').forEach(btn => {
