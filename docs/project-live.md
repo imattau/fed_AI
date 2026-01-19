@@ -96,6 +96,7 @@ Phase 7 - Optional extensions
 - [x] SDK discovery helpers (router + relay) and configurable HTTP retry.
 - [x] SDK core client helpers: node filters, batch quotes, config validation, error parsing utilities.
 - [x] SDK payments ops helpers: split accounting, receipt matching, reconciliation utilities, per-request retries.
+- [x] SDK federation helpers: caps/price/status/job + settlement endpoints.
 
 ## Upcoming tasks
 

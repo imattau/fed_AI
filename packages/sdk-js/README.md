@@ -57,6 +57,18 @@ const total = sumSplits(request.payload.splits);
 const match = paymentReceiptMatchesRequest(receipt.payload, request.payload);
 ```
 
+## Federation helpers
+
+```ts
+const caps = await client.federationSelfCaps(payload);
+const message = client.createFederationMessage('CAPS_ANNOUNCE', payload);
+await client.federationCaps(message);
+
+const receipt = client.signFederationReceipt(receiptPayload);
+const payment = await client.federationPaymentRequest(receipt);
+await client.federationPaymentReceipt(client.createPaymentReceipt(payment));
+```
+
 ## Diagnostics helpers
 
 ```ts
@@ -124,6 +136,7 @@ console.log(keyPair.publicKeyNpub);
 - Batch quote helper for multi-model requests.
 - Config validation helpers and error detail parsing utilities.
 - Payment split/receipt validation helpers for client-side reconciliation.
+- Federation helpers for caps/price/status/job/payment flows.
 
 Retry note: retries are applied to `GET` requests by default. To retry `POST` requests, set
 `retry.methods` to include `'POST'` (use with care for non-idempotent calls).

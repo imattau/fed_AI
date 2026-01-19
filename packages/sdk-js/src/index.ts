@@ -13,6 +13,20 @@ import {
   validateMeteringRecord,
   validatePaymentRequest,
   validateQuoteResponse,
+  validateRouterAwardPayload,
+  validateRouterBidPayload,
+  validateRouterCapabilityProfile,
+  validateRouterControlMessage,
+  validateRouterJobResult,
+  validateRouterJobSubmit,
+  validateRouterPriceSheet,
+  validateRouterReceipt,
+  validateRouterRfbPayload,
+  validateRouterStatusPayload,
+  signRouterMessage,
+  signRouterReceipt,
+  verifyRouterMessage,
+  verifyRouterReceipt,
   verifyEnvelope,
 } from '@fed-ai/protocol';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
@@ -29,6 +43,17 @@ import type {
   PaymentSplit,
   QuoteRequest,
   QuoteResponse,
+  RouterAwardPayload,
+  RouterBidPayload,
+  RouterCapabilityProfile,
+  RouterControlMessage,
+  RouterFederationMessageType,
+  RouterJobResult,
+  RouterJobSubmit,
+  RouterPriceSheet,
+  RouterReceipt,
+  RouterRfbPayload,
+  RouterStatusPayload,
   Validator,
 } from '@fed-ai/protocol';
 
@@ -101,6 +126,16 @@ export type PaymentReceiptMatch = {
   ok: boolean;
   reason?: string;
 };
+
+export type RouterMessageOptions = {
+  version?: string;
+  messageId?: string;
+  timestamp?: number;
+  expiry?: number;
+  prevMessageId?: string;
+};
+
+export type RouterReceiptInput = Omit<RouterReceipt, 'sig'>;
 
 export const deriveKeyId = (privateKey: string, format: 'npub' | 'hex' = 'npub'): string => {
   const parsed = parsePrivateKey(privateKey);
@@ -272,6 +307,35 @@ export const reconcilePaymentReceipts = (
     }
   }
   return { missing, expired };
+};
+
+export const createRouterMessage = <T>(
+  type: RouterFederationMessageType,
+  payload: T,
+  routerId: string,
+  privateKey: string | Uint8Array,
+  options: RouterMessageOptions = {},
+): RouterControlMessage<T> => {
+  const timestamp = options.timestamp ?? Date.now();
+  const expiry = options.expiry ?? timestamp + 60_000;
+  const messageId = options.messageId ?? `${routerId}:${type}:${timestamp}`;
+  const message: RouterControlMessage<T> = {
+    type,
+    version: options.version ?? '0.1',
+    routerId,
+    messageId,
+    timestamp,
+    expiry,
+    payload,
+    sig: '',
+    prevMessageId: options.prevMessageId,
+  };
+  return signRouterMessage(message, privateKey);
+};
+
+export const signReceipt = (receipt: RouterReceiptInput, privateKey: string | Uint8Array): RouterReceipt => {
+  const full: RouterReceipt = { ...receipt, sig: '' };
+  return signRouterReceipt(full, privateKey);
 };
 
 export const pickCapability = (node: NodeDescriptor, modelId: string): Capability | undefined => {
@@ -482,6 +546,24 @@ export class FedAiClient {
     return envelope;
   }
 
+  private parseRouterMessage<T>(
+    value: unknown,
+    validator: Validator<T>,
+    label: string,
+  ): RouterControlMessage<T> {
+    const validation = validateRouterControlMessage(value, validator);
+    if (!validation.ok) {
+      throw new Error(`${label}-invalid`);
+    }
+    const message = value as RouterControlMessage<T>;
+    if (this.verifyResponses && this.routerPublicKey) {
+      if (!verifyRouterMessage(message, this.routerPublicKey)) {
+        throw new Error(`${label}-signature`);
+      }
+    }
+    return message;
+  }
+
   public async health(options?: RequestOptions): Promise<{ ok: boolean }> {
     const response = await this.get('/health', options);
     if (!response.ok) {
@@ -631,6 +713,169 @@ export class FedAiClient {
       }
       const retry = await this.infer({ ...request, paymentReceipts: [receipt] }, options?.requestOptions);
       return { ...retry, payment: { request: error.paymentRequest, receipt } };
+    }
+  }
+
+  public createFederationMessage<T>(
+    type: RouterFederationMessageType,
+    payload: T,
+    options?: RouterMessageOptions,
+  ): RouterControlMessage<T> {
+    return createRouterMessage(type, payload, this.keyId, this.privateKey, options);
+  }
+
+  public signFederationReceipt(receipt: RouterReceiptInput): RouterReceipt {
+    return signReceipt(receipt, this.privateKey);
+  }
+
+  public async federationCaps(
+    message: RouterControlMessage<RouterCapabilityProfile>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/caps', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/caps', response.status, detail);
+    }
+  }
+
+  public async federationSelfCaps(
+    payload: RouterCapabilityProfile,
+    options?: RequestOptions,
+  ): Promise<RouterControlMessage<RouterCapabilityProfile>> {
+    const response = await this.post('/federation/self/caps', payload, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/self/caps', response.status, detail);
+    }
+    const body = await response.json();
+    return this.parseRouterMessage(body.message, validateRouterCapabilityProfile, 'caps');
+  }
+
+  public async federationPrice(
+    message: RouterControlMessage<RouterPriceSheet>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/price', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/price', response.status, detail);
+    }
+  }
+
+  public async federationSelfPrice(
+    payload: RouterPriceSheet,
+    options?: RequestOptions,
+  ): Promise<RouterControlMessage<RouterPriceSheet>> {
+    const response = await this.post('/federation/self/price', payload, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/self/price', response.status, detail);
+    }
+    const body = await response.json();
+    return this.parseRouterMessage(body.message, validateRouterPriceSheet, 'price');
+  }
+
+  public async federationStatus(
+    message: RouterControlMessage<RouterStatusPayload>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/status', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/status', response.status, detail);
+    }
+  }
+
+  public async federationSelfStatus(
+    payload: RouterStatusPayload,
+    options?: RequestOptions,
+  ): Promise<RouterControlMessage<RouterStatusPayload>> {
+    const response = await this.post('/federation/self/status', payload, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/self/status', response.status, detail);
+    }
+    const body = await response.json();
+    return this.parseRouterMessage(body.message, validateRouterStatusPayload, 'status');
+  }
+
+  public async federationRfb(
+    message: RouterControlMessage<RouterRfbPayload>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/rfb', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/rfb', response.status, detail);
+    }
+  }
+
+  public async federationBid(
+    message: RouterControlMessage<RouterBidPayload>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/bid', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/bid', response.status, detail);
+    }
+  }
+
+  public async federationAward(
+    message: RouterControlMessage<RouterAwardPayload>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/award', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/award', response.status, detail);
+    }
+  }
+
+  public async federationJobSubmit(
+    message: RouterControlMessage<RouterJobSubmit>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/job-submit', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/job-submit', response.status, detail);
+    }
+  }
+
+  public async federationJobResult(
+    message: RouterControlMessage<RouterJobResult>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/job-result', message, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/job-result', response.status, detail);
+    }
+  }
+
+  public async federationPaymentRequest(
+    receipt: RouterReceipt,
+    options?: RequestOptions,
+  ): Promise<Envelope<PaymentRequest>> {
+    const response = await this.post('/federation/payment-request', receipt, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/payment-request', response.status, detail);
+    }
+    const body = await response.json();
+    return this.parseEnvelope(body.payment, validatePaymentRequest, 'payment');
+  }
+
+  public async federationPaymentReceipt(
+    receipt: Envelope<PaymentReceipt>,
+    options?: RequestOptions,
+  ): Promise<void> {
+    const response = await this.post('/federation/payment-receipt', receipt, options);
+    if (!response.ok) {
+      const detail = await this.readErrorDetail(response);
+      throw new ApiError('/federation/payment-receipt', response.status, detail);
     }
   }
 
