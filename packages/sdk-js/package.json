@@ -10,7 +10,9 @@
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
-    "@fed-ai/protocol": "workspace:*"
+    "@fed-ai/nostr-relay-discovery": "workspace:*",
+    "@fed-ai/protocol": "workspace:*",
+    "nostr-tools": "^2.7.2"
   },
   "devDependencies": {
     "tsx": "^4.15.0"

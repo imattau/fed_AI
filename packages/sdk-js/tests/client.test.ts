@@ -13,13 +13,20 @@ import {
   QuoteRequest,
   signEnvelope,
 } from '@fed-ai/protocol';
-import { FedAiClient, PaymentRequiredError } from '../src';
+import {
+  FedAiClient,
+  PaymentRequiredError,
+  deriveKeyId,
+  generateKeyPair,
+  discoverRouter,
+} from '../src';
 
 const startRouterStub = async () => {
   const routerPrivate = generateSecretKey();
   const routerPublic = getPublicKey(routerPrivate);
   const routerKeyId = exportPublicKeyNpub(Buffer.from(routerPublic, 'hex'));
   let inferAttempts = 0;
+  let receiptAttempts = 0;
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -109,6 +116,7 @@ const startRouterStub = async () => {
       return;
     }
     if (req.url === '/payment-receipt') {
+      receiptAttempts += 1;
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;
@@ -122,6 +130,7 @@ const startRouterStub = async () => {
     server,
     baseUrl: `http://127.0.0.1:${address.port}`,
     routerKeyId,
+    receiptAttempts: () => receiptAttempts,
   };
 };
 
@@ -167,8 +176,89 @@ test('FedAiClient handles quotes and payments', async () => {
       paymentReceipts: [receipt],
     });
     assert.equal(result.response.payload.output, 'echo:hello again');
+    assert.equal(router.receiptAttempts(), 1);
   } finally {
     await new Promise<void>((resolve) => router.server.close(() => resolve()));
+  }
+});
+
+test('FedAiClient inferWithPayment completes payment flow', async () => {
+  const router = await startRouterStub();
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
+  const client = new FedAiClient({
+    routerUrl: router.baseUrl,
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    privateKey: exportPrivateKeyHex(clientPrivate),
+    routerPublicKey: router.routerKeyId,
+    verifyResponses: true,
+  });
+
+  try {
+    const result = await client.inferWithPayment({
+      requestId: 'req-pay-2',
+      modelId: 'mock-model',
+      prompt: 'hello',
+      maxTokens: 8,
+    });
+    assert.equal(result.response.payload.output, 'echo:hello');
+    assert.equal(router.receiptAttempts(), 1);
+    assert.ok(result.payment);
+  } finally {
+    await new Promise<void>((resolve) => router.server.close(() => resolve()));
+  }
+});
+
+test('deriveKeyId returns matching npub for private key', async () => {
+  const privateKey = generateSecretKey();
+  const publicKey = getPublicKey(privateKey);
+  const derived = deriveKeyId(exportPrivateKeyHex(privateKey), 'npub');
+  assert.equal(derived, exportPublicKeyNpub(Buffer.from(publicKey, 'hex')));
+});
+
+test('generateKeyPair returns valid key material', async () => {
+  const pair = generateKeyPair();
+  assert.ok(pair.privateKey);
+  assert.ok(pair.publicKey);
+  assert.ok(pair.privateKeyHex.length > 0);
+  assert.ok(pair.publicKeyHex.length > 0);
+  assert.ok(pair.privateKeyNsec.startsWith('nsec'));
+  assert.ok(pair.publicKeyNpub.startsWith('npub'));
+});
+
+test('discoverRouter selects the first healthy router', async () => {
+  const badServer = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(500);
+      res.end();
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => badServer.listen(0, resolve));
+  const badAddress = badServer.address() as AddressInfo;
+  const badUrl = `http://127.0.0.1:${badAddress.port}`;
+
+  const goodServer = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => goodServer.listen(0, resolve));
+  const goodAddress = goodServer.address() as AddressInfo;
+  const goodUrl = `http://127.0.0.1:${goodAddress.port}`;
+
+  try {
+    const selected = await discoverRouter([badUrl, goodUrl]);
+    assert.equal(selected.url, goodUrl);
+  } finally {
+    await new Promise<void>((resolve) => badServer.close(() => resolve()));
+    await new Promise<void>((resolve) => goodServer.close(() => resolve()));
   }
 });
 
@@ -228,6 +318,103 @@ test('FedAiClient surfaces payment receipt rejection details', async () => {
       () => client.sendPaymentReceipt(receipt),
       { message: /invalid-signature/ },
     );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('FedAiClient fetches health and nodes', async () => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url === '/status') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, uptimeMs: 1 }));
+      return;
+    }
+    if (req.url === '/nodes') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ nodes: [{ nodeId: 'node-1' }], active: [{ nodeId: 'node-1' }] }));
+      return;
+    }
+    if (req.url === '/metrics') {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('# mock metrics');
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
+  const client = new FedAiClient({
+    routerUrl: baseUrl,
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    privateKey: exportPrivateKeyHex(clientPrivate),
+  });
+
+  try {
+    const health = await client.health();
+    assert.equal(health.ok, true);
+    const status = await client.status();
+    assert.equal(status.ok, true);
+    const nodes = await client.nodes();
+    assert.equal(nodes.nodes.length, 1);
+    assert.equal(nodes.active.length, 1);
+    const active = await client.activeNodes();
+    assert.equal(active.length, 1);
+    const metrics = await client.metrics();
+    assert.ok(metrics.includes('mock metrics'));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('FedAiClient retries GET requests when configured', async () => {
+  let attempts = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      attempts += 1;
+      if (attempts === 1) {
+        res.writeHead(502);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
+  const client = new FedAiClient({
+    routerUrl: baseUrl,
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    privateKey: exportPrivateKeyHex(clientPrivate),
+    retry: {
+      maxAttempts: 2,
+      minDelayMs: 1,
+      maxDelayMs: 2,
+    },
+  });
+
+  try {
+    const health = await client.health();
+    assert.equal(health.ok, true);
+    assert.equal(attempts, 2);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

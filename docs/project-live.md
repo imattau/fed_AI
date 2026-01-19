@@ -92,6 +92,8 @@ Phase 7 - Optional extensions
 - [x] Performance audit remediation: add retention/paging to router Postgres store load and cleanup.
 - [x] Performance audit remediation: add request timeouts + limited parallelism for federation publish/auction.
 - [x] Performance audit remediation: reduce scheduler sort work with top-k selection or cached scores per job type.
+- [x] SDK ergonomics: key derivation helper, payment retry helper, diagnostics endpoints, richer errors.
+- [x] SDK discovery helpers (router + relay) and configurable HTTP retry.
 
 ## Upcoming tasks
 
