@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
@@ -7,6 +8,7 @@ type OpenAiRunnerOptions = {
   timeoutMs?: number;
   apiKey?: string;
   mode?: 'chat' | 'completion';
+  apiKeyHeader?: 'authorization' | 'x-api-key' | 'both';
 };
 
 type OpenAiModelsResponse = {
@@ -35,6 +37,7 @@ export class OpenAiRunner implements Runner {
   private timeoutMs?: number;
   private apiKey?: string;
   private mode: 'chat' | 'completion';
+  private apiKeyHeader: 'authorization' | 'x-api-key' | 'both';
 
   constructor(options: OpenAiRunnerOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
@@ -42,6 +45,7 @@ export class OpenAiRunner implements Runner {
     this.timeoutMs = options.timeoutMs;
     this.apiKey = options.apiKey;
     this.mode = options.mode ?? 'chat';
+    this.apiKeyHeader = options.apiKeyHeader ?? 'authorization';
   }
 
   private buildUrl(path: string): string {
@@ -49,9 +53,18 @@ export class OpenAiRunner implements Runner {
   }
 
   private buildHeaders(extra?: HeadersInit, apiKey?: string): HeadersInit {
+    const authHeaders: Record<string, string> = {};
+    if (apiKey) {
+      if (this.apiKeyHeader === 'authorization' || this.apiKeyHeader === 'both') {
+        authHeaders.authorization = `Bearer ${apiKey}`;
+      }
+      if (this.apiKeyHeader === 'x-api-key' || this.apiKeyHeader === 'both') {
+        authHeaders['x-api-key'] = apiKey;
+      }
+    }
     return {
       'content-type': 'application/json',
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      ...authHeaders,
       ...(extra ?? {}),
     };
   }
@@ -72,7 +85,15 @@ export class OpenAiRunner implements Runner {
     });
 
     if (!response.ok) {
-      throw new Error(`runner-openai ${response.status} ${response.statusText}`);
+      let detail = '';
+      try {
+        const text = await response.text();
+        detail = text.slice(0, 500);
+      } catch {
+        detail = '';
+      }
+      const suffix = detail ? ` ${detail}` : '';
+      throw new Error(`runner-openai ${response.status} ${response.statusText}${suffix}`);
     }
 
     return (await response.json()) as T;
@@ -120,8 +141,8 @@ export class OpenAiRunner implements Runner {
         modelId: request.modelId ?? this.defaultModelId,
         output,
         usage: {
-          inputTokens: payload.usage?.prompt_tokens ?? request.prompt.length,
-          outputTokens: payload.usage?.completion_tokens ?? output.length,
+          inputTokens: payload.usage?.prompt_tokens ?? estimateTokensFromText(request.prompt),
+          outputTokens: payload.usage?.completion_tokens ?? estimateTokensFromText(output),
         },
         latencyMs: 0,
       };
@@ -144,8 +165,8 @@ export class OpenAiRunner implements Runner {
       modelId: request.modelId ?? this.defaultModelId,
       output,
       usage: {
-        inputTokens: payload.usage?.prompt_tokens ?? request.prompt.length,
-        outputTokens: payload.usage?.completion_tokens ?? output.length,
+        inputTokens: payload.usage?.prompt_tokens ?? estimateTokensFromText(request.prompt),
+        outputTokens: payload.usage?.completion_tokens ?? estimateTokensFromText(output),
       },
       latencyMs: 0,
     };

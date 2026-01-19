@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
@@ -56,8 +57,8 @@ export class CpuStatsRunner implements Runner {
       modelId: this.model.id,
       output,
       usage: {
-        inputTokens: Math.max(1, Math.floor(request.prompt.length / 4)),
-        outputTokens: Math.min(request.maxTokens, Math.ceil(output.length / 4)),
+        inputTokens: estimateTokensFromText(request.prompt),
+        outputTokens: Math.min(request.maxTokens, estimateTokensFromText(output)),
       },
       latencyMs: 5,
     };

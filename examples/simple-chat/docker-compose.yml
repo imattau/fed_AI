@@ -207,9 +207,9 @@ services:
       NODE_WORKER_THREADS_TIMEOUT_MS: "2000"
       NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
       NODE_RUNNER: openai
-      NODE_OPENAI_URL: https://api.groq.com/openai/v1
-      NODE_OPENAI_MODEL: llama3-8b-8192
-      NODE_MODEL_ID: llama3-8b-8192
+      NODE_OPENAI_URL: https://api.groq.com/openai
+      NODE_OPENAI_MODEL: llama-3.1-8b-instant
+      NODE_MODEL_ID: llama-3.1-8b-instant
       NODE_OPENAI_API_KEY_HEADER: both
       NODE_EXPOSE_ERRORS: "true"
       ROUTER_ENDPOINT: http://router:8080
@@ -250,6 +250,10 @@ services:
       - ../../:/repo
       - keys:/keys:ro
     environment:
+      CI: "1"
+      PNPM_CONFIG_CONFIRM_MODULES_DIR: "false"
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      COREPACK_ENABLE_STRICT: "0"
       ROUTER_URL: http://router:8080
       MODEL_ID: auto
       MAX_TOKENS: 128
@@ -270,7 +274,7 @@ services:
       [
         "sh",
         "-c",
-        "corepack enable >/dev/null 2>&1 && pnpm --silent -w install --frozen-lockfile --config.confirmModulesDir=false && pnpm --filter @fed-ai/protocol --filter @fed-ai/nostr-relay-discovery --filter @fed-ai/sdk-js run build && node examples/simple-chat/server.js",
+        "set -eux; corepack enable; corepack prepare pnpm@9.0.0 --activate; pnpm -w install --no-frozen-lockfile --config.confirmModulesDir=false; pnpm --filter @fed-ai/protocol --filter @fed-ai/nostr-relay-discovery --filter @fed-ai/sdk-js run build; node examples/simple-chat/server.js",
       ]
     depends_on:
       router:

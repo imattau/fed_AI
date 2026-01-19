@@ -1,6 +1,6 @@
 # Data Handling
 
-- Prompts and outputs are never logged.
+- Prompts and outputs are never logged, including streaming chunks on `/infer/stream`.
 - Prompts are hashed for metering correlation.
 - Only metadata required for routing is stored.
 - Nostr relays must never carry prompt/output payloads.

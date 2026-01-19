@@ -97,6 +97,10 @@ Phase 7 - Optional extensions
 - [x] SDK core client helpers: node filters, batch quotes, config validation, error parsing utilities.
 - [x] SDK payments ops helpers: split accounting, receipt matching, reconciliation utilities, per-request retries.
 - [x] SDK federation helpers: caps/price/status/job + settlement endpoints.
+- [x] SDK long-running helpers: polling utility and per-request timeout/cancellation support.
+- [x] Streaming inference endpoints for router/node with SSE and SDK helpers.
+- [x] Optional worker-thread pools for envelope validation and signature verification in router/node.
+- [x] Context window enforcement using prompt token estimates in router selection and node validation.
 
 ## Upcoming tasks
 

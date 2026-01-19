@@ -12,8 +12,10 @@ import {
   FileNonceStore,
   InMemoryNonceStore,
   signEnvelope,
+  estimateTokensFromText,
   validateEnvelope,
   validateInferenceRequest,
+  validateInferenceStreamEvent,
   validatePaymentReceipt,
   validatePaymentRequest,
   validateProtocolError,
@@ -21,7 +23,15 @@ import {
   validateStakeSlash,
   verifyEnvelope,
 } from '../src/index';
-import type { Envelope, InferenceRequest, PaymentReceipt, PayeeType } from '../src/types';
+import type {
+  Envelope,
+  InferenceRequest,
+  InferenceResponse,
+  InferenceStreamEvent,
+  MeteringRecord,
+  PaymentReceipt,
+  PayeeType,
+} from '../src/types';
 
 test('signEnvelope and verifyEnvelope round-trip', () => {
   const privateKey = generateSecretKey();
@@ -64,6 +74,13 @@ test('checkReplay enforces nonce and timestamp window', () => {
   const lateResult = checkReplay(lateEnvelope, store, { nowMs: now });
   assert.equal(lateResult.ok, false);
   assert.equal(lateResult.error, 'ts-out-of-window');
+});
+
+test('estimateTokensFromText uses a simple 4-char heuristic', () => {
+  assert.equal(estimateTokensFromText(''), 0);
+  assert.equal(estimateTokensFromText('a'), 1);
+  assert.equal(estimateTokensFromText('abcd'), 1);
+  assert.equal(estimateTokensFromText('abcde'), 2);
 });
 
 test('FileNonceStore persists nonces across restarts', async () => {
@@ -159,6 +176,43 @@ test('validatePaymentRequest and validatePaymentReceipt enforce shape', () => {
 
   assert.equal(validatePaymentRequest({}).ok, false);
   assert.equal(validatePaymentReceipt({}).ok, false);
+});
+
+test('validateInferenceStreamEvent accepts chunk and final payloads', () => {
+  const privateKey = generateSecretKey();
+  const publicKey = Buffer.from(getPublicKey(privateKey), 'hex');
+  const keyId = exportPublicKeyNpub(publicKey);
+  const response: InferenceResponse = {
+    requestId: 'req-stream',
+    modelId: 'mock-model',
+    output: 'hello',
+    usage: { inputTokens: 1, outputTokens: 1 },
+    latencyMs: 1,
+  };
+  const metering: MeteringRecord = {
+    requestId: 'req-stream',
+    nodeId: 'node-1',
+    modelId: 'mock-model',
+    promptHash: 'hash',
+    inputTokens: 1,
+    outputTokens: 1,
+    wallTimeMs: 1,
+    bytesIn: 1,
+    bytesOut: 1,
+    ts: Date.now(),
+  };
+  const responseEnvelope = signEnvelope(buildEnvelope(response, 'nonce-r', Date.now(), keyId), privateKey);
+  const meteringEnvelope = signEnvelope(buildEnvelope(metering, 'nonce-m', Date.now(), keyId), privateKey);
+  const chunkEvent: InferenceStreamEvent = {
+    type: 'chunk',
+    data: { requestId: 'req-stream', modelId: 'mock-model', delta: 'he', index: 0 },
+  };
+  const finalEvent: InferenceStreamEvent = {
+    type: 'final',
+    data: { response: responseEnvelope, metering: meteringEnvelope },
+  };
+  assert.equal(validateInferenceStreamEvent(chunkEvent).ok, true);
+  assert.equal(validateInferenceStreamEvent(finalEvent).ok, true);
 });
 
 test('validateProtocolError checks error shape', () => {

@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
@@ -89,8 +90,8 @@ export class AnthropicRunner implements Runner {
       modelId: request.modelId ?? this.defaultModelId,
       output,
       usage: {
-        inputTokens: payload.usage?.input_tokens ?? request.prompt.length,
-        outputTokens: payload.usage?.output_tokens ?? output.length,
+        inputTokens: payload.usage?.input_tokens ?? estimateTokensFromText(request.prompt),
+        outputTokens: payload.usage?.output_tokens ?? estimateTokensFromText(output),
       },
       latencyMs: 0,
     };

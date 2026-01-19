@@ -104,9 +104,15 @@ importers:
 
   packages/sdk-js:
     dependencies:
+      '@fed-ai/nostr-relay-discovery':
+        specifier: workspace:*
+        version: link:../nostr-relay-discovery
       '@fed-ai/protocol':
         specifier: workspace:*
         version: link:../protocol
+      nostr-tools:
+        specifier: ^2.7.2
+        version: 2.19.4(typescript@5.9.3)
     devDependencies:
       tsx:
         specifier: ^4.15.0

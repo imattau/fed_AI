@@ -123,6 +123,28 @@ export type InferenceResponse = {
   latencyMs: number;
 };
 
+export type InferenceStreamChunk = {
+  requestId: string;
+  modelId: string;
+  delta: string;
+  index: number;
+};
+
+export type InferenceStreamFinal = {
+  response: Envelope<InferenceResponse>;
+  metering: Envelope<MeteringRecord>;
+};
+
+export type InferenceStreamError = {
+  error: string;
+  details?: unknown;
+};
+
+export type InferenceStreamEvent =
+  | { type: 'chunk'; data: InferenceStreamChunk }
+  | { type: 'final'; data: InferenceStreamFinal }
+  | { type: 'error'; data: InferenceStreamError };
+
 export type MeteringRecord = {
   requestId: string;
   nodeId: string;

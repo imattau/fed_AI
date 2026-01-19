@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type {
   Envelope,
   InferenceRequest,
@@ -184,7 +185,7 @@ export const selectNodeForRequest = (service: RouterService, request: InferenceR
       requestId: request.requestId,
       modelId: request.modelId,
       maxTokens: request.maxTokens,
-      inputTokensEstimate: request.prompt.length,
+      inputTokensEstimate: estimateTokensFromText(request.prompt),
       outputTokensEstimate: request.maxTokens,
       jobType: request.jobType,
     },

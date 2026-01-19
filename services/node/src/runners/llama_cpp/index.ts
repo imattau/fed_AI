@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
@@ -103,8 +104,10 @@ export class LlamaCppRunner implements Runner {
       payload.completion ??
       payload.choices?.[0]?.text ??
       '';
-    const inputTokens = payload.prompt_eval_count ?? payload.tokens_evaluated ?? request.prompt.length;
-    const outputTokens = payload.eval_count ?? payload.tokens_predicted ?? output.length;
+    const inputTokens =
+      payload.prompt_eval_count ?? payload.tokens_evaluated ?? estimateTokensFromText(request.prompt);
+    const outputTokens =
+      payload.eval_count ?? payload.tokens_predicted ?? estimateTokensFromText(output);
     const latencyMs = payload.timings?.total_ms ?? 0;
 
     return {

@@ -151,6 +151,11 @@ const buildConfig = (): RouterConfig => {
   const clientMuteList = parseNpubList(getEnv('ROUTER_CLIENT_MUTE'));
   const rateLimitMax = parseNumber(getEnv('ROUTER_RATE_LIMIT_MAX'));
   const rateLimitWindowMs = parseNumber(getEnv('ROUTER_RATE_LIMIT_WINDOW_MS'));
+  const workerThreadsEnabled =
+    (getEnv('ROUTER_WORKER_THREADS_ENABLED') ?? 'false').toLowerCase() === 'true';
+  const workerThreadsMax = parseNumber(getEnv('ROUTER_WORKER_THREADS_MAX'));
+  const workerThreadsQueueMax = parseNumber(getEnv('ROUTER_WORKER_THREADS_QUEUE_MAX'));
+  const workerThreadsTimeoutMs = parseNumber(getEnv('ROUTER_WORKER_THREADS_TIMEOUT_MS'));
 
   return {
     ...defaultRouterConfig,
@@ -180,6 +185,12 @@ const buildConfig = (): RouterConfig => {
     clientMuteList,
     rateLimitMax,
     rateLimitWindowMs,
+    workerThreads: {
+      enabled: workerThreadsEnabled,
+      maxWorkers: workerThreadsMax,
+      maxQueue: workerThreadsQueueMax,
+      taskTimeoutMs: workerThreadsTimeoutMs,
+    },
     privateKey: privateKey ? parsePrivateKey(privateKey) : undefined,
     nonceStorePath: getEnv('ROUTER_NONCE_STORE_PATH'),
     nonceStoreUrl,
@@ -301,6 +312,7 @@ const start = async (): Promise<void> => {
     logWarn('[router] invalid configuration', { issues });
     process.exit(1);
   }
+  logInfo('[router] starting', { keyId: config.keyId, endpoint: config.endpoint });
   validateNostrIdentity(config.keyId, config.privateKey);
   const store = config.db
     ? await createPostgresRouterStore(config.db, {

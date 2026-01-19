@@ -47,6 +47,24 @@ const result = await client.inferWithPayment({
 console.log(result.response.payload.output);
 ```
 
+## Streaming inference
+
+```ts
+for await (const event of client.inferStream({
+  requestId: 'req-stream-1',
+  modelId: 'mock-model',
+  prompt: 'hello',
+  maxTokens: 32,
+})) {
+  if (event.type === 'chunk') {
+    process.stdout.write(event.data.delta);
+  }
+  if (event.type === 'final') {
+    console.log('done', event.data.response.payload.requestId);
+  }
+}
+```
+
 ## Payment ops helpers
 
 ```ts
@@ -105,6 +123,26 @@ await client.infer(
 );
 ```
 
+## Per-request timeouts
+
+```ts
+await client.infer(
+  { requestId: 'req-4', modelId: 'model-a', prompt: 'hi', maxTokens: 8 },
+  { timeoutMs: 2_000 },
+);
+```
+
+## Long-running helpers
+
+```ts
+import { pollUntil } from '@fed-ai/sdk-js';
+
+const result = await pollUntil(async () => {
+  const status = await client.status();
+  return status.ok ? status : null;
+});
+```
+
 ## Discovery helpers
 
 ```ts
@@ -137,6 +175,7 @@ console.log(keyPair.publicKeyNpub);
 - Config validation helpers and error detail parsing utilities.
 - Payment split/receipt validation helpers for client-side reconciliation.
 - Federation helpers for caps/price/status/job/payment flows.
+- Polling helper and per-request timeouts/cancellation support.
 
 Retry note: retries are applied to `GET` requests by default. To retry `POST` requests, set
 `retry.methods` to include `'POST'` (use with care for non-idempotent calls).

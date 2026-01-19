@@ -5,6 +5,7 @@ export type NodeConfig = {
   keyId: string;
   endpoint: string;
   routerEndpoint: string;
+  workerThreads?: WorkerThreadsConfig;
   routerKeyId?: string;
   routerAllowList?: string[];
   offloadPeers?: string[];
@@ -45,6 +46,14 @@ export type NodeConfig = {
   pricingUnit?: 'token' | 'second';
   capabilityJobTypes?: RouterJobType[];
   capabilityLatencyMs?: number;
+  exposeErrors?: boolean;
+};
+
+export type WorkerThreadsConfig = {
+  enabled: boolean;
+  maxWorkers?: number;
+  maxQueue?: number;
+  taskTimeoutMs?: number;
 };
 
 export type NodeTlsConfig = {
@@ -68,6 +77,12 @@ export const defaultNodeConfig: NodeConfig = {
   keyId: 'npub1r72drc4k609u2jwsgt5qy5at4aea9fsu8lqua4f20d26az9h80ms45kp92',
   endpoint: 'http://localhost:8081',
   routerEndpoint: 'http://localhost:8080',
+  workerThreads: {
+    enabled: false,
+    maxWorkers: undefined,
+    maxQueue: undefined,
+    taskTimeoutMs: undefined,
+  },
   heartbeatIntervalMs: 10_000,
   runnerName: 'http',
   port: 8081,
@@ -104,4 +119,5 @@ export const defaultNodeConfig: NodeConfig = {
   pricingUnit: 'token',
   capabilityJobTypes: undefined,
   capabilityLatencyMs: undefined,
+  exposeErrors: false,
 };

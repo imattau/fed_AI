@@ -47,12 +47,33 @@ const closeServer = (server: Server) => {
   );
 };
 
+const parseSse = (body: string): Array<{ event: string; data: unknown }> => {
+  return body
+    .split('\n\n')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      let event = 'message';
+      const dataLines: string[] = [];
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('event:')) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      const dataText = dataLines.join('\n');
+      return { event, data: dataText ? JSON.parse(dataText) : null };
+    });
+};
+
 test('node /infer rejects when router public key missing', async () => {
   const nodeKeys = createKeyPair();
   const routerKeys = createKeyPair();
   const config: NodeConfig = {
     nodeId: 'node-1',
     keyId: nodeKeys.keyId,
+    privateKey: nodeKeys.privateKey,
     endpoint: 'http://localhost:0',
     routerEndpoint: 'http://localhost:8080',
     heartbeatIntervalMs: 10_000,
@@ -516,6 +537,73 @@ test('node /infer enforces max runtime budget', async () => {
 
   assert.equal(response.status, 504);
   await closeServer(server);
+});
+
+test('node /infer/stream returns chunk and final events', async () => {
+  const nodeKeys = createKeyPair();
+  const routerKeys = createKeyPair();
+  const config: NodeConfig = {
+    nodeId: 'node-1',
+    keyId: nodeKeys.keyId,
+    privateKey: nodeKeys.privateKey,
+    endpoint: 'http://localhost:0',
+    routerEndpoint: 'http://localhost:8080',
+    heartbeatIntervalMs: 10_000,
+    runnerName: 'mock',
+    port: 0,
+    maxPromptBytes: 1024,
+    maxTokens: 64,
+    maxRequestBytes: 1024,
+    requirePayment: false,
+    capacityMaxConcurrent: 4,
+    capacityCurrentLoad: 0,
+    routerKeyId: routerKeys.keyId,
+    routerPublicKey: routerKeys.publicKey,
+    offloadPeers: [],
+    offloadAuctionEnabled: false,
+    offloadAuctionMs: 500,
+    offloadAuctionAllowList: [],
+    offloadAuctionMaxPeers: 2,
+    offloadRateLimitMax: 0,
+    offloadRateLimitWindowMs: 0,
+    offloadRouterEnabled: false,
+    rateLimitMax: 0,
+    rateLimitWindowMs: 0,
+  };
+
+  const { server, baseUrl } = await startServer(config, new MockRunner());
+  try {
+    const envelope = signEnvelope(
+      buildEnvelope(
+        {
+          requestId: 'req-stream',
+          modelId: 'mock-model',
+          prompt: 'hello world',
+          maxTokens: 16,
+        },
+        'nonce-1',
+        Date.now(),
+        routerKeys.keyId,
+      ),
+      routerKeys.privateKey,
+    );
+    const response = await fetch(`${baseUrl}/infer/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(envelope),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    const events = parseSse(body);
+    const chunk = events.find((event) => event.event === 'chunk');
+    const finalEvent = events.find((event) => event.event === 'final');
+    assert.ok(chunk);
+    assert.ok(finalEvent);
+    const validation = validateEnvelope(finalEvent!.data.response, validateInferenceResponse);
+    assert.equal(validation.ok, true);
+  } finally {
+    await closeServer(server);
+  }
 });
 
 test('node /metrics exposes Prometheus metrics', async () => {

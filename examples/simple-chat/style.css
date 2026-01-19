@@ -189,6 +189,12 @@ header .wallet {
   gap: 10px;
 }
 
+.modal-actions:first-of-type {
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+
 .modal-actions button {
   padding: 8px 14px;
   border-radius: 10px;
@@ -204,6 +210,11 @@ header .wallet {
 .modal-actions button#grok-save {
   background: #111827;
   color: #fff;
+}
+
+.modal-actions button#grok-check {
+  background: #1f2937;
+  color: #f9fafb;
 }
 
 .composer input {

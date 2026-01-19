@@ -7,17 +7,18 @@ Responsibilities
 - Expose router-only inference endpoint.
 - Manage runner lifecycle.
 - Enforce sandbox boundaries.
+- Reject requests when estimated prompt + max output tokens exceed the model context window.
 - Collect and sign metering data.
 - Advertise capabilities via heartbeat.
 - Use Nostr-compatible keys for node identity and signing.
-- Service is independently deployable and exposes `/health`, `/status`, `/infer`, `/offload/rfb`, and `/offload/award`.
+- Service is independently deployable and exposes `/health`, `/status`, `/infer`, `/infer/stream`, `/offload/rfb`, and `/offload/award`.
 
 Heartbeat
 - Nodes periodically sign and send `NodeDescriptor` updates to the router.
 - Nodes can include optional `jobTypes` and `latencyEstimateMs` in advertised capabilities.
 
 Payments
-- When configured to require payment, `/infer` requires a client-signed `PaymentReceipt` envelope.
+- When configured to require payment, `/infer` and `/infer/stream` require a client-signed `PaymentReceipt` envelope.
 - Routers include the verified receipts inside the `paymentReceipts` array so downstream nodes can pick the one targeting them.
 - Clients can issue receipts via `fedai receipt` and supply them on subsequent calls (e.g., `fedai infer ... --receipts node-receipt.json`).
 - The receipt is forwarded by the router inside the inference payload.
@@ -30,6 +31,7 @@ Offload behavior
 Runner interface
 - `listModels()`
 - `infer(request)`
+- `inferStream(request)` (optional)
 - `estimate(request)`
 - `health()`
 
@@ -40,7 +42,7 @@ Runner selection
 - Use `NODE_MODEL_ID` to override the default reported model ID for capability advertisements.
 - `NODE_RUNNER=llama_cpp` targets a llama.cpp server; set `NODE_LLAMA_CPP_URL` (or `NODE_RUNNER_URL`) and ensure `/completion` is available.
 - `NODE_RUNNER=vllm` targets a vLLM server (OpenAI-compatible); set `NODE_VLLM_URL` (or `NODE_RUNNER_URL`) and ensure `/v1/completions` is available.
-- `NODE_RUNNER=openai` targets OpenAI-compatible APIs (OpenAI, Grok, DeepSeek); set `NODE_OPENAI_URL` + `NODE_OPENAI_API_KEY` and optionally `NODE_OPENAI_MODE=chat|completion`.
+- `NODE_RUNNER=openai` targets OpenAI-compatible APIs (OpenAI, Grok, DeepSeek); set `NODE_OPENAI_URL` + `NODE_OPENAI_API_KEY` and optionally `NODE_OPENAI_MODE=chat|completion` and `NODE_OPENAI_API_KEY_HEADER=authorization|x-api-key|both`.
 - `NODE_RUNNER=anthropic` targets Claude via Anthropic; set `NODE_ANTHROPIC_URL` + `NODE_ANTHROPIC_API_KEY`.
 
 Rules
@@ -52,6 +54,10 @@ Observability
 - `/metrics` exposes Prometheus counters and histograms such as `node_inference_requests_total` and `node_payment_receipt_failures_total`.
 - The node wraps `/infer` with OpenTelemetry spans to tie inference handling into distributed traces.
 - Node logs are redacted by default to avoid leaking prompt/output data or secrets.
+
+Worker threads
+- Optional worker pools can offload envelope validation and signature checks to reduce main-thread latency under load.
+- Enable only when CPU saturation or event-loop delay becomes visible in traces.
 
 Metering
 - Track tokens in/out, wall time, bytes, model ID.
@@ -70,6 +76,7 @@ Configuration
 - Offload auction access: `NODE_OFFLOAD_AUCTION_ALLOWLIST` (npub list), `NODE_OFFLOAD_AUCTION_RATE_LIMIT` (requests per minute).
 - Router preferences: `NODE_ROUTER_FOLLOW`, `NODE_ROUTER_MUTE`, `NODE_ROUTER_BLOCK` (npub lists).
 - Rate limits: `NODE_RATE_LIMIT_MAX`, `NODE_RATE_LIMIT_WINDOW_MS`.
+- Worker threads: `NODE_WORKER_THREADS_ENABLED`, `NODE_WORKER_THREADS_MAX`, `NODE_WORKER_THREADS_QUEUE_MAX`, `NODE_WORKER_THREADS_TIMEOUT_MS`.
 - Runner: `NODE_RUNNER`, `NODE_RUNNER_URL`, `NODE_MODEL_ID`.
 - Runner API keys: `NODE_RUNNER_API_KEY`, `NODE_OPENAI_API_KEY`, `NODE_VLLM_API_KEY`, `NODE_LLAMA_CPP_API_KEY`, `NODE_ANTHROPIC_API_KEY`.
 - Capacity: `NODE_HEARTBEAT_MS`, `NODE_CAPACITY_MAX`, `NODE_CAPACITY_LOAD`.

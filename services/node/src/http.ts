@@ -20,6 +20,7 @@ import {
   validateNodeRfbPayload,
   validatePaymentReceipt,
   verifyEnvelope,
+  estimateTokensFromText,
 } from '@fed-ai/protocol';
 import type {
   Envelope,
@@ -36,8 +37,12 @@ import type {
 import type { NodeConfig } from './config';
 import type { NodeService } from './server';
 import { checkRouterAccess } from './authz';
+import { logWarn } from './logging';
 import { createRateLimiter } from './rate-limit';
 import { verifyPaymentReceipt } from './payments/verify';
+import { createEnvelopeWorkerPool } from './workers/envelope-worker-pool';
+import type { EnvelopeWorkerPool } from './workers/envelope-worker-pool';
+import type { EnvelopeValidatorName } from './workers/types';
 import {
   nodeInferenceDuration,
   nodeInferenceRequests,
@@ -80,6 +85,93 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
+const startSse = (res: ServerResponse): void => {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+};
+
+const sendSseEvent = (res: ServerResponse, event: string, data: unknown): void => {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+};
+
+type EnvelopeValidator = (value: unknown) => { ok: true } | { ok: false; errors: string[] };
+
+const validateSignedEnvelope = async <T>(
+  raw: unknown,
+  validatorName: EnvelopeValidatorName,
+  validator: EnvelopeValidator,
+  workerPool: EnvelopeWorkerPool | null,
+  publicKeyHex?: string,
+): Promise<
+  | { ok: true; envelope: Envelope<T> }
+  | { ok: false; status: number; error: string; details?: string[] }
+> => {
+  if (workerPool) {
+    try {
+      const workerResult = await workerPool.validateAndVerify({
+        envelope: raw,
+        validator: validatorName,
+        publicKeyHex,
+      });
+      if (workerResult.ok) {
+        const envelope = raw as Envelope<T>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return { ok: false, status: 400, error: 'invalid-key-id' };
+        }
+        return { ok: true, envelope };
+      }
+      if (workerResult.error === 'invalid-envelope') {
+        return {
+          ok: false,
+          status: 400,
+          error: 'invalid-envelope',
+          details: workerResult.errors,
+        };
+      }
+      if (workerResult.error === 'invalid-key-id') {
+        return { ok: false, status: 400, error: 'invalid-key-id' };
+      }
+      if (workerResult.error === 'invalid-signature') {
+        return { ok: false, status: 401, error: 'invalid-signature' };
+      }
+    } catch {
+      // Fall through to synchronous validation on worker failure.
+    }
+  }
+
+  const validation = validateEnvelope(raw, validator);
+  if (!validation.ok) {
+    return { ok: false, status: 400, error: 'invalid-envelope', details: validation.errors };
+  }
+  const envelope = raw as Envelope<T>;
+  if (!isNostrNpub(envelope.keyId)) {
+    return { ok: false, status: 400, error: 'invalid-key-id' };
+  }
+  const publicKey = publicKeyHex ? Buffer.from(publicKeyHex, 'hex') : parsePublicKey(envelope.keyId);
+  if (!verifyEnvelope(envelope, publicKey)) {
+    return { ok: false, status: 401, error: 'invalid-signature' };
+  }
+  return { ok: true, envelope };
+};
+
+const selectRouterPublicKeyHex = (config: NodeConfig, raw: unknown): string | undefined => {
+  if (!config.routerKeyId || !config.routerPublicKey) {
+    return undefined;
+  }
+  if (raw && typeof raw === 'object' && 'keyId' in raw) {
+    const keyId = (raw as Envelope<unknown>).keyId;
+    if (keyId === config.routerKeyId) {
+      return Buffer.from(config.routerPublicKey).toString('hex');
+    }
+  }
+  return undefined;
+};
+
 const ensureRequestId = (req: IncomingMessage, res: ServerResponse): string => {
   const header = req.headers['x-request-id'];
   const requestId = Array.isArray(header) ? header[0] : header ?? randomUUID();
@@ -97,6 +189,12 @@ const routerFeeFromSplits = (splits?: PaymentSplit[]): number => {
     .reduce((sum, split) => sum + split.amountSats, 0);
 };
 
+const nodeAmountFromSplits = (splits?: PaymentSplit[]): number => {
+  return (splits ?? [])
+    .filter((split) => split.payeeType === 'node')
+    .reduce((sum, split) => sum + split.amountSats, 0);
+};
+
 const hashPrompt = (prompt: string): string => {
   return createHash('sha256').update(prompt, 'utf8').digest('hex');
 };
@@ -109,6 +207,13 @@ export const createNodeHttpServer = (
   const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
     : new InMemoryNonceStore());
+  const envelopeWorkerPool = config.workerThreads?.enabled
+    ? createEnvelopeWorkerPool({
+        maxWorkers: config.workerThreads.maxWorkers,
+        maxQueue: config.workerThreads.maxQueue,
+        taskTimeoutMs: config.workerThreads.taskTimeoutMs,
+      })
+    : null;
   const startedAtMs = Date.now();
   const ingressRateLimiter = createRateLimiter(config.rateLimitMax, config.rateLimitWindowMs);
   const checkIngressRateLimit = (
@@ -124,6 +229,51 @@ export const createNodeHttpServer = (
   };
   const auctionRateWindowMs = 60_000;
   const auctionRateCounters = new Map<string, { count: number; resetAt: number }>();
+  let modelContextWindows: Map<string, number> | null = null;
+  let modelContextLoad: Promise<Map<string, number>> | null = null;
+
+  const loadModelContextWindows = async (): Promise<Map<string, number>> => {
+    if (modelContextWindows) {
+      return modelContextWindows;
+    }
+    if (!modelContextLoad) {
+      modelContextLoad = (async () => {
+        const models = await service.runner.listModels();
+        const cache = new Map<string, number>();
+        for (const model of models) {
+          if (model.contextWindow) {
+            cache.set(model.id, model.contextWindow);
+          }
+        }
+        modelContextWindows = cache;
+        return cache;
+      })();
+    }
+    return modelContextLoad;
+  };
+
+  const getModelContextWindow = async (modelId: string): Promise<number | undefined> => {
+    try {
+      const cache = await loadModelContextWindows();
+      return cache.get(modelId);
+    } catch {
+      modelContextLoad = null;
+      return undefined;
+    }
+  };
+
+  const checkContextWindow = async (
+    modelId: string,
+    prompt: string,
+    maxTokens: number,
+  ): Promise<{ ok: true; inputTokensEstimate: number } | { ok: false; error: string }> => {
+    const inputTokensEstimate = estimateTokensFromText(prompt);
+    const contextWindow = await getModelContextWindow(modelId);
+    if (contextWindow !== undefined && inputTokensEstimate + maxTokens > contextWindow) {
+      return { ok: false, error: 'context-window-exceeded' };
+    }
+    return { ok: true, inputTokensEstimate };
+  };
 
   const checkAuctionRateLimit = (keyId: string): boolean => {
     if (!config.offloadAuctionRateLimit || config.offloadAuctionRateLimit <= 0) {
@@ -216,7 +366,7 @@ export const createNodeHttpServer = (
         requestId: envelope.payload.requestId,
         jobType: envelope.payload.jobType,
         sizeEstimate: {
-          tokens: envelope.payload.prompt.length + envelope.payload.maxTokens,
+          tokens: estimateTokensFromText(envelope.payload.prompt) + envelope.payload.maxTokens,
           bytes: Buffer.byteLength(envelope.payload.prompt, 'utf8'),
         },
         deadlineMs: Date.now() + auctionMs,
@@ -483,18 +633,36 @@ export const createNodeHttpServer = (
       return sendJson(res, 200, { ok: true });
     }
 
-    if (req.method === 'POST' && req.url === '/infer') {
-      const span = nodeTracer.startSpan('node.infer', {
+    if (req.method === 'POST' && req.url === '/infer/stream') {
+      const span = nodeTracer.startSpan('node.inferStream', {
         attributes: { component: 'node', 'node.id': config.nodeId, 'request.id': requestId },
       });
       const timer = nodeInferenceDuration.startTimer();
       let statusLabel = '200';
       let inFlightRegistered = false;
       let envelope: Envelope<InferenceRequest> | null = null;
+      let streaming = false;
+      let requestClosed = false;
+      const markClosed = () => {
+        requestClosed = true;
+      };
+      req.on('aborted', markClosed);
+      res.on('close', markClosed);
       const respond = (status: number, body: unknown): void => {
         statusLabel = status.toString();
         span.setAttribute('http.status_code', status);
         sendJson(res, status, body);
+      };
+      const streamError = (error: string, details?: unknown): void => {
+        sendSseEvent(res, 'error', { error, details });
+        res.end();
+      };
+      const streamFinal = (
+        responseEnvelope: Envelope<InferenceResponse>,
+        meteringEnvelope: Envelope<MeteringRecord>,
+      ): void => {
+        sendSseEvent(res, 'final', { response: responseEnvelope, metering: meteringEnvelope });
+        res.end();
       };
       try {
         const body = await readJsonBody(req, config.maxRequestBytes);
@@ -503,14 +671,23 @@ export const createNodeHttpServer = (
           return respond(status, { error: body.error });
         }
 
-        const validation = validateEnvelope(body.value, validateInferenceRequest);
+        const validation = await validateSignedEnvelope<InferenceRequest>(
+          body.value,
+          'InferenceRequest',
+          validateInferenceRequest,
+          envelopeWorkerPool,
+          selectRouterPublicKeyHex(config, body.value),
+        );
         if (!validation.ok) {
-          return respond(400, { error: 'invalid-envelope', details: validation.errors });
+          return respond(validation.status, {
+            error: validation.error,
+            details: validation.details,
+          });
         }
 
-        envelope = body.value as Envelope<InferenceRequest>;
-        if (!isNostrNpub(envelope.keyId)) {
-          return respond(400, { error: 'invalid-key-id' });
+        envelope = validation.envelope;
+        if (config.routerKeyId === envelope.keyId && !config.routerPublicKey) {
+          return respond(500, { error: 'router-public-key-missing' });
         }
         const access = checkRouterAccess(config, envelope.keyId);
         if (!access.ok) {
@@ -527,16 +704,14 @@ export const createNodeHttpServer = (
         if (config.maxTokens !== undefined && envelope.payload.maxTokens > config.maxTokens) {
           return respond(400, { error: 'max-tokens-exceeded' });
         }
-        const routerPublicKey = config.routerKeyId === envelope.keyId
-          ? config.routerPublicKey
-          : parsePublicKey(envelope.keyId);
-        if (!routerPublicKey) {
-          return respond(500, { error: 'router-public-key-missing' });
+        const contextCheck = await checkContextWindow(
+          envelope.payload.modelId,
+          envelope.payload.prompt,
+          envelope.payload.maxTokens,
+        );
+        if (!contextCheck.ok) {
+          return respond(400, { error: contextCheck.error });
         }
-        if (!verifyEnvelope(envelope, routerPublicKey)) {
-          return respond(401, { error: 'invalid-signature' });
-        }
-
         const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return respond(400, { error: replay.error });
@@ -575,6 +750,7 @@ export const createNodeHttpServer = (
               return respond(400, { error: 'payment-split-total-mismatch' });
             }
             const routerFeeSats = routerFeeFromSplits(receipt.payload.splits);
+            const nodeAmountSats = nodeAmountFromSplits(receipt.payload.splits);
             if (
               config.routerFeeMaxSats !== undefined &&
               routerFeeSats > config.routerFeeMaxSats
@@ -584,7 +760,291 @@ export const createNodeHttpServer = (
             }
             if (
               config.routerFeeMaxBps !== undefined &&
-              routerFeeSats > Math.floor((receipt.payload.amountSats * config.routerFeeMaxBps) / 10_000)
+              routerFeeSats >
+                Math.floor(((nodeAmountSats || receipt.payload.amountSats) * config.routerFeeMaxBps) / 10_000)
+            ) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'router-fee-exceeds-cap' });
+            }
+          }
+
+          const clientKey = parsePublicKey(receipt.keyId);
+          if (!verifyEnvelope(receipt, clientKey)) {
+            nodeReceiptFailures.inc();
+            return respond(401, { error: 'invalid-payment-receipt-signature' });
+          }
+
+          const verification = await verifyPaymentReceipt(
+            receipt.payload,
+            config.paymentVerification,
+          );
+          if (!verification.ok) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: verification.error });
+          }
+        }
+
+        if (!config.privateKey) {
+          return respond(500, { error: 'node-private-key-missing' });
+        }
+
+        const currentLoad = config.capacityCurrentLoad + service.inFlight;
+        if (config.capacityMaxConcurrent <= 0 || currentLoad >= config.capacityMaxConcurrent) {
+          const offload = await attemptOffload(envelope);
+          if (offload.ok) {
+            startSse(res);
+            streaming = true;
+            streamFinal(offload.body.response, offload.body.metering);
+            return;
+          }
+          return respond(offload.status, { error: offload.error });
+        }
+        service.inFlight += 1;
+        inFlightRegistered = true;
+
+        startSse(res);
+        streaming = true;
+        const startMs = Date.now();
+        const deadlineMs = config.maxInferenceMs ? startMs + config.maxInferenceMs : undefined;
+        let output = '';
+        let chunkIndex = 0;
+        let responsePayload: InferenceResponse | null = null;
+
+        if (service.runner.inferStream) {
+          for await (const chunk of service.runner.inferStream(envelope.payload)) {
+            if (requestClosed) {
+              if (!res.writableEnded) {
+                res.end();
+              }
+              return;
+            }
+            if (deadlineMs !== undefined && Date.now() > deadlineMs) {
+              throw new Error('runner-timeout');
+            }
+            output += chunk.delta;
+            sendSseEvent(res, 'chunk', {
+              requestId: envelope.payload.requestId,
+              modelId: envelope.payload.modelId,
+              delta: chunk.delta,
+              index: chunkIndex,
+            });
+            chunkIndex += 1;
+          }
+        } else {
+          responsePayload = config.maxInferenceMs
+            ? await Promise.race([
+                service.runner.infer(envelope.payload),
+                new Promise<InferenceResponse>((_, reject) =>
+                  setTimeout(() => reject(new Error('runner-timeout')), config.maxInferenceMs),
+                ),
+              ])
+            : await service.runner.infer(envelope.payload);
+          output = responsePayload.output;
+          sendSseEvent(res, 'chunk', {
+            requestId: responsePayload.requestId,
+            modelId: responsePayload.modelId,
+            delta: responsePayload.output,
+            index: 0,
+          });
+        }
+
+        if (!responsePayload) {
+          responsePayload = {
+            requestId: envelope.payload.requestId,
+            modelId: envelope.payload.modelId,
+            output,
+            usage: {
+              inputTokens: contextCheck.inputTokensEstimate,
+              outputTokens: estimateTokensFromText(output),
+            },
+            latencyMs: Date.now() - startMs,
+          };
+        }
+
+        const responseEnvelope = signEnvelope(
+          buildEnvelope(responsePayload, randomUUID(), Date.now(), config.keyId),
+          config.privateKey,
+        );
+
+        const metering: MeteringRecord = {
+          requestId: responsePayload.requestId,
+          nodeId: config.nodeId,
+          modelId: responsePayload.modelId,
+          promptHash: hashPrompt(envelope.payload.prompt),
+          inputTokens: responsePayload.usage.inputTokens,
+          outputTokens: responsePayload.usage.outputTokens,
+          wallTimeMs: responsePayload.latencyMs,
+          bytesIn: Buffer.byteLength(envelope.payload.prompt, 'utf8'),
+          bytesOut: Buffer.byteLength(responsePayload.output, 'utf8'),
+          ts: Date.now(),
+        };
+
+        const meteringEnvelope = signEnvelope(
+          buildEnvelope(metering, randomUUID(), Date.now(), config.keyId),
+          config.privateKey,
+        );
+
+        streamFinal(responseEnvelope, meteringEnvelope);
+      } catch (error) {
+        logWarn('[node] runner error', {
+          requestId: envelope?.payload?.requestId,
+          error,
+        });
+        if (streaming) {
+          const message =
+            config.exposeErrors && error instanceof Error ? error.message : undefined;
+          streamError('internal-error', message);
+          return;
+        }
+        if (error instanceof Error && error.message === 'runner-timeout') {
+          if (envelope) {
+            const offload = await attemptOffload(envelope);
+            if (offload.ok) {
+              startSse(res);
+              streaming = true;
+              streamFinal(offload.body.response, offload.body.metering);
+              return;
+            }
+          }
+          return respond(504, { error: 'runner-timeout' });
+        }
+        if (envelope) {
+          const offload = await attemptOffload(envelope);
+          if (offload.ok) {
+            startSse(res);
+            streaming = true;
+            streamFinal(offload.body.response, offload.body.metering);
+            return;
+          }
+        }
+        const message =
+          config.exposeErrors && error instanceof Error ? error.message : undefined;
+        return respond(500, {
+          error: 'internal-error',
+          details: message ? [message] : undefined,
+        });
+      } finally {
+        if (inFlightRegistered) {
+          service.inFlight = Math.max(0, service.inFlight - 1);
+        }
+        timer();
+        nodeInferenceRequests.labels(statusLabel).inc();
+        span.end();
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/infer') {
+      const span = nodeTracer.startSpan('node.infer', {
+        attributes: { component: 'node', 'node.id': config.nodeId, 'request.id': requestId },
+      });
+      const timer = nodeInferenceDuration.startTimer();
+      let statusLabel = '200';
+      let inFlightRegistered = false;
+      let envelope: Envelope<InferenceRequest> | null = null;
+      const respond = (status: number, body: unknown): void => {
+        statusLabel = status.toString();
+        span.setAttribute('http.status_code', status);
+        sendJson(res, status, body);
+      };
+      try {
+        const body = await readJsonBody(req, config.maxRequestBytes);
+        if (!body.ok) {
+          const status = body.error === 'payload-too-large' ? 413 : 400;
+          return respond(status, { error: body.error });
+        }
+
+        const validation = await validateSignedEnvelope<InferenceRequest>(
+          body.value,
+          'InferenceRequest',
+          validateInferenceRequest,
+          envelopeWorkerPool,
+          selectRouterPublicKeyHex(config, body.value),
+        );
+        if (!validation.ok) {
+          return respond(validation.status, {
+            error: validation.error,
+            details: validation.details,
+          });
+        }
+
+        envelope = validation.envelope;
+        if (config.routerKeyId === envelope.keyId && !config.routerPublicKey) {
+          return respond(500, { error: 'router-public-key-missing' });
+        }
+        const access = checkRouterAccess(config, envelope.keyId);
+        if (!access.ok) {
+          return respond(access.status, { error: access.error });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return respond(rateLimit.status, { error: rateLimit.error });
+        }
+        const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
+        if (config.maxPromptBytes !== undefined && promptBytes > config.maxPromptBytes) {
+          return respond(413, { error: 'prompt-too-large' });
+        }
+        if (config.maxTokens !== undefined && envelope.payload.maxTokens > config.maxTokens) {
+          return respond(400, { error: 'max-tokens-exceeded' });
+        }
+        const contextCheck = await checkContextWindow(
+          envelope.payload.modelId,
+          envelope.payload.prompt,
+          envelope.payload.maxTokens,
+        );
+        if (!contextCheck.ok) {
+          return respond(400, { error: contextCheck.error });
+        }
+        const replay = checkReplay(envelope, store);
+        if (!replay.ok) {
+          return respond(400, { error: replay.error });
+        }
+
+        if (config.requirePayment) {
+          const receipts = envelope.payload.paymentReceipts ?? [];
+          const receiptEnvelope = receipts.find(
+            (item) => item.payload.payeeType === 'node' && item.payload.payeeId === config.nodeId,
+          );
+
+          if (!receiptEnvelope) {
+            nodeReceiptFailures.inc();
+            return respond(402, { error: 'payment-required' });
+          }
+
+          const receiptValidation = validateEnvelope(receiptEnvelope, validatePaymentReceipt);
+          if (!receiptValidation.ok) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'invalid-payment-receipt', details: receiptValidation.errors });
+          }
+
+          const receipt = receiptEnvelope as Envelope<PaymentReceipt>;
+          if (receipt.payload.amountSats < 1) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'payment-amount-invalid' });
+          }
+          if (receipt.payload.requestId !== envelope.payload.requestId) {
+            nodeReceiptFailures.inc();
+            return respond(400, { error: 'payment-request-mismatch' });
+          }
+          if (receipt.payload.splits && receipt.payload.splits.length > 0) {
+            const splitTotal = sumSplits(receipt.payload.splits);
+            if (splitTotal !== receipt.payload.amountSats) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'payment-split-total-mismatch' });
+            }
+            const routerFeeSats = routerFeeFromSplits(receipt.payload.splits);
+            const nodeAmountSats = nodeAmountFromSplits(receipt.payload.splits);
+            if (
+              config.routerFeeMaxSats !== undefined &&
+              routerFeeSats > config.routerFeeMaxSats
+            ) {
+              nodeReceiptFailures.inc();
+              return respond(400, { error: 'router-fee-exceeds-cap' });
+            }
+            if (
+              config.routerFeeMaxBps !== undefined &&
+              routerFeeSats >
+                Math.floor(((nodeAmountSats || receipt.payload.amountSats) * config.routerFeeMaxBps) / 10_000)
             ) {
               nodeReceiptFailures.inc();
               return respond(400, { error: 'router-fee-exceeds-cap' });
@@ -655,6 +1115,10 @@ export const createNodeHttpServer = (
 
         return respond(200, { response: responseEnvelope, metering: meteringEnvelope });
       } catch (error) {
+        logWarn('[node] runner error', {
+          requestId: envelope?.payload?.requestId,
+          error,
+        });
         if (error instanceof Error && error.message === 'runner-timeout') {
           if (envelope) {
             const offload = await attemptOffload(envelope);
@@ -670,7 +1134,12 @@ export const createNodeHttpServer = (
             return respond(200, offload.body);
           }
         }
-        return respond(500, { error: 'internal-error' });
+        const message =
+          config.exposeErrors && error instanceof Error ? error.message : undefined;
+        return respond(500, {
+          error: 'internal-error',
+          details: message ? [message] : undefined,
+        });
       } finally {
         if (inFlightRegistered) {
           service.inFlight = Math.max(0, service.inFlight - 1);

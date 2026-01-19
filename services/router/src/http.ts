@@ -36,6 +36,7 @@ import {
   signRouterMessage,
   verifyRouterMessage,
   verifyRouterReceipt,
+  estimateTokensFromText,
 } from '@fed-ai/protocol';
 import { RelayDiscoverySnapshot, verifyManifest } from '@fed-ai/manifest';
 import { effectiveStakeUnits, recordCommit, recordSlash } from './accounting/staking';
@@ -86,6 +87,9 @@ import { runAuctionAndAward } from './federation/publisher';
 import { allowsPrivacyLevel, canBidForRfb, estimateBidPrice } from './federation/logic';
 import type { FederationRateLimiter } from './federation/rate-limit';
 import type { RateLimiter } from './rate-limit';
+import { createEnvelopeWorkerPool } from './workers/envelope-worker-pool';
+import type { EnvelopeWorkerPool } from './workers/envelope-worker-pool';
+import type { EnvelopeValidatorName } from './workers/types';
 import {
   inferenceDuration,
   inferenceRequests,
@@ -440,6 +444,7 @@ const pickCapabilityForRequest = (
   if (!node.capabilities || node.capabilities.length === 0) {
     return null;
   }
+  const requiredTokens = request.inputTokensEstimate + request.outputTokensEstimate;
   const matchesJobType = (capability: Capability): boolean => {
     if (!request.jobType) {
       return true;
@@ -449,17 +454,25 @@ const pickCapabilityForRequest = (
     }
     return capability.jobTypes.includes(request.jobType);
   };
+  const fitsContextWindow = (capability: Capability): boolean => {
+    if (!capability.contextWindow) {
+      return true;
+    }
+    return requiredTokens <= capability.contextWindow;
+  };
   if (request.modelId !== 'auto') {
     return (
       node.capabilities.find(
         (capability) =>
-          capability.modelId === request.modelId && matchesJobType(capability),
+          capability.modelId === request.modelId &&
+          matchesJobType(capability) &&
+          fitsContextWindow(capability),
       ) ?? null
     );
   }
   let best: { cap: Capability; price: number } | null = null;
   for (const capability of node.capabilities) {
-    if (!matchesJobType(capability)) {
+    if (!matchesJobType(capability) || !fitsContextWindow(capability)) {
       continue;
     }
     const price = estimatePrice(capability, request);
@@ -502,6 +515,20 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
+};
+
+const startSse = (res: ServerResponse): void => {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+};
+
+const sendSseEvent = (res: ServerResponse, event: string, data: unknown): void => {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
 };
 
 const bodyErrorStatus = (error: string): number => {
@@ -551,6 +578,66 @@ const parseSignedEnvelope = <T>(
   return { ok: true, envelope };
 };
 
+type EnvelopeValidator = (value: unknown) => { ok: true } | { ok: false; errors: string[] };
+
+const validateSignedEnvelope = async <T>(
+  raw: unknown,
+  validatorName: EnvelopeValidatorName,
+  validator: EnvelopeValidator,
+  workerPool: EnvelopeWorkerPool | null,
+  publicKeyHex?: string,
+): Promise<
+  | { ok: true; envelope: Envelope<T> }
+  | { ok: false; status: number; error: string; details?: string[] }
+> => {
+  if (workerPool) {
+    try {
+      const workerResult = await workerPool.validateAndVerify({
+        envelope: raw,
+        validator: validatorName,
+        publicKeyHex,
+      });
+      if (workerResult.ok) {
+        const envelope = raw as Envelope<T>;
+        if (!isNostrNpub(envelope.keyId)) {
+          return { ok: false, status: 400, error: 'invalid-key-id' };
+        }
+        return { ok: true, envelope };
+      }
+      if (workerResult.error === 'invalid-envelope') {
+        return {
+          ok: false,
+          status: 400,
+          error: 'invalid-envelope',
+          details: workerResult.errors,
+        };
+      }
+      if (workerResult.error === 'invalid-key-id') {
+        return { ok: false, status: 400, error: 'invalid-key-id' };
+      }
+      if (workerResult.error === 'invalid-signature') {
+        return { ok: false, status: 401, error: 'invalid-signature' };
+      }
+    } catch {
+      // Fall through to synchronous validation on worker failure.
+    }
+  }
+
+  const validation = validateEnvelope(raw, validator);
+  if (!validation.ok) {
+    return { ok: false, status: 400, error: 'invalid-envelope', details: validation.errors };
+  }
+  const envelope = raw as Envelope<T>;
+  if (!isNostrNpub(envelope.keyId)) {
+    return { ok: false, status: 400, error: 'invalid-key-id' };
+  }
+  const publicKey = publicKeyHex ? Buffer.from(publicKeyHex, 'hex') : parsePublicKey(envelope.keyId);
+  if (!verifyEnvelope(envelope, publicKey)) {
+    return { ok: false, status: 401, error: 'invalid-signature' };
+  }
+  return { ok: true, envelope };
+};
+
 const parseInferencePayload = (
   payload: string,
 ): { ok: true; request: InferenceRequest } | { ok: false } => {
@@ -595,6 +682,13 @@ export const createRouterHttpServer = (
   const store = nonceStore ?? (config.nonceStorePath
     ? new FileNonceStore(config.nonceStorePath)
     : new InMemoryNonceStore());
+  const envelopeWorkerPool = config.workerThreads?.enabled
+    ? createEnvelopeWorkerPool({
+        maxWorkers: config.workerThreads.maxWorkers,
+        maxQueue: config.workerThreads.maxQueue,
+        taskTimeoutMs: config.workerThreads.taskTimeoutMs,
+      })
+    : null;
   const startedAtMs = Date.now();
   const federationPeers = discoverFederationPeers(
     config.federation?.peers,
@@ -657,14 +751,16 @@ export const createRouterHttpServer = (
     }
 
     const inputHash = hashString(envelope.payload.prompt);
+    const promptTokensEstimate = estimateTokensFromText(envelope.payload.prompt);
+    const promptBytes = Buffer.byteLength(envelope.payload.prompt, 'utf8');
     const privacyLevel = (config.federation.maxPrivacyLevel ?? 'PL1') as RouterPrivacyLevel;
     const rfbPayload: RouterRfbPayload = {
       jobId: envelope.payload.requestId,
       jobType: 'GEN_CHUNK',
       privacyLevel,
       sizeEstimate: {
-        tokens: envelope.payload.prompt.length + envelope.payload.maxTokens,
-        bytes: envelope.payload.prompt.length,
+        tokens: promptTokensEstimate + envelope.payload.maxTokens,
+        bytes: promptBytes,
       },
       deadlineMs: Date.now() + FEDERATION_AUCTION_EXPIRY_MS,
       maxPriceMsat: config.federation.maxSpendMsat ?? 10_000,
@@ -824,7 +920,17 @@ export const createRouterHttpServer = (
     }
 
     if (!nodeResponse.ok) {
-      return failNode(502, { error: 'node-error' });
+      let detail = '';
+      try {
+        const text = await nodeResponse.text();
+        detail = text.slice(0, 500);
+      } catch {
+        detail = '';
+      }
+      return failNode(502, {
+        error: 'node-error',
+        details: detail ? [detail] : undefined,
+      });
     }
 
     const nodeBody = (await nodeResponse.json()) as {
@@ -894,6 +1000,114 @@ export const createRouterHttpServer = (
     }
 
     return { ok: true, body: { response: nodeBody.response, metering: nodeBody.metering } };
+  };
+
+  const iterateResponseBody = async function* (body: unknown): AsyncIterable<Uint8Array> {
+    if (!body) {
+      return;
+    }
+    const isAsyncIterable = (value: unknown): value is AsyncIterable<Uint8Array> =>
+      Boolean(value && typeof (value as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function');
+    const hasGetReader = (
+      value: unknown,
+    ): value is { getReader: () => { read: () => Promise<{ done: boolean; value?: Uint8Array }> } } =>
+      Boolean(value && typeof (value as { getReader?: unknown }).getReader === 'function');
+    if (isAsyncIterable(body)) {
+      for await (const chunk of body as AsyncIterable<Uint8Array>) {
+        yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      }
+      return;
+    }
+    if (hasGetReader(body)) {
+      const reader = body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (value) {
+          yield Buffer.from(value);
+        }
+      }
+    }
+  };
+
+  const streamNodeResponse = async ({
+    nodeResponse,
+    nodeKey,
+    expectedRequestId,
+    res,
+  }: {
+    nodeResponse: Response;
+    nodeKey: Uint8Array;
+    expectedRequestId: string;
+    res: ServerResponse;
+  }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for await (const chunk of iterateResponseBody(nodeResponse.body)) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let separatorIndex = buffer.indexOf('\n\n');
+      while (separatorIndex !== -1) {
+        const raw = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+        separatorIndex = buffer.indexOf('\n\n');
+        if (!raw.trim()) {
+          continue;
+        }
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim());
+          }
+        }
+        const dataText = dataLines.join('\n');
+        if (!dataText) {
+          continue;
+        }
+        let data: unknown;
+        try {
+          data = JSON.parse(dataText);
+        } catch {
+          return { ok: false, error: 'stream-invalid-json' };
+        }
+        if (event === 'final') {
+          const payload = data as { response: Envelope<InferenceResponse>; metering: Envelope<MeteringRecord> };
+          const responseValidation = validateEnvelope(payload.response, validateInferenceResponse);
+          if (!responseValidation.ok) {
+            return { ok: false, error: 'invalid-node-response' };
+          }
+          const meteringValidation = validateEnvelope(payload.metering, validateMeteringRecord);
+          if (!meteringValidation.ok) {
+            return { ok: false, error: 'invalid-metering' };
+          }
+          if (
+            payload.response.payload.requestId !== expectedRequestId ||
+            payload.metering.payload.requestId !== expectedRequestId
+          ) {
+            return { ok: false, error: 'request-id-mismatch' };
+          }
+          if (!verifyEnvelope(payload.response, nodeKey) || !verifyEnvelope(payload.metering, nodeKey)) {
+            return { ok: false, error: 'invalid-node-signature' };
+          }
+          sendSseEvent(res, 'final', payload);
+          res.end();
+          return { ok: true };
+        }
+        if (event === 'error') {
+          sendSseEvent(res, 'error', data);
+          res.end();
+          return { ok: false, error: 'node-stream-error' };
+        }
+        if (event === 'chunk') {
+          sendSseEvent(res, 'chunk', data);
+        }
+      }
+    }
+    return { ok: false, error: 'stream-ended' };
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1464,7 +1678,7 @@ export const createRouterHttpServer = (
             requestId: decoded.request.requestId,
             modelId: decoded.request.modelId,
             maxTokens: decoded.request.maxTokens,
-            inputTokensEstimate: decoded.request.prompt.length,
+            inputTokensEstimate: estimateTokensFromText(decoded.request.prompt),
             outputTokensEstimate: decoded.request.maxTokens,
           },
           config.schedulerTopK,
@@ -1832,15 +2046,19 @@ export const createRouterHttpServer = (
           return sendJson(res, bodyErrorStatus(body.error), { error: body.error });
         }
 
-        const validation = validateEnvelope(body.value, validateQuoteRequest);
+        const validation = await validateSignedEnvelope<QuoteRequest>(
+          body.value,
+          'QuoteRequest',
+          validateQuoteRequest,
+          envelopeWorkerPool,
+        );
         if (!validation.ok) {
-          return sendJson(res, 400, { error: 'invalid-envelope', details: validation.errors });
+          return sendJson(res, validation.status, {
+            error: validation.error,
+            details: validation.details,
+          });
         }
-
-        const envelope = body.value as Envelope<QuoteRequest>;
-        if (!isNostrNpub(envelope.keyId)) {
-          return sendJson(res, 400, { error: 'invalid-key-id' });
-        }
+        const envelope = validation.envelope;
         const access = checkClientAccess(config, envelope.keyId);
         if (!access.ok) {
           return sendJson(res, access.status, { error: access.error });
@@ -1852,11 +2070,6 @@ export const createRouterHttpServer = (
         const replay = checkReplay(envelope, store);
         if (!replay.ok) {
           return sendJson(res, 400, { error: replay.error });
-        }
-
-        const clientKey = parsePublicKey(envelope.keyId);
-        if (!verifyEnvelope(envelope, clientKey)) {
-          return sendJson(res, 401, { error: 'invalid-signature' });
         }
 
         if (!config.privateKey) {
@@ -2058,7 +2271,7 @@ export const createRouterHttpServer = (
           requestId: envelope.payload.request.requestId,
           modelId: envelope.payload.request.modelId,
           maxTokens: envelope.payload.request.maxTokens,
-          inputTokensEstimate: envelope.payload.request.prompt.length,
+          inputTokensEstimate: estimateTokensFromText(envelope.payload.request.prompt),
           outputTokensEstimate: envelope.payload.request.maxTokens,
           jobType: envelope.payload.request.jobType,
         };
@@ -2110,6 +2323,292 @@ export const createRouterHttpServer = (
       }
     }
 
+    if (req.method === 'POST' && req.url === '/infer/stream') {
+      const span = routerTracer.startSpan('router.inferStream', {
+        attributes: {
+          component: 'router',
+          'router.endpoint': config.endpoint,
+          'request.id': requestId,
+        },
+      });
+      const timer = inferenceDuration.startTimer();
+      let statusLabel = '200';
+      let streaming = false;
+      const respond = (status: number, body: unknown): void => {
+        statusLabel = status.toString();
+        span.setAttribute('http.status_code', status);
+        sendJson(res, status, body);
+      };
+      const sendStreamError = (error: string, details?: unknown): void => {
+        if (!res.writableEnded) {
+          sendSseEvent(res, 'error', { error, details });
+          res.end();
+        }
+      };
+      try {
+        const body = await readJsonBody(req, config.maxRequestBytes);
+        if (!body.ok) {
+          return respond(bodyErrorStatus(body.error), { error: body.error });
+        }
+
+        const validation = await validateSignedEnvelope<InferenceRequest>(
+          body.value,
+          'InferenceRequest',
+          validateInferenceRequest,
+          envelopeWorkerPool,
+        );
+        if (!validation.ok) {
+          return respond(validation.status, {
+            error: validation.error,
+            details: validation.details,
+          });
+        }
+        const envelope = validation.envelope;
+        const access = checkClientAccess(config, envelope.keyId);
+        if (!access.ok) {
+          return respond(access.status, { error: access.error });
+        }
+        const rateLimit = checkIngressRateLimit(envelope.keyId);
+        if (!rateLimit.ok) {
+          return respond(rateLimit.status, { error: rateLimit.error });
+        }
+        const replay = checkReplay(envelope, store);
+        if (!replay.ok) {
+          return respond(400, { error: replay.error });
+        }
+
+        if (!config.privateKey) {
+          return respond(500, { error: 'router-private-key-missing' });
+        }
+
+        const requestEstimate: QuoteRequest = {
+          requestId: envelope.payload.requestId,
+          modelId: envelope.payload.modelId,
+          maxTokens: envelope.payload.maxTokens,
+          inputTokensEstimate: estimateTokensFromText(envelope.payload.prompt),
+          outputTokensEstimate: envelope.payload.maxTokens,
+          jobType: envelope.payload.jobType,
+        };
+
+        const candidates = rankCandidateNodes(
+          filterActiveNodes(service, getWeightedNodes(service)),
+          requestEstimate,
+          config.schedulerTopK,
+        );
+
+        const attemptStream = async (
+          node: NodeDescriptor,
+          payload: InferenceRequest,
+        ): Promise<{ ok: true } | { ok: false; status: number; body: { error: string; details?: string[] } }> => {
+          if (!config.privateKey) {
+            return { ok: false, status: 500, body: { error: 'router-private-key-missing' } };
+          }
+          const forwardEnvelope = signEnvelope(
+            buildEnvelope(payload, envelope.nonce, Date.now(), config.keyId),
+            config.privateKey,
+          );
+
+          let nodeResponse: Response;
+          try {
+            nodeResponse = await fetch(`${node.endpoint}/infer/stream`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(forwardEnvelope),
+            });
+          } catch (error) {
+            markNodeFailure(service, node.nodeId);
+            return { ok: false, status: 502, body: { error: 'node-unreachable' } };
+          }
+
+          if (!nodeResponse.ok) {
+            let detail = '';
+            try {
+              const text = await nodeResponse.text();
+              detail = text.slice(0, 500);
+            } catch {
+              detail = '';
+            }
+            markNodeFailure(service, node.nodeId);
+            return {
+              ok: false,
+              status: 502,
+              body: { error: 'node-error', details: detail ? [detail] : undefined },
+            };
+          }
+
+          const contentType = nodeResponse.headers.get('content-type') ?? '';
+          if (!contentType.includes('text/event-stream')) {
+            markNodeFailure(service, node.nodeId);
+            return { ok: false, status: 502, body: { error: 'node-stream-unavailable' } };
+          }
+
+          startSse(res);
+          streaming = true;
+          const nodeKey = parsePublicKey(node.keyId);
+          const streamResult = await streamNodeResponse({
+            nodeResponse,
+            nodeKey,
+            expectedRequestId: envelope.payload.requestId,
+            res,
+          });
+          if (!streamResult.ok) {
+            markNodeFailure(service, node.nodeId);
+            sendStreamError(streamResult.error);
+            return { ok: false, status: 502, body: { error: streamResult.error } };
+          }
+          return { ok: true };
+        };
+
+        if (config.requirePayment) {
+          const node = candidates.find((candidate) => pickCapabilityForRequest(candidate, requestEstimate));
+          if (!node) {
+            const offload = await attemptFederationOffload(envelope);
+            if (offload.ok) {
+              startSse(res);
+              streaming = true;
+              sendSseEvent(res, 'final', offload.body);
+              res.end();
+              return;
+            }
+            return respond(503, { error: 'no-nodes-available' });
+          }
+          const selectedCapability = pickCapabilityForRequest(node, requestEstimate);
+          if (!selectedCapability) {
+            return respond(503, { error: 'no-capable-nodes' });
+          }
+          const promptTokensEstimate = requestEstimate.inputTokensEstimate;
+          const resolvedRequest: InferenceRequest = {
+            ...envelope.payload,
+            modelId: selectedCapability.modelId,
+          };
+
+          const payeeType: PayeeType = 'node';
+          const payeeId = node.nodeId;
+          const paymentRequestKey = paymentKey(envelope.payload.requestId, payeeType, payeeId);
+          const storedReceipt = service.paymentReceipts.get(paymentRequestKey);
+
+          if (!storedReceipt) {
+            if (!config.paymentInvoice) {
+              return respond(503, { error: 'invoice-provider-required' });
+            }
+            const nodeTotal =
+              selectedCapability.pricing.inputRate * promptTokensEstimate +
+              selectedCapability.pricing.outputRate * envelope.payload.maxTokens;
+            const nodeAmountSats = Math.max(1, Math.round(nodeTotal));
+            const routerFeeSats = computeRouterFeeSats(nodeAmountSats, config);
+            const totalAmountSats = nodeAmountSats + routerFeeSats;
+            const splits: PaymentSplit[] | undefined =
+              routerFeeSats > 0
+                ? [
+                    {
+                      payeeType: 'node',
+                      payeeId,
+                      amountSats: nodeAmountSats,
+                      role: 'node-inference',
+                    },
+                    {
+                      payeeType: 'router',
+                      payeeId: config.keyId,
+                      amountSats: routerFeeSats,
+                      role: 'router-fee',
+                    },
+                  ]
+                : undefined;
+
+            const now = Date.now();
+            const invoiceResult = await requestInvoice(
+              {
+                requestId: envelope.payload.requestId,
+                payeeId,
+                amountSats: totalAmountSats,
+                splits,
+              },
+              config.paymentInvoice,
+            );
+            if (!invoiceResult.ok) {
+              return respond(502, { error: invoiceResult.error });
+            }
+            const invoice = invoiceResult.invoice.invoice;
+            const paymentHash = invoiceResult.invoice.paymentHash;
+            const expiresAtMs = invoiceResult.invoice.expiresAtMs ?? now + PAYMENT_WINDOW_MS;
+            const existingRequest = service.paymentRequests.get(paymentRequestKey);
+            const paymentRequest: PaymentRequest =
+              existingRequest && existingRequest.expiresAtMs > now
+                ? existingRequest
+                : {
+                    requestId: envelope.payload.requestId,
+                    payeeType,
+                    payeeId,
+                    amountSats: totalAmountSats,
+                    invoice,
+                    expiresAtMs,
+                    paymentHash,
+                    splits,
+                    metadata: {
+                      currency: selectedCapability.pricing.currency,
+                      nodeAmountSats: nodeAmountSats.toString(),
+                      routerFeeSats: routerFeeSats.toString(),
+                    },
+                  };
+
+            await recordPaymentRequest(service, paymentRequestKey, paymentRequest);
+            paymentRequests.inc();
+
+            const paymentEnvelope = signEnvelope(
+              buildEnvelope(paymentRequest, envelope.nonce, Date.now(), config.keyId),
+              config.privateKey,
+            );
+
+            return respond(402, { error: 'payment-required', payment: paymentEnvelope });
+          }
+
+          const requestPayload = { ...resolvedRequest, paymentReceipts: [storedReceipt] };
+          const attempt = await attemptStream(node, requestPayload);
+          if (!attempt.ok && !streaming) {
+            respond(attempt.status, attempt.body);
+            return;
+          }
+          return;
+        }
+
+        for (const candidate of candidates) {
+          const capability = pickCapabilityForRequest(candidate, requestEstimate);
+          if (!capability) {
+            continue;
+          }
+          const candidatePayload: InferenceRequest = {
+            ...envelope.payload,
+            modelId: capability.modelId,
+          };
+          const result = await attemptStream(candidate, candidatePayload);
+          if (result.ok) {
+            return;
+          }
+        }
+
+        const offload = await attemptFederationOffload(envelope);
+        if (offload.ok) {
+          startSse(res);
+          streaming = true;
+          sendSseEvent(res, 'final', offload.body);
+          res.end();
+          return;
+        }
+
+        return respond(503, { error: 'no-nodes-available' });
+      } catch (error) {
+        if (streaming) {
+          sendStreamError('internal-error');
+          return;
+        }
+        return respond(500, { error: 'internal-error' });
+      } finally {
+        timer();
+        inferenceRequests.labels(statusLabel).inc();
+        span.end();
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/infer') {
       const span = routerTracer.startSpan('router.infer', {
         attributes: {
@@ -2131,15 +2630,19 @@ export const createRouterHttpServer = (
           return respond(bodyErrorStatus(body.error), { error: body.error });
         }
 
-        const validation = validateEnvelope(body.value, validateInferenceRequest);
+        const validation = await validateSignedEnvelope<InferenceRequest>(
+          body.value,
+          'InferenceRequest',
+          validateInferenceRequest,
+          envelopeWorkerPool,
+        );
         if (!validation.ok) {
-          return respond(400, { error: 'invalid-envelope', details: validation.errors });
+          return respond(validation.status, {
+            error: validation.error,
+            details: validation.details,
+          });
         }
-
-        const envelope = body.value as Envelope<InferenceRequest>;
-        if (!isNostrNpub(envelope.keyId)) {
-          return respond(400, { error: 'invalid-key-id' });
-        }
+        const envelope = validation.envelope;
         const access = checkClientAccess(config, envelope.keyId);
         if (!access.ok) {
           return respond(access.status, { error: access.error });
@@ -2153,11 +2656,6 @@ export const createRouterHttpServer = (
           return respond(400, { error: replay.error });
         }
 
-        const clientKey = parsePublicKey(envelope.keyId);
-        if (!verifyEnvelope(envelope, clientKey)) {
-          return respond(401, { error: 'invalid-signature' });
-        }
-
         if (!config.privateKey) {
           return respond(500, { error: 'router-private-key-missing' });
         }
@@ -2166,7 +2664,7 @@ export const createRouterHttpServer = (
           requestId: envelope.payload.requestId,
           modelId: envelope.payload.modelId,
           maxTokens: envelope.payload.maxTokens,
-          inputTokensEstimate: envelope.payload.prompt.length,
+          inputTokensEstimate: estimateTokensFromText(envelope.payload.prompt),
           outputTokensEstimate: envelope.payload.maxTokens,
           jobType: envelope.payload.jobType,
         };
@@ -2207,7 +2705,7 @@ export const createRouterHttpServer = (
               return respond(503, { error: 'invoice-provider-required' });
             }
             const nodeTotal =
-              selectedCapability.pricing.inputRate * envelope.payload.prompt.length +
+              selectedCapability.pricing.inputRate * requestEstimate.inputTokensEstimate +
               selectedCapability.pricing.outputRate * envelope.payload.maxTokens;
             const nodeAmountSats = Math.max(1, Math.round(nodeTotal));
             const routerFeeSats = computeRouterFeeSats(nodeAmountSats, config);

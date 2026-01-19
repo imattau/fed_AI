@@ -11,7 +11,7 @@ export const usage = (): string => {
 
 Commands:
   gen-keys
-  setup --role router|node|both [--router-out <file>] [--node-out <file>]
+  setup [--role router|node|both] [--router-out <file>] [--node-out <file>] (Interactive if no flags)
   profile --latency-targets host1,host2
   bench --mode node|router --latency-targets host1,host2
   recommend --profile profile.json --bench bench.json

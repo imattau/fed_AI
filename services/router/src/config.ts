@@ -4,6 +4,7 @@ export type RouterConfig = {
   endpoint: string;
   port: number;
   privateKey?: Uint8Array;
+  workerThreads?: WorkerThreadsConfig;
   nonceStorePath?: string;
   nonceStoreUrl?: string;
   maxRequestBytes?: number;
@@ -37,6 +38,13 @@ export type RouterConfig = {
   db?: RouterDbConfig;
   relayAdmission?: RelayAdmissionPolicy;
   federation?: RouterFederationConfig;
+};
+
+export type WorkerThreadsConfig = {
+  enabled: boolean;
+  maxWorkers?: number;
+  maxQueue?: number;
+  taskTimeoutMs?: number;
 };
 
 export type RouterTlsConfig = {
@@ -86,6 +94,12 @@ export const defaultRouterConfig: RouterConfig = {
   keyId: 'npub1r72drc4k609u2jwsgt5qy5at4aea9fsu8lqua4f20d26az9h80ms45kp92',
   endpoint: 'http://localhost:8080',
   port: 8080,
+  workerThreads: {
+    enabled: false,
+    maxWorkers: undefined,
+    maxQueue: undefined,
+    taskTimeoutMs: undefined,
+  },
   maxRequestBytes: undefined,
   paymentRequestRetentionMs: 10 * 60 * 1000,
   paymentReceiptRetentionMs: 60 * 60 * 1000,

@@ -66,6 +66,26 @@ const createKeyPair = (): { privateKey: Uint8Array; publicKey: Uint8Array; keyId
   return { privateKey, publicKey, keyId };
 };
 
+const parseSse = (body: string): Array<{ event: string; data: unknown }> => {
+  return body
+    .split('\n\n')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      let event = 'message';
+      const dataLines: string[] = [];
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('event:')) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      const dataText = dataLines.join('\n');
+      return { event, data: dataText ? JSON.parse(dataText) : null };
+    });
+};
+
 const startInvoiceStub = async () => {
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST') {
@@ -135,6 +155,64 @@ const startStubNode = async (
       const payload = JSON.stringify({ response: responseEnvelope, metering: meteringEnvelope });
       res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
       res.end(payload);
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/infer/stream') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        payload: InferenceRequest;
+      };
+
+      const responsePayload: InferenceResponse = {
+        requestId: body.payload.requestId,
+        modelId: body.payload.modelId,
+        output,
+        usage: { inputTokens: 1, outputTokens: 1 },
+        latencyMs: 5,
+      };
+
+      const meteringPayload: MeteringRecord = {
+        requestId: body.payload.requestId,
+        nodeId,
+        modelId: body.payload.modelId,
+        promptHash: createHash('sha256').update(body.payload.prompt, 'utf8').digest('hex'),
+        inputTokens: 1,
+        outputTokens: 1,
+        wallTimeMs: 5,
+        bytesIn: body.payload.prompt.length,
+        bytesOut: output.length,
+        ts: Date.now(),
+      };
+
+      const responseEnvelope = signEnvelope(
+        buildEnvelope(responsePayload, 'nonce-resp', Date.now(), nodeKeyId),
+        privateKey,
+      );
+      const meteringEnvelope = signEnvelope(
+        buildEnvelope(meteringPayload, 'nonce-meter', Date.now(), nodeKeyId),
+        privateKey,
+      );
+
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      res.write(`event: chunk\ndata: ${JSON.stringify({
+        requestId: body.payload.requestId,
+        modelId: body.payload.modelId,
+        delta: output,
+        index: 0,
+      })}\n\n`);
+      res.write(`event: final\ndata: ${JSON.stringify({
+        response: responseEnvelope,
+        metering: meteringEnvelope,
+      })}\n\n`);
+      res.end();
       return;
     }
 
@@ -432,6 +510,90 @@ test('router /infer forwards to node and verifies signatures', async () => {
   assert.equal(responseValidation.ok, true);
   const meteringValidation = validateEnvelope(body.metering, validateMeteringRecord);
   assert.equal(meteringValidation.ok, true);
+
+  await Promise.all([
+    new Promise<void>((resolve) => routerServer.close(() => resolve())),
+    new Promise<void>((resolve) => nodeServer.close(() => resolve())),
+  ]);
+});
+
+test('router /infer/stream proxies streaming response', async () => {
+  const routerKeys = createKeyPair();
+  const nodeKeys = createKeyPair();
+  const clientKeys = createKeyPair();
+  const routerKeyId = routerKeys.keyId;
+  const nodeKeyId = nodeKeys.keyId;
+  const clientKeyId = clientKeys.keyId;
+
+  const { server: nodeServer, baseUrl: nodeUrl } = await startStubNode(
+    nodeKeyId,
+    nodeKeys.privateKey,
+  );
+
+  const config: RouterConfig = {
+    routerId: 'router-1',
+    keyId: routerKeyId,
+    endpoint: 'http://localhost:0',
+    port: 0,
+    privateKey: routerKeys.privateKey,
+    requirePayment: false,
+  };
+
+  const { server: routerServer, baseUrl: routerUrl } = await startRouter(config);
+
+  const nodeDescriptor: NodeDescriptor = {
+    nodeId: 'node-1',
+    keyId: nodeKeyId,
+    endpoint: nodeUrl,
+    capacity: { maxConcurrent: 10, currentLoad: 0 },
+    capabilities: [
+      {
+        modelId: 'mock-model',
+        contextWindow: 4096,
+        maxTokens: 1024,
+        pricing: { unit: 'token', inputRate: 0, outputRate: 0, currency: 'USD' },
+      },
+    ],
+  };
+
+  const registrationEnvelope = signEnvelope(
+    buildEnvelope(nodeDescriptor, 'nonce-node-stream', Date.now(), nodeKeyId),
+    nodeKeys.privateKey,
+  );
+
+  const registerResponse = await fetch(`${routerUrl}/register-node`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(registrationEnvelope),
+  });
+
+  assert.equal(registerResponse.status, 200);
+
+  const clientRequest: InferenceRequest = {
+    requestId: 'req-stream',
+    modelId: 'mock-model',
+    prompt: 'hello',
+    maxTokens: 8,
+  };
+
+  const requestEnvelope = signEnvelope(
+    buildEnvelope(clientRequest, 'nonce-client-stream', Date.now(), clientKeyId),
+    clientKeys.privateKey,
+  );
+
+  const response = await fetch(`${routerUrl}/infer/stream`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestEnvelope),
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  const events = parseSse(body);
+  const finalEvent = events.find((event) => event.event === 'final');
+  assert.ok(finalEvent);
+  const responseValidation = validateEnvelope(finalEvent!.data.response, validateInferenceResponse);
+  assert.equal(responseValidation.ok, true);
 
   await Promise.all([
     new Promise<void>((resolve) => routerServer.close(() => resolve())),

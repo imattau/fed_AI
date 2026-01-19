@@ -33,7 +33,7 @@ docker compose down -v
 
 Open `http://localhost:3000` and send a prompt.
 The router will auto-select between the LLM node and the CPU-only node.
-Select "Groq (llama3-8b)" to route via the Groq node and enter a Groq API key in the modal prompt (session-only).
+Select "Groq (llama-3.1-8b-instant)" to route via the Groq node and enter a Groq API key in the modal prompt (session-only).
 Use the Router and Node tabs to view a lightweight status dashboard.
 The Router tab also shows federation/Nostr settings and relay backoff configured by the compose stack.
 
@@ -67,6 +67,7 @@ export LND_MACAROON_HEX=your_hex_macaroon
 ## Notes
 
 - The example chat server uses `@fed-ai/sdk-js` for signing, payments, and retries.
+- Response signature verification is disabled in the demo because inference responses are signed by nodes (not the router). Production clients should verify node signatures using the node public key advertised in `/nodes`.
 - The server issues a mock payment receipt against the router's payment request, then retries the inference call via `inferWithPayment`.
 - A mock wallet balance is displayed in the UI and decremented after each payment.
 - Adjust `MAX_TOKENS`, `MODEL_ID`, `WALLET_SATS`, or `PORT` for the chat server with env vars in `docker-compose.yml`.

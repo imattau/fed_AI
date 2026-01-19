@@ -11,6 +11,7 @@ import { runBench } from '@fed-ai/bench';
 import { recommend } from '@fed-ai/recommender';
 import { signManifest } from '@fed-ai/manifest';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
+import { runSetupInteractive } from './setup';
 import type {
   Envelope,
   InferenceRequest,
@@ -125,6 +126,11 @@ const run = async (): Promise<void> => {
   }
 
   if (command === 'setup') {
+    if (!args.role) {
+      await runSetupInteractive();
+      return;
+    }
+
     const role = (args.role ?? '').toLowerCase();
     const routerOut = args['router-out'] ?? '.env.router';
     const nodeOut = args['node-out'] ?? '.env.node';

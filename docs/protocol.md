@@ -26,6 +26,9 @@ Envelope<T> {
 - PaymentReceipt
 - InferenceRequest
 - InferenceResponse
+- InferenceStreamChunk
+- InferenceStreamFinal
+- InferenceStreamEvent
 - MeteringRecord
 - ProtocolError
 - StakeCommit
@@ -105,6 +108,17 @@ Scheduling hints
 - `Capability.jobTypes` can advertise which job types a model supports (e.g. `CLASSIFY`, `EMBEDDING`).
 - `Capability.latencyEstimateMs` can advertise expected latency for that capability.
 - `InferenceRequest.jobType` and `QuoteRequest.jobType` allow routers to route by job type when provided.
+
+## Streaming inference
+
+Streaming inference uses Server-Sent Events (SSE) on `/infer/stream`.
+
+Event types:
+- `chunk`: incremental output as `InferenceStreamChunk` (`delta` + `index`).
+- `final`: terminal event containing signed `InferenceResponse` + `MeteringRecord` envelopes (`InferenceStreamFinal`).
+- `error`: terminal event with `{ error, details }`.
+
+The final event is always signed and should be validated like the non-streaming response.
 
 ## Replay protection
 

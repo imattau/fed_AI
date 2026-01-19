@@ -1,3 +1,4 @@
+import { estimateTokensFromText } from '@fed-ai/protocol';
 import type { InferenceRequest, InferenceResponse, ModelInfo } from '@fed-ai/protocol';
 import type { Runner, RunnerEstimate, RunnerHealth } from '../types';
 
@@ -100,8 +101,8 @@ export class VllmRunner implements Runner {
     });
 
     const output = payload.choices?.[0]?.text ?? '';
-    const inputTokens = payload.usage?.prompt_tokens ?? request.prompt.length;
-    const outputTokens = payload.usage?.completion_tokens ?? output.length;
+    const inputTokens = payload.usage?.prompt_tokens ?? estimateTokensFromText(request.prompt);
+    const outputTokens = payload.usage?.completion_tokens ?? estimateTokensFromText(output);
 
     return {
       requestId: request.requestId,

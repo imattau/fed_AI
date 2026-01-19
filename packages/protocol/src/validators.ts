@@ -5,6 +5,10 @@ import type {
   Envelope,
   InferenceRequest,
   InferenceResponse,
+  InferenceStreamChunk,
+  InferenceStreamError,
+  InferenceStreamEvent,
+  InferenceStreamFinal,
   MeteringRecord,
   ModelInfo,
   NodeDescriptor,
@@ -178,6 +182,18 @@ const inferenceResponseSchema: z.ZodType<InferenceResponse> = z.object({
     outputTokens: z.number(),
   }),
   latencyMs: z.number(),
+});
+
+const inferenceStreamChunkSchema: z.ZodType<InferenceStreamChunk> = z.object({
+  requestId: z.string(),
+  modelId: z.string(),
+  delta: z.string(),
+  index: z.number().int().nonnegative(),
+});
+
+const inferenceStreamErrorSchema: z.ZodType<InferenceStreamError> = z.object({
+  error: z.string(),
+  details: z.unknown().optional(),
 });
 
 const meteringRecordSchema: z.ZodType<MeteringRecord> = z.object({
@@ -504,6 +520,17 @@ const envelopeSchema = <T>(payloadSchema: z.ZodType<T>): z.ZodType<Envelope<T>> 
     .strict() as z.ZodType<Envelope<T>>;
 };
 
+const inferenceStreamFinalSchema: z.ZodType<InferenceStreamFinal> = z.object({
+  response: envelopeSchema(inferenceResponseSchema),
+  metering: envelopeSchema(meteringRecordSchema),
+});
+
+const inferenceStreamEventSchema: z.ZodType<InferenceStreamEvent> = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('chunk'), data: inferenceStreamChunkSchema }),
+  z.object({ type: z.literal('final'), data: inferenceStreamFinalSchema }),
+  z.object({ type: z.literal('error'), data: inferenceStreamErrorSchema }),
+]);
+
 const inferenceRequestSchema: z.ZodType<InferenceRequest> = z.object({
   requestId: z.string(),
   modelId: z.string(),
@@ -547,6 +574,15 @@ export const validateInferenceRequest: Validator<InferenceRequest> = (value) =>
 
 export const validateInferenceResponse: Validator<InferenceResponse> = (value) =>
   validateWithSchema(inferenceResponseSchema, value);
+
+export const validateInferenceStreamChunk: Validator<InferenceStreamChunk> = (value) =>
+  validateWithSchema(inferenceStreamChunkSchema, value);
+
+export const validateInferenceStreamFinal: Validator<InferenceStreamFinal> = (value) =>
+  validateWithSchema(inferenceStreamFinalSchema, value);
+
+export const validateInferenceStreamEvent: Validator<InferenceStreamEvent> = (value) =>
+  validateWithSchema(inferenceStreamEventSchema, value);
 
 export const validateMeteringRecord: Validator<MeteringRecord> = (value) =>
   validateWithSchema(meteringRecordSchema, value);

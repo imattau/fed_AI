@@ -26,6 +26,7 @@ import {
   listModels,
   nodeAmountFromSplits,
   parseErrorDetail,
+  pollUntil,
   paymentReceiptMatchesRequest,
   reconcilePaymentReceipts,
   routerFeeFromSplits,
@@ -569,4 +570,115 @@ test('reconcilePaymentReceipts reports missing and expired', async () => {
   assert.equal(result.missing.length, 1);
   assert.equal(result.expired.length, 1);
   assert.equal(result.missing[0].requestId, 'req-1');
+});
+
+test('pollUntil resolves when check returns value', async () => {
+  let attempts = 0;
+  const result = await pollUntil(async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      return null;
+    }
+    return 'ok';
+  }, { intervalMs: 5, timeoutMs: 100 });
+
+  assert.equal(result, 'ok');
+  assert.equal(attempts, 3);
+});
+
+test('pollUntil times out when no value returned', async () => {
+  await assert.rejects(
+    () => pollUntil(async () => null, { intervalMs: 5, timeoutMs: 20 }),
+    { message: /poll-timeout/ },
+  );
+});
+
+test('FedAiClient inferStream yields chunk and final events', async () => {
+  const server = http.createServer(async (req, res) => {
+    if (req.url !== '/infer/stream') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+    res.write(`event: chunk\ndata: ${JSON.stringify({
+      requestId: 'req-stream',
+      modelId: 'mock-model',
+      delta: 'hi',
+      index: 0,
+    })}\n\n`);
+
+    const routerPrivate = generateSecretKey();
+    const routerKeyId = exportPublicKeyNpub(Buffer.from(getPublicKey(routerPrivate), 'hex'));
+    const responseEnvelope = signEnvelope(
+      buildEnvelope(
+        {
+          requestId: 'req-stream',
+          modelId: 'mock-model',
+          output: 'hi',
+          usage: { inputTokens: 1, outputTokens: 1 },
+          latencyMs: 5,
+        },
+        'nonce-resp',
+        Date.now(),
+        routerKeyId,
+      ),
+      routerPrivate,
+    );
+    const meteringEnvelope = signEnvelope(
+      buildEnvelope(
+        {
+          requestId: 'req-stream',
+          nodeId: 'node-1',
+          modelId: 'mock-model',
+          promptHash: 'hash',
+          inputTokens: 1,
+          outputTokens: 1,
+          wallTimeMs: 5,
+          bytesIn: 1,
+          bytesOut: 2,
+          ts: Date.now(),
+        },
+        'nonce-meter',
+        Date.now(),
+        routerKeyId,
+      ),
+      routerPrivate,
+    );
+    res.write(`event: final\ndata: ${JSON.stringify({
+      response: responseEnvelope,
+      metering: meteringEnvelope,
+    })}\n\n`);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const clientPrivate = generateSecretKey();
+  const clientPublic = getPublicKey(clientPrivate);
+  const client = new FedAiClient({
+    routerUrl: baseUrl,
+    keyId: exportPublicKeyNpub(Buffer.from(clientPublic, 'hex')),
+    privateKey: exportPrivateKeyHex(clientPrivate),
+  });
+
+  try {
+    const events: string[] = [];
+    for await (const event of client.inferStream({
+      requestId: 'req-stream',
+      modelId: 'mock-model',
+      prompt: 'hello',
+      maxTokens: 8,
+    })) {
+      events.push(event.type);
+    }
+    assert.deepEqual(events, ['chunk', 'final']);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

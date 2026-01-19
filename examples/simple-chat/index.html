@@ -27,9 +27,9 @@
           <select id="model-select">
             <option value="auto">Auto (router decides)</option>
             <option value="tinyllama">TinyLlama (local)</option>
-            <option value="openai/gpt-oss-120b">Grok (xAI)</option>
+            <option value="llama-3.1-8b-instant">Groq (llama-3.1-8b-instant)</option>
           </select>
-          <span id="grok-key-status" class="status-pill">Grok key: not set</span>
+          <span id="grok-key-status" class="status-pill">Groq key: not set</span>
         </div>
         <section id="chat" class="chat"></section>
         <form id="chat-form" class="composer">
@@ -98,7 +98,11 @@
       <div class="modal-card">
         <h3>Enter Grok API key</h3>
         <p>Your key is used for this browser session only and is not stored.</p>
-        <input id="grok-api-key" type="password" placeholder="xAI API key" />
+        <input id="grok-api-key" type="password" placeholder="Groq API key" />
+        <div class="modal-actions">
+          <button id="grok-check" type="button">Check key</button>
+          <span id="grok-check-status" class="status-pill">Not checked</span>
+        </div>
         <div class="modal-actions">
           <button id="grok-cancel" type="button">Cancel</button>
           <button id="grok-save" type="button">Save</button>

@@ -10,7 +10,7 @@ Responsibilities
 - Node selection and dispatch.
 - Metering aggregation.
 - Use Nostr-compatible keys for verifying node envelopes.
-- Service is independently deployable and exposes `/health`, `/status`, `/register-node`, `/manifest`, `/quote`, `/infer`, `/node/offload`, and `/payment-receipt`.
+- Service is independently deployable and exposes `/health`, `/status`, `/register-node`, `/manifest`, `/quote`, `/infer`, `/infer/stream`, `/node/offload`, and `/payment-receipt`.
 
 Health tracking
 - Router tracks `lastHeartbeatMs` and filters stale nodes during selection.
@@ -19,7 +19,7 @@ Health tracking
 - Router retries alternative nodes on inference failure when payment is not locked to a specific node.
 
 Payments
-- When configured to require payment, `/infer` returns `402` with a signed `PaymentRequest` envelope that includes invoice details for the payee.
+- When configured to require payment, `/infer` and `/infer/stream` return `402` with a signed `PaymentRequest` envelope that includes invoice details for the payee.
 - Router keeps the issued `PaymentRequest` per payee so receipts can be validated against amount, invoice, and request ID.
 - Clients pay payees directly over Lightning, then either POST a `PaymentReceipt` to `/payment-receipt` or include signed receipts in the next inference attempt via `paymentReceipts`.
 - CLI `fedai receipt` can turn a saved `PaymentRequest` into a signed receipt and optionally post it to `/payment-receipt`.
@@ -29,9 +29,13 @@ Payments
 
 Observability
 - `/metrics` exposes Prometheus-friendly metrics such as `router_inference_requests_total` and latency histograms.
-- The router instruments `/infer` and `/payment-receipt` with OpenTelemetry spans (`router.infer`, `router.paymentReceipt`) so traces can correlate ingestion, payment verification, and node dispatch.
+- The router instruments `/infer`, `/infer/stream`, and `/payment-receipt` with OpenTelemetry spans (`router.infer`, `router.inferStream`, `router.paymentReceipt`) so traces can correlate ingestion, payment verification, and node dispatch.
 - Accounting failures surface as `router_accounting_failures_total` with reason labels for metering/signature issues.
 - Router logs are redacted by default to avoid leaking prompt/output data or secrets.
+
+Worker threads
+- Optional worker pools can offload envelope validation and signature checks to reduce main-thread latency under load.
+- Enable only when CPU saturation or event-loop delay becomes visible in traces.
 
 Configuration
 - Core: `ROUTER_ID`, `ROUTER_KEY_ID` (npub), `ROUTER_PRIVATE_KEY_PEM` (nsec or hex), `ROUTER_ENDPOINT`, `ROUTER_PORT`.
@@ -45,6 +49,7 @@ Configuration
 - Request sizing: `ROUTER_MAX_REQUEST_BYTES` to cap inbound JSON payloads.
 - Client access control: `ROUTER_CLIENT_ALLOWLIST`, `ROUTER_CLIENT_BLOCKLIST`, `ROUTER_CLIENT_MUTE`.
 - Ingress rate limit: `ROUTER_RATE_LIMIT_MAX`, `ROUTER_RATE_LIMIT_WINDOW_MS`.
+- Worker threads: `ROUTER_WORKER_THREADS_ENABLED`, `ROUTER_WORKER_THREADS_MAX`, `ROUTER_WORKER_THREADS_QUEUE_MAX`, `ROUTER_WORKER_THREADS_TIMEOUT_MS`.
 - TLS: `ROUTER_TLS_CERT_PATH`, `ROUTER_TLS_KEY_PATH`, `ROUTER_TLS_CA_PATH`, `ROUTER_TLS_REQUIRE_CLIENT_CERT`.
 - Persistence: `ROUTER_STATE_PATH`, `ROUTER_STATE_PERSIST_MS`.
 - Retention/pruning: `ROUTER_PAYMENT_REQUEST_RETENTION_MS`, `ROUTER_PAYMENT_RECEIPT_RETENTION_MS`, `ROUTER_PAYMENT_RECONCILE_INTERVAL_MS`, `ROUTER_PAYMENT_RECONCILE_GRACE_MS`, `ROUTER_FEDERATION_JOB_RETENTION_MS`, `ROUTER_NODE_HEALTH_RETENTION_MS`, `ROUTER_NODE_COOLDOWN_RETENTION_MS`, `ROUTER_NODE_RETENTION_MS`, `ROUTER_PRUNE_INTERVAL_MS`.
@@ -74,6 +79,7 @@ Selection inputs
 - Capacity
 - Trust score
 - Job type compatibility (when `InferenceRequest.jobType` is set)
+- Context window availability (estimated prompt + max tokens must fit `Capability.contextWindow`).
 - Observed performance bonus (bounded) and reliability penalties.
 
 Scheduling guarantees

@@ -10,17 +10,26 @@ const matchesJobType = (capability: Capability, request: QuoteRequest): boolean 
   return capability.jobTypes.includes(request.jobType);
 };
 
+const fitsContextWindow = (capability: Capability, request: QuoteRequest): boolean => {
+  if (!capability.contextWindow) {
+    return true;
+  }
+  return request.inputTokensEstimate + request.outputTokensEstimate <= capability.contextWindow;
+};
+
 const findCapability = (node: NodeDescriptor, request: QuoteRequest): Capability | undefined => {
   return node.capabilities.find(
     (capability) =>
-      capability.modelId === request.modelId && matchesJobType(capability, request),
+      capability.modelId === request.modelId &&
+      matchesJobType(capability, request) &&
+      fitsContextWindow(capability, request),
   );
 };
 
 const pickCheapestCapability = (node: NodeDescriptor, request: QuoteRequest): Capability | undefined => {
   let best: { cap: Capability; price: number } | null = null;
   for (const capability of node.capabilities) {
-    if (!matchesJobType(capability, request)) {
+    if (!matchesJobType(capability, request) || !fitsContextWindow(capability, request)) {
       continue;
     }
     const price = estimatePrice(capability, request);

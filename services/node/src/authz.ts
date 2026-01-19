@@ -18,6 +18,16 @@ export const checkRouterAccess = (config: NodeConfig, keyId: string): AccessResu
     ...(config.routerKeyId ? [config.routerKeyId] : []),
   ];
   if (allowedRouters.length > 0 && !allowedRouters.includes(keyId)) {
+    if (config.exposeErrors) {
+      console.warn(
+        '[node] router access denied',
+        JSON.stringify({
+          routerKeyId: keyId,
+          allowedRouters,
+          routerKeyIdEnv: config.routerKeyId,
+        }),
+      );
+    }
     return block('router-not-allowed', 401);
   }
   if (config.routerFollowList?.length && !config.routerFollowList.includes(keyId)) {

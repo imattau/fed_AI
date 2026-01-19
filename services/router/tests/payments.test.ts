@@ -91,3 +91,169 @@ test('verifyPaymentReceipt retries transient failures', async () => {
   assert.equal(response.ok, true);
   assert.equal(attempts, 2);
 });
+
+test('requestInvoice returns error when invoice config missing', async () => {
+  const response = await requestInvoice({ requestId: 'req-1', payeeId: 'node-1', amountSats: 10 });
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'invoice-provider-not-configured');
+  }
+});
+
+test('requestInvoice surfaces invoice-provider failures', async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/invoice') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(502);
+    res.end('bad');
+  });
+
+  const response = await requestInvoice(
+    { requestId: 'req-2', payeeId: 'node-1', amountSats: 10 },
+    { url: `${baseUrl}/invoice`, retryMaxAttempts: 1 },
+  );
+  server.close();
+
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'invoice-provider-failed');
+  }
+});
+
+test('requestInvoice requires invoice field in response payload', async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/invoice') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const payload = JSON.stringify({ paymentHash: 'hash' });
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
+    res.end(payload);
+  });
+
+  const response = await requestInvoice(
+    { requestId: 'req-3', payeeId: 'node-1', amountSats: 10 },
+    { url: `${baseUrl}/invoice`, retryMaxAttempts: 1 },
+  );
+  server.close();
+
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'invoice-missing');
+  }
+});
+
+test('verifyPaymentReceipt returns ok when verification disabled', async () => {
+  const receipt: PaymentReceipt = {
+    requestId: 'req-4',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+  };
+  const response = await verifyPaymentReceipt(receipt);
+  assert.equal(response.ok, true);
+});
+
+test('verifyPaymentReceipt enforces preimage when required', async () => {
+  const receipt: PaymentReceipt = {
+    requestId: 'req-5',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+    paymentHash: 'hash',
+  };
+  const response = await verifyPaymentReceipt(receipt, {
+    url: 'http://example.invalid',
+    requirePreimage: true,
+  });
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'preimage-required');
+  }
+});
+
+test('verifyPaymentReceipt requires a payment proof', async () => {
+  const receipt: PaymentReceipt = {
+    requestId: 'req-6',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+  };
+  const response = await verifyPaymentReceipt(receipt, {
+    url: 'http://example.invalid',
+  });
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'payment-proof-missing');
+  }
+});
+
+test('verifyPaymentReceipt returns detail when payment unsettled', async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/verify') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    const payload = JSON.stringify({ paid: false, detail: 'not-paid' });
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) });
+    res.end(payload);
+  });
+
+  const receipt: PaymentReceipt = {
+    requestId: 'req-7',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+    paymentHash: 'hash',
+  };
+  const response = await verifyPaymentReceipt(receipt, {
+    url: `${baseUrl}/verify`,
+    retryMaxAttempts: 1,
+  });
+  server.close();
+
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'not-paid');
+  }
+});
+
+test('verifyPaymentReceipt surfaces provider errors', async () => {
+  const { server, baseUrl } = await startServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/verify') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(500);
+    res.end('nope');
+  });
+
+  const receipt: PaymentReceipt = {
+    requestId: 'req-8',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+    paymentHash: 'hash',
+  };
+  const response = await verifyPaymentReceipt(receipt, {
+    url: `${baseUrl}/verify`,
+    retryMaxAttempts: 1,
+  });
+  server.close();
+
+  assert.equal(response.ok, false);
+  if (!response.ok) {
+    assert.equal(response.error, 'payment-verify-failed');
+  }
+});
