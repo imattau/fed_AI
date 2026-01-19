@@ -9,7 +9,7 @@ services:
       [
         "sh",
         "-c",
-        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 >/dev/null 2>&1 && NODE_PATH=/tmp/node_modules node /scripts/gen-keys.js /keys/keys.env",
+        "if [ ! -f /keys/keys.env ]; then npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 >/dev/null 2>&1 && NODE_PATH=/tmp/node_modules node /scripts/gen-keys.js /keys/keys.env; else echo 'keys already present'; fi",
       ]
 
   model:
@@ -69,6 +69,10 @@ services:
       ROUTER_ENDPOINT: http://router:8080
       ROUTER_PORT: 8080
       ROUTER_REQUIRE_PAYMENT: "true"
+      ROUTER_WORKER_THREADS_ENABLED: "true"
+      ROUTER_WORKER_THREADS_MAX: "2"
+      ROUTER_WORKER_THREADS_QUEUE_MAX: "200"
+      ROUTER_WORKER_THREADS_TIMEOUT_MS: "2000"
       ROUTER_LN_INVOICE_URL: http://ln-adapter:4000/invoice
       ROUTER_LN_VERIFY_URL: http://ln-adapter:4000/verify
       ROUTER_DB_URL: postgres://fedai:fedai@postgres:5432/fedai
@@ -77,8 +81,8 @@ services:
       ROUTER_FEE_ENABLED: "true"
       ROUTER_FEE_SPLIT: "true"
       ROUTER_FEE_BPS: "500"
-      ROUTER_FEE_FLAT_SATS: "1"
-      ROUTER_FEE_MIN_SATS: "1"
+      ROUTER_FEE_FLAT_SATS: "0"
+      ROUTER_FEE_MIN_SATS: "0"
       ROUTER_FEE_MAX_SATS: "500"
       ROUTER_FEDERATION_ENABLED: "true"
       ROUTER_FEDERATION_RATE_LIMIT_MAX: "60"
@@ -120,6 +124,10 @@ services:
       NODE_ENDPOINT: http://node:8081
       NODE_PORT: 8081
       NODE_REQUIRE_PAYMENT: "true"
+      NODE_WORKER_THREADS_ENABLED: "true"
+      NODE_WORKER_THREADS_MAX: "2"
+      NODE_WORKER_THREADS_QUEUE_MAX: "200"
+      NODE_WORKER_THREADS_TIMEOUT_MS: "2000"
       NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
       NODE_RUNNER: llama_cpp
       NODE_LLAMA_CPP_URL: http://llama:8080
@@ -152,9 +160,13 @@ services:
         condition: service_started
     environment:
       NODE_ID: node-cpu
-      NODE_ENDPOINT: http://node-cpu:8082
+      NODE_ENDPOINT: http://node_cpu:8082
       NODE_PORT: 8082
       NODE_REQUIRE_PAYMENT: "true"
+      NODE_WORKER_THREADS_ENABLED: "true"
+      NODE_WORKER_THREADS_MAX: "2"
+      NODE_WORKER_THREADS_QUEUE_MAX: "200"
+      NODE_WORKER_THREADS_TIMEOUT_MS: "2000"
       NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
       NODE_RUNNER: cpu
       NODE_MODEL_ID: cpu-stats
@@ -186,14 +198,20 @@ services:
         condition: service_started
     environment:
       NODE_ID: node-grok
-      NODE_ENDPOINT: http://node-grok:8083
+      NODE_ENDPOINT: http://node_grok:8083
       NODE_PORT: 8083
       NODE_REQUIRE_PAYMENT: "true"
+      NODE_WORKER_THREADS_ENABLED: "true"
+      NODE_WORKER_THREADS_MAX: "2"
+      NODE_WORKER_THREADS_QUEUE_MAX: "200"
+      NODE_WORKER_THREADS_TIMEOUT_MS: "2000"
       NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
       NODE_RUNNER: openai
-      NODE_OPENAI_URL: https://api.x.ai
-      NODE_OPENAI_MODEL: openai/gpt-oss-120b
-      NODE_MODEL_ID: openai/gpt-oss-120b
+      NODE_OPENAI_URL: https://api.groq.com/openai/v1
+      NODE_OPENAI_MODEL: llama3-8b-8192
+      NODE_MODEL_ID: llama3-8b-8192
+      NODE_OPENAI_API_KEY_HEADER: both
+      NODE_EXPOSE_ERRORS: "true"
       ROUTER_ENDPOINT: http://router:8080
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
     entrypoint:
@@ -227,9 +245,9 @@ services:
 
   chat:
     image: node:20-bookworm-slim
-    working_dir: /app
+    working_dir: /repo
     volumes:
-      - ./:/app
+      - ../../:/repo
       - keys:/keys:ro
     environment:
       ROUTER_URL: http://router:8080
@@ -252,7 +270,7 @@ services:
       [
         "sh",
         "-c",
-        "npm init -y >/dev/null 2>&1 && npm install nostr-tools@2.7.2 @noble/curves@1.9.7 @noble/hashes@1.8.0 >/dev/null 2>&1 && node server.js",
+        "corepack enable >/dev/null 2>&1 && pnpm --silent -w install --frozen-lockfile --config.confirmModulesDir=false && pnpm --filter @fed-ai/protocol --filter @fed-ai/nostr-relay-discovery --filter @fed-ai/sdk-js run build && node examples/simple-chat/server.js",
       ]
     depends_on:
       router:

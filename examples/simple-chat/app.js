@@ -1,35 +1,65 @@
+/** @type {HTMLElement | null} */
 const chat = document.getElementById('chat');
-const form = document.getElementById('chat-form');
-const promptInput = document.getElementById('prompt');
-const status = document.getElementById('status');
+const form = /** @type {HTMLFormElement | null} */ (document.getElementById('chat-form'));
+const promptInput = /** @type {HTMLInputElement | null} */ (document.getElementById('prompt'));
+/** @type {HTMLElement | null} */
+const statusEl = document.getElementById('status');
+/** @type {HTMLElement | null} */
 const wallet = document.getElementById('wallet-sats');
+/** @type {HTMLElement | null} */
 const routerHealth = document.getElementById('router-health');
+/** @type {HTMLElement | null} */
 const routerActive = document.getElementById('router-active');
+/** @type {HTMLElement | null} */
 const routerTotal = document.getElementById('router-total');
+/** @type {HTMLElement | null} */
 const routerNodes = document.getElementById('router-nodes');
+/** @type {HTMLElement | null} */
 const routerFederationEnabled = document.getElementById('router-federation-enabled');
+/** @type {HTMLElement | null} */
 const routerFederationRate = document.getElementById('router-federation-rate');
+/** @type {HTMLElement | null} */
 const routerNostrEnabled = document.getElementById('router-nostr-enabled');
+/** @type {HTMLElement | null} */
 const routerNostrRelays = document.getElementById('router-nostr-relays');
+/** @type {HTMLElement | null} */
 const routerNostrFollow = document.getElementById('router-nostr-follow');
+/** @type {HTMLElement | null} */
 const routerNostrMute = document.getElementById('router-nostr-mute');
+/** @type {HTMLElement | null} */
 const routerNostrBlock = document.getElementById('router-nostr-block');
+/** @type {HTMLElement | null} */
 const routerNostrRetry = document.getElementById('router-nostr-retry');
+/** @type {HTMLElement | null} */
 const routerPostgres = document.getElementById('router-postgres');
+/** @type {HTMLElement | null} */
 const nodeSummary = document.getElementById('node-summary');
+/** @type {HTMLElement | null} */
 const nodeList = document.getElementById('node-list');
+/** @type {HTMLElement | null} */
 const nodeFollow = document.getElementById('node-follow');
+/** @type {HTMLElement | null} */
 const nodeMute = document.getElementById('node-mute');
+/** @type {HTMLElement | null} */
 const nodeBlock = document.getElementById('node-block');
+/** @type {HTMLElement | null} */
 const nodePostgres = document.getElementById('node-postgres');
-const modelSelect = document.getElementById('model-select');
+const modelSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('model-select'));
+/** @type {HTMLElement | null} */
 const grokModal = document.getElementById('grok-modal');
-const grokApiKeyInput = document.getElementById('grok-api-key');
+const grokApiKeyInput = /** @type {HTMLInputElement | null} */ (document.getElementById('grok-api-key'));
+/** @type {HTMLElement | null} */
+const grokCheck = document.getElementById('grok-check');
+/** @type {HTMLElement | null} */
+const grokCheckStatus = document.getElementById('grok-check-status');
+/** @type {HTMLElement | null} */
 const grokCancel = document.getElementById('grok-cancel');
+/** @type {HTMLElement | null} */
 const grokSave = document.getElementById('grok-save');
+/** @type {HTMLElement | null} */
 const grokKeyStatus = document.getElementById('grok-key-status');
-const tabButtons = document.querySelectorAll('[data-tab]');
-const tabPanels = document.querySelectorAll('.tab-panel');
+const tabButtons = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-tab]'));
+const tabPanels = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.tab-panel'));
 
 const appendMessage = (role, text) => {
   const row = document.createElement('div');
@@ -65,11 +95,21 @@ let previousModel = 'auto';
 const updateGrokStatus = () => {
   if (!grokKeyStatus) return;
   if (grokApiKey) {
-    grokKeyStatus.textContent = 'Grok key: set';
+    grokKeyStatus.textContent = 'Groq key: set';
     grokKeyStatus.classList.add('ok');
   } else {
-    grokKeyStatus.textContent = 'Grok key: not set';
+    grokKeyStatus.textContent = 'Groq key: not set';
     grokKeyStatus.classList.remove('ok');
+  }
+};
+
+const setGrokCheckStatus = (text, ok) => {
+  if (!grokCheckStatus) return;
+  grokCheckStatus.textContent = text;
+  if (ok) {
+    grokCheckStatus.classList.add('ok');
+  } else {
+    grokCheckStatus.classList.remove('ok');
   }
 };
 
@@ -80,6 +120,7 @@ const openGrokModal = () => {
     grokApiKeyInput.value = grokApiKey;
     grokApiKeyInput.focus();
   }
+  setGrokCheckStatus('Not checked', false);
 };
 
 const closeGrokModal = () => {
@@ -90,7 +131,7 @@ const closeGrokModal = () => {
 if (modelSelect) {
   modelSelect.addEventListener('change', () => {
     const value = modelSelect.value;
-    if (value === 'openai/gpt-oss-120b') {
+    if (value === 'llama3-8b-8192') {
       previousModel = selectedModel;
       selectedModel = value;
       if (!grokApiKey) {
@@ -116,7 +157,39 @@ if (grokSave) {
   grokSave.addEventListener('click', () => {
     grokApiKey = grokApiKeyInput ? grokApiKeyInput.value.trim() : '';
     updateGrokStatus();
+    setGrokCheckStatus('Not checked', false);
     closeGrokModal();
+  });
+}
+
+if (grokCheck) {
+  grokCheck.addEventListener('click', async () => {
+    const key = grokApiKeyInput ? grokApiKeyInput.value.trim() : '';
+    if (!key) {
+      setGrokCheckStatus('Key required', false);
+      return;
+    }
+    setGrokCheckStatus('Checking...', false);
+    try {
+      const response = await fetch('/api/grok-check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ apiKey: key }),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        setGrokCheckStatus(`Invalid (${response.status})`, false);
+        appendMessage('system', `Grok key check failed: ${detail}`);
+        return;
+      }
+      setGrokCheckStatus('Valid', true);
+    } catch (error) {
+      setGrokCheckStatus('Failed', false);
+      appendMessage(
+        'system',
+        `Grok key check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   });
 }
 
@@ -298,12 +371,16 @@ form.addEventListener('submit', async (event) => {
 
   appendMessage('user', prompt);
   promptInput.value = '';
-  status.textContent = 'Thinking...';
+  if (statusEl) {
+    statusEl.textContent = 'Thinking...';
+  }
 
   try {
-    if (selectedModel === 'openai/gpt-oss-120b' && !grokApiKey) {
+    if (selectedModel === 'llama3-8b-8192' && !grokApiKey) {
       openGrokModal();
-      status.textContent = 'Grok key required';
+      if (statusEl) {
+        statusEl.textContent = 'Groq key required';
+      }
       return;
     }
     const response = await fetch('/api/infer', {
@@ -312,23 +389,29 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify({
         prompt,
         modelId: selectedModel,
-        apiKey: selectedModel === 'openai/gpt-oss-120b' ? grokApiKey : undefined,
+        apiKey: selectedModel === 'llama3-8b-8192' ? grokApiKey : undefined,
       }),
     });
     if (!response.ok) {
       const detail = await response.text();
       appendMessage('system', `Error: ${detail}`);
-      status.textContent = 'Error';
+      if (statusEl) {
+        statusEl.textContent = 'Error';
+      }
       void refreshWallet();
       return;
     }
     const payload = await response.json();
     appendMessage('assistant', payload.output ?? '');
-    status.textContent = 'Ready';
+    if (statusEl) {
+      statusEl.textContent = 'Ready';
+    }
     void refreshWallet();
   } catch (error) {
     appendMessage('system', `Error: ${error instanceof Error ? error.message : String(error)}`);
-    status.textContent = 'Error';
+    if (statusEl) {
+      statusEl.textContent = 'Error';
+    }
     void refreshWallet();
   }
 });
