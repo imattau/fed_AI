@@ -58,10 +58,78 @@ const parseList = (value?: string): string[] | undefined => {
     .filter((item) => item.length > 0);
 };
 
-// ... (helpers)
+/** Parse comma-separated Nostr npub lists, discarding invalid entries. */
+const parseNpubList = (value?: string): string[] | undefined => {
+  const entries = parseList(value);
+  if (!entries) {
+    return undefined;
+  }
+  const filtered = entries.filter((entry) => isNostrNpub(entry));
+  return filtered.length > 0 ? filtered : undefined;
+};
+
+/** Parse trust-score overrides in the form `url=score,url2=score`. */
+const parseTrustScores = (value?: string): Record<string, number> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const result: Record<string, number> = {};
+  for (const pair of value.split(',')) {
+    const [rawUrl, rawScore] = pair.split('=').map((item) => item.trim());
+    if (!rawUrl || !rawScore) {
+      continue;
+    }
+    const score = Number.parseFloat(rawScore);
+    if (Number.isFinite(score)) {
+      result[rawUrl] = score;
+    }
+  }
+
+  return Object.keys(result).length ? result : undefined;
+};
+
+/** Coerce numeric CLI options; floats used for `minScore`, integers for limits. */
+const parseNumber = (value?: string, float = false): number | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = float ? Number.parseFloat(value) : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+/** Build discovery options for the router using environment overrides. */
+const buildDiscoveryOptions = () => ({
+  bootstrapRelays: parseList(getEnv('ROUTER_RELAY_BOOTSTRAP')),
+  aggregatorUrls: parseList(getEnv('ROUTER_RELAY_AGGREGATORS')),
+  trustScores: parseTrustScores(getEnv('ROUTER_RELAY_TRUST')),
+  minScore: parseNumber(getEnv('ROUTER_RELAY_MIN_SCORE'), true),
+  maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
+});
+
+const buildRelayAdmissionPolicy = () => ({
+  requireSnapshot:
+    (getEnv('ROUTER_RELAY_SNAPSHOT_REQUIRED') ?? 'false').toLowerCase() === 'true',
+  maxAgeMs: parseNumber(getEnv('ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS')) ?? defaultRelayAdmissionPolicy.maxAgeMs,
+  minScore: parseNumber(getEnv('ROUTER_RELAY_MIN_SCORE'), true),
+  maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
+});
+
+/** Log a short summary of the discovered relays so operators can audit the candidates. */
+const logRelayCandidates = async (
+  role: string,
+  options: Parameters<typeof discoverRelays>[0],
+): Promise<void> => {
+  try {
+    const relays = await discoverRelays(options);
+    const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
+    logInfo(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
+  } catch (error) {
+    logWarn(`[${role}] relay discovery failed`, error);
+  }
+};
 
 const buildConfig = (): RouterConfig => {
-  const dynamic = loadDynamicConfig();
   const privateKey = getEnv('ROUTER_PRIVATE_KEY_PEM');
   const tlsCertPath = getEnv('ROUTER_TLS_CERT_PATH');
   const tlsKeyPath = getEnv('ROUTER_TLS_KEY_PATH');

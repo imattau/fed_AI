@@ -4,6 +4,7 @@ import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
 import { RouterConfig } from './config';
 import { RouterService } from './server';
+import { logInfo, logWarn } from './logging';
 
 const sendJson = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'content-type': 'application/json' });

@@ -57,77 +57,7 @@ const loadAdminIdentity = (): { adminNpub?: string } => {
   return {};
 };
 
-// ... existing helpers ...
-
-const buildConfig = (): NodeConfig => {
-  const dynamic = loadDynamicConfig();
-  const getCfg = (key: string, fallback?: any) => {
-      // Priority: Env -> Dynamic -> Fallback (or vice versa? Usually Env overrides file, but here file is "newer")
-      // Let's say Dynamic overrides Env because Admin UI writes to Dynamic.
-      // But Env is usually "hard" overrides.
-      // Setup Wizard: "Write to config.json".
-      // So Dynamic > Env.
-      if (key in dynamic) return (dynamic as any)[key];
-      return process.env[key] ?? fallback;
-  };
-  
-  // Re-implement buildConfig using getCfg helper or just merge
-  // This is too big to rewrite completely in one go without errors.
-  // I will just overlay dynamic config at the end of the return object for simple fields.
-  
-  const privateKey = getEnv('NODE_PRIVATE_KEY_PEM') ?? dynamic.privateKey;
-  // ... (lots of variables)
-  
-  // Strategy: Let's assume standard buildConfig logic, then merge dynamic.
-  // But type safety...
-  
-  // I'll stick to the original plan: Modify buildConfig to look at dynamic first for critical fields.
-  
-  const adminIdentity = loadAdminIdentity();
-  const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub ?? dynamic.adminNpub;
-  
-  // Checking Setup Mode conditions
-  const routerEndpoint = getEnv('ROUTER_ENDPOINT') ?? dynamic.routerEndpoint;
-  
-  // ... existing implementation ...
-  // I will just use the previous implementation and add dynamic merges for critical paths.
-  
-  const config = {
-      // ... (I'll copy the previous return and add overrides)
-      // Actually, I can just return the object merged with dynamic.
-  };
-  
-  return { ...config, ...dynamic }; // simplistic
-};
-
-// Actually, I should just modify `start` to catch validation errors.
-
-const start = async (): Promise<void> => {
-  let config = buildConfig();
-  const dynamic = loadDynamicConfig();
-  // Merge dynamic properties that match NodeConfig structure
-  // We need to be careful about types.
-  config = { ...config, ...dynamic };
-
-  if (!config.routerKeyId && config.routerPublicKey) {
-    config.routerKeyId = exportPublicKeyNpub(config.routerPublicKey);
-  }
-  
-  const issues = validateConfig(config);
-  const isSetupMode = issues.length > 0 || config.setupMode;
-
-  if (isSetupMode) {
-    logWarn('[node] starting in SETUP MODE (validation failed or requested)', { issues });
-    config.setupMode = true;
-    // Ensure criticals for startup
-    if (!config.nodeId) config.nodeId = 'node-setup';
-    if (!config.keyId) config.keyId = 'npub1setup...'; // dummy?
-    // We need a valid service to start HTTP.
-  }
-
-  // ... 
-};
-
+/** Parse comma-separated inputs so operators can override discovery sources. */
 const parseList = (value?: string): string[] | undefined => {
   return value
     ?.split(',')
@@ -218,6 +148,7 @@ const logRelayCandidates = async (
 };
 
 const buildConfig = (): NodeConfig => {
+  const dynamic = loadDynamicConfig();
   const privateKey = getEnv('NODE_PRIVATE_KEY_PEM');
   const routerPublicKey = getEnv('ROUTER_PUBLIC_KEY_PEM');
   const routerKeyId = getEnv('ROUTER_KEY_ID');
@@ -249,7 +180,7 @@ const buildConfig = (): NodeConfig => {
   const workerThreadsTimeoutMs = parseNumber(getEnv('NODE_WORKER_THREADS_TIMEOUT_MS'));
   const adminKey = getEnv('NODE_ADMIN_KEY');
   const adminIdentity = loadAdminIdentity();
-  const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub;
+  const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub ?? dynamic.adminNpub;
   const relayBootstrap = dynamic.relayBootstrap ?? parseList(getEnv('NODE_RELAY_BOOTSTRAP'));
 
   return {
