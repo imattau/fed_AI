@@ -40,7 +40,7 @@ const loadDynamicConfig = (): Partial<NodeConfig> & { adminNpub?: string } => {
       return JSON.parse(content);
     }
   } catch (e) {
-    // ignore missing config
+    // ignore
   }
   return {};
 };
@@ -57,7 +57,6 @@ const loadAdminIdentity = (): { adminNpub?: string } => {
   return {};
 };
 
-/** Parse comma-separated inputs so operators can override discovery sources. */
 const parseList = (value?: string): string[] | undefined => {
   return value
     ?.split(',')
@@ -65,12 +64,9 @@ const parseList = (value?: string): string[] | undefined => {
     .filter((item) => item.length > 0);
 };
 
-/** Parse comma-separated Nostr npub lists, discarding invalid entries. */
 const parseNpubList = (value?: string): string[] | undefined => {
   const entries = parseList(value);
-  if (!entries) {
-    return undefined;
-  }
+  if (!entries) return undefined;
   const filtered = entries.filter((entry) => isNostrNpub(entry));
   return filtered.length > 0 ? filtered : undefined;
 };
@@ -87,44 +83,29 @@ const JOB_TYPES = new Set([
 
 const parseJobTypes = (value?: string): NodeConfig['capabilityJobTypes'] => {
   const entries = parseList(value);
-  if (!entries || entries.length === 0) {
-    return undefined;
-  }
+  if (!entries || entries.length === 0) return undefined;
   const filtered = entries.filter((entry) => JOB_TYPES.has(entry));
   return filtered.length > 0 ? (filtered as NodeConfig['capabilityJobTypes']) : undefined;
 };
 
-/** Convert optional trust-score overrides into the expected map shape. */
 const parseTrustScores = (value?: string): Record<string, number> | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
+  if (!value) return undefined;
   const result: Record<string, number> = {};
   for (const piece of value.split(',')) {
     const [rawUrl, rawScore] = piece.split('=').map((item) => item.trim());
-    if (!rawUrl || !rawScore) {
-      continue;
-    }
+    if (!rawUrl || !rawScore) continue;
     const score = Number.parseFloat(rawScore);
-    if (Number.isFinite(score)) {
-      result[rawUrl] = score;
-    }
+    if (Number.isFinite(score)) result[rawUrl] = score;
   }
-
   return Object.keys(result).length ? result : undefined;
 };
 
-/** Helper to parse integers or floats for discovery arguments. */
 const parseNumber = (value?: string, float = false): number | undefined => {
-  if (!value) {
-    return undefined;
-  }
+  if (!value) return undefined;
   const parsed = float ? Number.parseFloat(value) : Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-/** Build discovery configuration for the node using `NODE_*` env overrides. */
 const buildDiscoveryOptions = (config?: NodeConfig) => ({
   bootstrapRelays: config?.relayBootstrap ?? parseList(getEnv('NODE_RELAY_BOOTSTRAP')),
   aggregatorUrls: parseList(getEnv('NODE_RELAY_AGGREGATORS')),
@@ -133,11 +114,7 @@ const buildDiscoveryOptions = (config?: NodeConfig) => ({
   maxResults: parseNumber(getEnv('NODE_RELAY_MAX_RESULTS')),
 });
 
-/** Log the discovery summary so operators can verify the runtime choices. */
-const logRelayCandidates = async (
-  role: string,
-  options: Parameters<typeof discoverRelays>[0],
-): Promise<void> => {
+const logRelayCandidates = async (role: string, options: Parameters<typeof discoverRelays>[0]): Promise<void> => {
   try {
     const relays = await discoverRelays(options);
     const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
@@ -155,15 +132,13 @@ const buildConfig = (): NodeConfig => {
   const tlsCertPath = getEnv('NODE_TLS_CERT_PATH');
   const tlsKeyPath = getEnv('NODE_TLS_KEY_PATH');
   const tlsCaPath = getEnv('NODE_TLS_CA_PATH');
-  const tlsRequireClientCert =
-    (getEnv('NODE_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
+  const tlsRequireClientCert = (getEnv('NODE_TLS_REQUIRE_CLIENT_CERT') ?? 'false').toLowerCase() === 'true';
   const paymentVerifyUrl = getEnv('NODE_LN_VERIFY_URL');
   const paymentVerifyTimeoutMs = parseNumber(getEnv('NODE_LN_VERIFY_TIMEOUT_MS'));
   const paymentVerifyRetryMaxAttempts = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MAX_ATTEMPTS'));
   const paymentVerifyRetryMinDelayMs = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MIN_DELAY_MS'));
   const paymentVerifyRetryMaxDelayMs = parseNumber(getEnv('NODE_LN_VERIFY_RETRY_MAX_DELAY_MS'));
-  const paymentRequirePreimage =
-    (getEnv('NODE_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
+  const paymentRequirePreimage = (getEnv('NODE_LN_REQUIRE_PREIMAGE') ?? 'false').toLowerCase() === 'true';
   const nonceStoreUrl = getEnv('NODE_NONCE_STORE_URL');
   const sandboxAllowedRunners = parseList(getEnv('NODE_SANDBOX_ALLOWED_RUNNERS'));
   const sandboxAllowedEndpoints = parseList(getEnv('NODE_SANDBOX_ALLOWED_ENDPOINTS'));
@@ -173,8 +148,7 @@ const buildConfig = (): NodeConfig => {
   const pricingOutputSats = parseNumber(getEnv('NODE_PRICE_OUTPUT_SATS'));
   const pricingUnit = getEnv('NODE_PRICE_UNIT') as NodeConfig['pricingUnit'] | undefined;
   const exposeErrors = (getEnv('NODE_EXPOSE_ERRORS') ?? 'false').toLowerCase() === 'true';
-  const workerThreadsEnabled =
-    (getEnv('NODE_WORKER_THREADS_ENABLED') ?? 'false').toLowerCase() === 'true';
+  const workerThreadsEnabled = (getEnv('NODE_WORKER_THREADS_ENABLED') ?? 'false').toLowerCase() === 'true';
   const workerThreadsMax = parseNumber(getEnv('NODE_WORKER_THREADS_MAX'));
   const workerThreadsQueueMax = parseNumber(getEnv('NODE_WORKER_THREADS_QUEUE_MAX'));
   const workerThreadsTimeoutMs = parseNumber(getEnv('NODE_WORKER_THREADS_TIMEOUT_MS'));
@@ -196,12 +170,8 @@ const buildConfig = (): NodeConfig => {
     heartbeatIntervalMs: Number(getEnv('NODE_HEARTBEAT_MS') ?? defaultNodeConfig.heartbeatIntervalMs),
     runnerName: getEnv('NODE_RUNNER') ?? defaultNodeConfig.runnerName,
     port: Number(getEnv('NODE_PORT') ?? 8081),
-    capacityMaxConcurrent: Number(
-      getEnv('NODE_CAPACITY_MAX') ?? defaultNodeConfig.capacityMaxConcurrent,
-    ),
-    capacityCurrentLoad: Number(
-      getEnv('NODE_CAPACITY_LOAD') ?? defaultNodeConfig.capacityCurrentLoad,
-    ),
+    capacityMaxConcurrent: Number(getEnv('NODE_CAPACITY_MAX') ?? defaultNodeConfig.capacityMaxConcurrent),
+    capacityCurrentLoad: Number(getEnv('NODE_CAPACITY_LOAD') ?? defaultNodeConfig.capacityCurrentLoad),
     maxPromptBytes: parseNumber(getEnv('NODE_MAX_PROMPT_BYTES')),
     maxTokens: parseNumber(getEnv('NODE_MAX_TOKENS')),
     runnerTimeoutMs: parseNumber(getEnv('NODE_RUNNER_TIMEOUT_MS')),
@@ -211,15 +181,8 @@ const buildConfig = (): NodeConfig => {
     maxRequestBytes: parseNumber(getEnv('NODE_MAX_REQUEST_BYTES')),
     maxInferenceMs: parseNumber(getEnv('NODE_MAX_RUNTIME_MS')),
     requirePayment: (getEnv('NODE_REQUIRE_PAYMENT') ?? 'false').toLowerCase() === 'true',
-    privateKey: (() => {
-        try { return privateKey ? parsePrivateKey(privateKey) : undefined; }
-        catch { return undefined; }
-    })(),
-    routerPublicKey: routerPublicKey
-      ? parsePublicKey(routerPublicKey)
-      : routerKeyId
-        ? parsePublicKey(routerKeyId)
-        : undefined,
+    privateKey: (() => { try { return privateKey ? parsePrivateKey(privateKey) : undefined; } catch { return undefined; } })(),
+    routerPublicKey: routerPublicKey ? parsePublicKey(routerPublicKey) : routerKeyId ? parsePublicKey(routerKeyId) : undefined,
     routerAllowList: parseNpubList(getEnv('NODE_ROUTER_ALLOWLIST')),
     routerFollowList: parseNpubList(getEnv('NODE_ROUTER_FOLLOW')),
     routerMuteList: parseNpubList(getEnv('NODE_ROUTER_MUTE')),
@@ -231,176 +194,85 @@ const buildConfig = (): NodeConfig => {
     offloadAuctionEnabled: (getEnv('NODE_OFFLOAD_AUCTION') ?? 'false').toLowerCase() === 'true',
     offloadAuctionMs: parseNumber(getEnv('NODE_OFFLOAD_AUCTION_MS'), true) ?? defaultNodeConfig.offloadAuctionMs,
     offloadAuctionAllowList: parseNpubList(getEnv('NODE_OFFLOAD_AUCTION_ALLOWLIST')),
-    offloadAuctionRateLimit:
-      parseNumber(getEnv('NODE_OFFLOAD_AUCTION_RATE_LIMIT'), true) ??
-      defaultNodeConfig.offloadAuctionRateLimit,
+    offloadAuctionRateLimit: parseNumber(getEnv('NODE_OFFLOAD_AUCTION_RATE_LIMIT'), true) ?? defaultNodeConfig.offloadAuctionRateLimit,
     nonceStorePath: getEnv('NODE_NONCE_STORE_PATH'),
     nonceStoreUrl,
     capabilityJobTypes: parseJobTypes(getEnv('NODE_JOB_TYPES')),
     capabilityLatencyMs: parseNumber(getEnv('NODE_LATENCY_ESTIMATE_MS'), true),
-    tls:
-      tlsCertPath && tlsKeyPath
-        ? {
-            certPath: tlsCertPath,
-            keyPath: tlsKeyPath,
-            caPath: tlsCaPath ?? undefined,
-            requireClientCert: tlsRequireClientCert,
-          }
-        : undefined,
-    paymentVerification: paymentVerifyUrl
-      ? {
-          url: paymentVerifyUrl,
-          timeoutMs: paymentVerifyTimeoutMs,
-          requirePreimage: paymentRequirePreimage,
-          retryMaxAttempts: paymentVerifyRetryMaxAttempts,
-          retryMinDelayMs: paymentVerifyRetryMinDelayMs,
-          retryMaxDelayMs: paymentVerifyRetryMaxDelayMs,
-        }
-      : undefined,
-    routerFeeMaxBps,
-    routerFeeMaxSats,
-    pricingInputSats,
-    pricingOutputSats,
-    pricingUnit,
-    exposeErrors,
-    workerThreads: {
-      enabled: workerThreadsEnabled,
-      maxWorkers: workerThreadsMax,
-      maxQueue: workerThreadsQueueMax,
-      taskTimeoutMs: workerThreadsTimeoutMs,
-    },
+    tls: tlsCertPath && tlsKeyPath ? { certPath: tlsCertPath, keyPath: tlsKeyPath, caPath: tlsCaPath ?? undefined, requireClientCert: tlsRequireClientCert } : undefined,
+    paymentVerification: paymentVerifyUrl ? { url: paymentVerifyUrl, timeoutMs: paymentVerifyTimeoutMs, requirePreimage: paymentRequirePreimage, retryMaxAttempts: paymentVerifyRetryMaxAttempts, retryMinDelayMs: paymentVerifyRetryMinDelayMs, retryMaxDelayMs: paymentVerifyRetryMaxDelayMs } : undefined,
+    routerFeeMaxBps, routerFeeMaxSats, pricingInputSats, pricingOutputSats, pricingUnit, exposeErrors,
+    workerThreads: { enabled: workerThreadsEnabled, maxWorkers: workerThreadsMax, maxQueue: workerThreadsQueueMax, taskTimeoutMs: workerThreadsTimeoutMs },
   };
 };
 
 const buildRunner = (config: NodeConfig): Runner => {
   const ensureEndpointAllowed = (baseUrl: string): void => {
-    if (config.sandboxMode !== 'restricted') {
-      return;
-    }
-    if (!config.sandboxAllowedEndpoints || config.sandboxAllowedEndpoints.length === 0) {
-      return;
-    }
+    if (config.sandboxMode !== 'restricted') return;
+    if (!config.sandboxAllowedEndpoints || config.sandboxAllowedEndpoints.length === 0) return;
     const allowed = config.sandboxAllowedEndpoints.some((entry) => baseUrl.startsWith(entry));
-    if (!allowed) {
-      throw new Error('sandbox-endpoint-not-allowed');
-    }
+    if (!allowed) throw new Error('sandbox-endpoint-not-allowed');
   };
 
   if (config.runnerName === 'http') {
     const runnerUrl = getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
     ensureEndpointAllowed(runnerUrl);
-    return new HttpRunner({
-      baseUrl: runnerUrl,
-      defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName,
-      apiKey: getEnv('NODE_RUNNER_API_KEY'),
-      timeoutMs: config.runnerTimeoutMs,
-    });
+    return new HttpRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_MODEL_ID') ?? config.runnerName, apiKey: getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
   if (config.runnerName === 'llama_cpp') {
     const runnerUrl = getEnv('NODE_LLAMA_CPP_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
     ensureEndpointAllowed(runnerUrl);
-    return new LlamaCppRunner({
-      baseUrl: runnerUrl,
-      defaultModelId: getEnv('NODE_MODEL_ID') ?? 'llama-model',
-      apiKey: getEnv('NODE_LLAMA_CPP_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
-      timeoutMs: config.runnerTimeoutMs,
-    });
+    return new LlamaCppRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_MODEL_ID') ?? 'llama-model', apiKey: getEnv('NODE_LLAMA_CPP_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
   if (config.runnerName === 'vllm') {
     const runnerUrl = getEnv('NODE_VLLM_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
     ensureEndpointAllowed(runnerUrl);
-    return new VllmRunner({
-      baseUrl: runnerUrl,
-      defaultModelId: getEnv('NODE_MODEL_ID') ?? 'vllm-model',
-      apiKey: getEnv('NODE_VLLM_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
-      timeoutMs: config.runnerTimeoutMs,
-    });
+    return new VllmRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_MODEL_ID') ?? 'vllm-model', apiKey: getEnv('NODE_VLLM_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
   if (config.runnerName === 'openai') {
     const runnerUrl = getEnv('NODE_OPENAI_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.openai.com';
     const mode = (getEnv('NODE_OPENAI_MODE') as 'chat' | 'completion' | undefined) ?? 'chat';
     const apiKeyHeaderRaw = (getEnv('NODE_OPENAI_API_KEY_HEADER') ?? '').toLowerCase();
-    const apiKeyHeader =
-      apiKeyHeaderRaw === 'authorization' || apiKeyHeaderRaw === 'x-api-key' || apiKeyHeaderRaw === 'both'
-        ? (apiKeyHeaderRaw as 'authorization' | 'x-api-key' | 'both')
-        : undefined;
+    const apiKeyHeader = apiKeyHeaderRaw === 'authorization' || apiKeyHeaderRaw === 'x-api-key' || apiKeyHeaderRaw === 'both' ? (apiKeyHeaderRaw as 'authorization' | 'x-api-key' | 'both') : undefined;
     ensureEndpointAllowed(runnerUrl);
-    return new OpenAiRunner({
-      baseUrl: runnerUrl,
-      defaultModelId: getEnv('NODE_OPENAI_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'gpt-4o-mini',
-      apiKey: getEnv('NODE_OPENAI_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
-      timeoutMs: config.runnerTimeoutMs,
-      mode,
-      apiKeyHeader,
-    });
+    return new OpenAiRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_OPENAI_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'gpt-4o-mini', apiKey: getEnv('NODE_OPENAI_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs, mode, apiKeyHeader });
   }
   if (config.runnerName === 'anthropic') {
     const runnerUrl = getEnv('NODE_ANTHROPIC_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.anthropic.com';
     ensureEndpointAllowed(runnerUrl);
-    return new AnthropicRunner({
-      baseUrl: runnerUrl,
-      defaultModelId: getEnv('NODE_ANTHROPIC_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'claude-3-haiku-20240307',
-      apiKey: getEnv('NODE_ANTHROPIC_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'),
-      timeoutMs: config.runnerTimeoutMs,
-    });
+    return new AnthropicRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_ANTHROPIC_MODEL') ?? getEnv('NODE_MODEL_ID') ?? 'claude-3-haiku-20240307', apiKey: getEnv('NODE_ANTHROPIC_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
-  if (config.runnerName === 'cpu') {
-    return new CpuStatsRunner(getEnv('NODE_MODEL_ID') ?? 'cpu-stats');
-  }
-  if (config.runnerName === 'mock') {
-    return new MockRunner();
-  }
+  if (config.runnerName === 'cpu') return new CpuStatsRunner(getEnv('NODE_MODEL_ID') ?? 'cpu-stats');
+  if (config.runnerName === 'mock') return new MockRunner();
   throw new Error(`unsupported-runner:${config.runnerName}`);
 };
 
 const validateNostrIdentity = (keyId: string, privateKey?: Uint8Array): void => {
-  if (!isNostrNpub(keyId)) {
-    throw new Error('node keyId must be a Nostr npub');
-  }
+  if (!isNostrNpub(keyId)) throw new Error('node keyId must be a Nostr npub');
   if (privateKey) {
     const expected = decodeNpubToHex(keyId);
     const derived = derivePublicKeyHex(privateKey);
-    if (expected !== derived) {
-      throw new Error('node private key does not match keyId');
-    }
+    if (expected !== derived) throw new Error('node private key does not match keyId');
   }
 };
 
-const validateRouterIdentity = (
-  routerKeyId?: string,
-  routerPublicKey?: Uint8Array,
-): void => {
-  if (!routerKeyId) {
-    return;
-  }
-  if (!isNostrNpub(routerKeyId)) {
-    throw new Error('router keyId must be a Nostr npub');
-  }
+const validateRouterIdentity = (routerKeyId?: string, routerPublicKey?: Uint8Array): void => {
+  if (!routerKeyId) return;
+  if (!isNostrNpub(routerKeyId)) throw new Error('router keyId must be a Nostr npub');
   if (routerPublicKey) {
     const expected = decodeNpubToHex(routerKeyId);
     const actual = exportPublicKeyHex(routerPublicKey);
-    if (expected !== actual) {
-      throw new Error('router public key does not match router keyId');
-    }
+    if (expected !== actual) throw new Error('router public key does not match router keyId');
   }
 };
 
 const validateConfig = (config: NodeConfig): string[] => {
   const issues: string[] = [];
-  if (!config.keyId) {
-    issues.push('NODE_KEY_ID is required (npub).');
-  } else if (!isNostrNpub(config.keyId)) {
-    issues.push('NODE_KEY_ID must be a Nostr npub.');
-  }
-  if (!config.privateKey) {
-    issues.push('NODE_PRIVATE_KEY_PEM (nsec/hex) is required to sign heartbeats.');
-  }
-  if (!config.routerEndpoint) {
-    issues.push('ROUTER_ENDPOINT is required.');
-  }
-  if (config.routerKeyId && !isNostrNpub(config.routerKeyId)) {
-    issues.push('ROUTER_KEY_ID must be a Nostr npub when set.');
-  }
+  if (!config.keyId) issues.push('NODE_KEY_ID is required (npub).');
+  else if (!isNostrNpub(config.keyId)) issues.push('NODE_KEY_ID must be a Nostr npub.');
+  if (!config.privateKey) issues.push('NODE_PRIVATE_KEY_PEM (nsec/hex) is required to sign heartbeats.');
+  if (!config.routerEndpoint) issues.push('ROUTER_ENDPOINT is required.');
+  if (config.routerKeyId && !isNostrNpub(config.routerKeyId)) issues.push('ROUTER_KEY_ID must be a Nostr npub when set.');
   return issues;
 };
 
@@ -408,7 +280,6 @@ const start = async (): Promise<void> => {
   try {
     let config = buildConfig();
     const dynamic = loadDynamicConfig();
-    // Shallow merge dynamic config
     config = { ...config, ...dynamic };
 
     if (!config.routerKeyId && config.routerPublicKey) {
@@ -416,16 +287,12 @@ const start = async (): Promise<void> => {
     }
     const issues = validateConfig(config);
     
-    // If config is invalid or setupMode is flagged, start in restricted mode
     if (issues.length > 0 || config.setupMode) {
       logWarn('[node] starting in SETUP MODE', { issues });
       config.setupMode = true;
-      
-      // Ensure minimal valid state for the service container
       const runner = new MockRunner();
       const service = createNodeService(config, runner);
       const nonceStore = new InMemoryNonceStore();
-      
       const server = createNodeHttpServer(service, config, nonceStore);
       server.listen(config.port);
       logInfo(`[node] listening on ${config.port} (Setup Mode)`);
@@ -435,32 +302,23 @@ const start = async (): Promise<void> => {
     validateNostrIdentity(config.keyId, config.privateKey);
     validateRouterIdentity(config.routerKeyId, config.routerPublicKey);
     const sandboxCheck = enforceSandboxPolicy(config);
-    if (!sandboxCheck.ok) {
-      throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
-    }
+    if (!sandboxCheck.ok) throw new Error(`sandbox-policy-violation:${sandboxCheck.error}`);
+    
     const runner = buildRunner(config);
     const service = createNodeService(config, runner);
-    let nonceStore: NonceStore = config.nonceStorePath
-      ? new FileNonceStore(config.nonceStorePath)
-      : new InMemoryNonceStore();
+    let nonceStore: NonceStore = config.nonceStorePath ? new FileNonceStore(config.nonceStorePath) : new InMemoryNonceStore();
     if (config.nonceStoreUrl) {
-      try {
-        nonceStore = await createPostgresNonceStore(config.nonceStoreUrl);
-      } catch (error) {
-        logWarn('[node] failed to initialize nonce store', error);
-      }
+      try { nonceStore = await createPostgresNonceStore(config.nonceStoreUrl); }
+      catch (error) { logWarn('[node] failed to initialize nonce store', error); }
     } else if (!config.nonceStorePath) {
       logWarn('[node] using in-memory nonce store; replay protection will not persist across restarts');
     }
     const server = createNodeHttpServer(service, config, nonceStore);
-
     server.listen(config.port);
     void logRelayCandidates('node', buildDiscoveryOptions(config));
 
     if (config.privateKey) {
-      void startHeartbeat(service, config).catch((error) => {
-        logWarn('heartbeat-start-failed', error);
-      });
+      void startHeartbeat(service, config).catch((error) => { logWarn('heartbeat-start-failed', error); });
     } else {
       logWarn('heartbeat-disabled: node private key missing');
     }
@@ -479,12 +337,7 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
   const fallbackModelId = getEnv('NODE_MODEL_ID') ?? 'default-model';
   const fallbackContextWindow = config.maxTokens ?? 4096;
   let models: ModelInfo[] = [];
-
-  try {
-    models = await runner.listModels();
-  } catch {
-    models = [];
-  }
+  try { models = await runner.listModels(); } catch { models = []; }
 
   const normalized: Capability[] = models
     .filter((model) => Boolean(model?.id))
@@ -492,84 +345,41 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
       modelId: model.id ?? fallbackModelId,
       contextWindow: model.contextWindow ?? fallbackContextWindow,
       maxTokens: model.contextWindow ?? fallbackContextWindow,
-      pricing: {
-        unit: pricingUnit,
-        inputRate: pricingInput,
-        outputRate: pricingOutput,
-        currency: 'SAT',
-      },
+      pricing: { unit: pricingUnit, inputRate: pricingInput, outputRate: pricingOutput, currency: 'SAT' },
       latencyEstimateMs: config.capabilityLatencyMs,
       jobTypes: config.capabilityJobTypes,
     }));
 
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
-  return [
-    {
-      modelId: fallbackModelId,
-      contextWindow: fallbackContextWindow,
-      maxTokens: fallbackContextWindow,
-      pricing: {
-        unit: pricingUnit,
-        inputRate: pricingInput,
-        outputRate: pricingOutput,
-        currency: 'SAT',
-      },
-      latencyEstimateMs: config.capabilityLatencyMs,
-      jobTypes: config.capabilityJobTypes,
-    },
-  ];
+  return normalized.length > 0 ? normalized : [{
+    modelId: fallbackModelId,
+    contextWindow: fallbackContextWindow,
+    maxTokens: fallbackContextWindow,
+    pricing: { unit: pricingUnit, inputRate: pricingInput, outputRate: pricingOutput, currency: 'SAT' },
+    latencyEstimateMs: config.capabilityLatencyMs,
+    jobTypes: config.capabilityJobTypes,
+  }];
 }
 
-async function startHeartbeat(
-  service: ReturnType<typeof createNodeService>,
-  config: NodeConfig,
-) {
+async function startHeartbeat(service: any, config: NodeConfig) {
   const capabilities = await buildCapabilities(service.runner, config);
-
   const sendHeartbeat = async (): Promise<void> => {
     const descriptor: NodeDescriptor = {
       nodeId: config.nodeId,
       keyId: config.keyId,
       endpoint: config.endpoint,
-      capacity: {
-        maxConcurrent: config.capacityMaxConcurrent,
-        currentLoad: config.capacityCurrentLoad + service.inFlight,
-      },
+      capacity: { maxConcurrent: config.capacityMaxConcurrent, currentLoad: config.capacityCurrentLoad + service.inFlight },
       capabilities,
     };
-
-    if (!config.privateKey) {
-      return;
-    }
-
-    const envelope = signEnvelope(
-      buildEnvelope(descriptor, randomUUID(), Date.now(), config.keyId),
-      config.privateKey,
-    );
-
+    if (!config.privateKey) return;
+    const envelope = signEnvelope(buildEnvelope(descriptor, randomUUID(), Date.now(), config.keyId), config.privateKey);
     try {
-      const response = await fetch(`${config.routerEndpoint}/register-node`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(envelope),
-      });
+      const response = await fetch(`${config.routerEndpoint}/register-node`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope) });
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        logWarn('heartbeat-rejected', {
-          status: response.status,
-          detail: detail.trim() ? detail.trim() : 'no-body',
-        });
-      } else {
-        logInfo('heartbeat-sent', { nodeId: descriptor.nodeId });
-      }
-    } catch (error) {
-      logWarn('heartbeat-send-failed', error);
-    }
+        logWarn('heartbeat-rejected', { status: response.status, detail: detail.trim() ? detail.trim() : 'no-body' });
+      } else { logInfo('heartbeat-sent', { nodeId: descriptor.nodeId }); }
+    } catch (error) { logWarn('heartbeat-send-failed', error); }
   };
-
   await sendHeartbeat();
   setInterval(sendHeartbeat, config.heartbeatIntervalMs);
 }
