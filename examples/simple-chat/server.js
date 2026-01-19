@@ -232,6 +232,7 @@ const server = http.createServer(async (req, res) => {
     const prompt = String(parsed.prompt ?? '');
     const requestedModelId = typeof parsed.modelId === 'string' ? parsed.modelId : '';
     const apiKey = typeof parsed.apiKey === 'string' ? parsed.apiKey : '';
+    const requestedMaxTokens = Number(parsed.maxTokens);
     if (!prompt) {
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'missing-prompt' }));
@@ -242,7 +243,7 @@ const server = http.createServer(async (req, res) => {
       requestId: randomUUID(),
       modelId: requestedModelId && requestedModelId !== 'auto' ? requestedModelId : defaultModelId,
       prompt,
-      maxTokens,
+      maxTokens: Number.isFinite(requestedMaxTokens) ? requestedMaxTokens : maxTokens,
     };
     if (apiKey) {
       request.metadata = { apiKey };

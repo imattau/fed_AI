@@ -4,6 +4,10 @@ const form = /** @type {HTMLFormElement | null} */ (document.getElementById('cha
 const promptInput = /** @type {HTMLInputElement | null} */ (document.getElementById('prompt'));
 /** @type {HTMLElement | null} */
 const statusEl = document.getElementById('status');
+const tokenEstimateEl = document.getElementById('token-estimate');
+const maxTokensInput = /** @type {HTMLInputElement | null} */ (document.getElementById('max-tokens'));
+const maxTokensVal = document.getElementById('max-tokens-val');
+
 /** @type {HTMLElement | null} */
 const wallet = document.getElementById('wallet-sats');
 /** @type {HTMLElement | null} */
@@ -127,6 +131,20 @@ const closeGrokModal = () => {
   if (!grokModal) return;
   grokModal.classList.add('hidden');
 };
+
+if (maxTokensInput && maxTokensVal) {
+  maxTokensInput.addEventListener('input', () => {
+    maxTokensVal.textContent = maxTokensInput.value;
+  });
+}
+
+if (promptInput && tokenEstimateEl) {
+  promptInput.addEventListener('input', () => {
+    const text = promptInput.value;
+    const estimate = Math.ceil(text.length / 4);
+    tokenEstimateEl.textContent = `${estimate} tokens (est)`;
+  });
+}
 
 const GROQ_MODEL_ID = 'llama-3.1-8b-instant';
 
@@ -437,6 +455,7 @@ form.addEventListener('submit', async (event) => {
         prompt,
         modelId: selectedModel,
         apiKey: shouldIncludeKey ? grokApiKey : undefined,
+        maxTokens: maxTokensInput ? Number(maxTokensInput.value) : undefined,
       }),
     });
     if (!response.ok) {

@@ -31,6 +31,11 @@
           </select>
           <span id="grok-key-status" class="status-pill">Groq key: not set</span>
         </div>
+        <div class="model-row">
+          <label for="max-tokens">Max Tokens:</label>
+          <input type="range" id="max-tokens" min="16" max="4096" value="128" step="16">
+          <span id="max-tokens-val">128</span>
+        </div>
         <section id="chat" class="chat"></section>
         <form id="chat-form" class="composer">
           <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
@@ -38,6 +43,7 @@
         </form>
         <footer>
           <span id="status">Ready</span>
+          <span id="token-estimate" class="token-stat">0 tokens</span>
         </footer>
       </section>
       <section id="tab-router" class="tab-panel">
