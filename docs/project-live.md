@@ -134,30 +134,30 @@ Phase 7 - Optional extensions
 ## Production readiness checklist (draft)
 
 Security and auth
-- [ ] End-to-end authZ policy model for routers and nodes (allowlist + WoT + rate limits).
+- [x] End-to-end authZ policy model for routers and nodes (allowlist + WoT + rate limits).
 - [ ] Key rotation workflows and runbooks (router/node/client keys).
-- [ ] Hardened request validation (schema + size + replay) for all public endpoints.
-- [ ] Threat-model review pass with concrete mitigations mapped to code.
+- [x] Hardened request validation (schema + size + replay) for all public endpoints.
+- [x] Threat-model review pass with concrete mitigations mapped to code.
 
 Payments and settlement
-- [ ] Production Lightning invoice integration (LNBits/LND/CLN) with retries + idempotency.
+- [x] Production Lightning invoice integration (LNBits/LND/CLN/NWC) with retries + idempotency.
 - [ ] Payment reconciliation + dispute handling runbook.
 - [ ] Signed receipt lifecycle alerts (late/invalid receipts, mismatched invoices).
 
 Reliability and data
-- [ ] Persistent storage for registry, metering, receipts, auctions (migrations + backups).
-- [ ] Load testing + soak testing for node/router (timeouts, backpressure, offload).
+- [x] Persistent storage for registry, metering, receipts, auctions (migrations + backups).
+- [x] Load testing + soak testing for node/router (timeouts, backpressure, offload).
 - [ ] Chaos/chaos-lite tests for relay failures and peer flapping.
 
 Observability and ops
-- [ ] Production dashboards and alert thresholds (SLOs for latency, error rate, payment failures).
-- [ ] Structured logging policy (redaction, correlation IDs, audit trails).
+- [x] Production dashboards and alert thresholds (SLOs for latency, error rate, payment failures).
+- [x] Structured logging policy (redaction, correlation IDs, audit trails).
 - [ ] On-call runbooks (incident response + escalation).
 
 Release and deployment
-- [ ] CI integration smoke tests (compose + signed inference + metering).
+- [x] CI integration smoke tests (compose + signed inference + metering).
 - [ ] Versioning and compatibility policy for protocol + SDK.
-- [ ] Deployment manifests for router/node/observability stacks (prod-ready).
+- [x] Deployment manifests for router/node/observability stacks (prod-ready).
 
 ## Production readiness plan (tasks)
 
@@ -262,7 +262,23 @@ Phase PR-5: Release readiness
 - [x] Default redacted logging utilities wired into router/node.
 - [x] Lightning verification hook added for router/node payment receipt acceptance.
 - [x] Scheduler now accounts for capability latency estimates and job type compatibility.
-- [ ] Nostr identity alignment
+- [x] Security Hardening:
+  - [x] Implemented SSRF protection in Router by blocking private IP ranges in node registration.
+  - [x] Enhanced logging redaction using regex to capture dynamic secret keys (e.g., OpenAI API keys).
+  - [x] Added startup warnings for ephemeral/in-memory nonce stores to prevent accidental replay vulnerability.
+- [x] CLI & Operator Experience:
+  - [x] Integrated hardware detection (CPU/RAM/GPU) into the CLI setup wizard.
+  - [x] Integrated Hugging Face (GGUF) search and automatic download into the CLI.
+  - [x] Updated setup wizard to guide operators through security and payment configuration.
+- [x] Admin & Management:
+  - [x] Implemented unified Admin API for Node and Router services.
+  - [x] Implemented NIP-98 (Nostr-based HTTP Auth) for secure administrative access.
+  - [x] Built a standalone Admin Dashboard supporting NIP-07 (browser extensions) and NIP-46 (remote signers via QR).
+  - [x] Added web-based 'First Run' setup wizard for claiming and configuring services without CLI access.
+- [x] Payments & Integration:
+  - [x] Implemented NWC (Nostr Wallet Connect / NIP-47) support in the Lightning adapter.
+  - [x] Added NWC configuration to the CLI setup wizard, enabling 'One-Click' payments.
+- [x] Nostr identity alignment
   - [x] Add NIP-19 (npub/nsec) parsing + encoding in `@fed-ai/protocol`.
   - [x] Update CLI `gen-keys` to output npub/nsec and accept NIP-19 inputs.
   - [x] Enforce/validate Nostr identities for router/node IDs and envelopes.

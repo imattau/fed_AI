@@ -202,6 +202,15 @@ importers:
         specifier: ^4.15.0
         version: 4.21.0
 
+  tools/ln-adapter:
+    dependencies:
+      nostr-tools:
+        specifier: ^2.10.4
+        version: 2.19.4(typescript@5.9.3)
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0
+
   tools/simulator:
     dependencies:
       '@fed-ai/protocol':
