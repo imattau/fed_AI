@@ -50,6 +50,7 @@ import {
   nodeRegistry,
   nodeTracer,
 } from './observability';
+import { createAdminHandler } from './admin';
 
 const readJsonBody = async (
   req: IncomingMessage,

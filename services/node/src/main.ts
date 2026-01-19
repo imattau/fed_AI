@@ -152,9 +152,13 @@ const buildConfig = (): NodeConfig => {
   const workerThreadsMax = parseNumber(getEnv('NODE_WORKER_THREADS_MAX'));
   const workerThreadsQueueMax = parseNumber(getEnv('NODE_WORKER_THREADS_QUEUE_MAX'));
   const workerThreadsTimeoutMs = parseNumber(getEnv('NODE_WORKER_THREADS_TIMEOUT_MS'));
+  const adminKey = getEnv('NODE_ADMIN_KEY');
+  const adminNpub = getEnv('NODE_ADMIN_NPUB');
 
   return {
     ...defaultNodeConfig,
+    adminKey,
+    adminNpub,
     nodeId: getEnv('NODE_ID') ?? defaultNodeConfig.nodeId,
     keyId: getEnv('NODE_KEY_ID') ?? defaultNodeConfig.keyId,
     endpoint: getEnv('NODE_ENDPOINT') ?? defaultNodeConfig.endpoint,

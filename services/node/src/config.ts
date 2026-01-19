@@ -47,6 +47,8 @@ export type NodeConfig = {
   capabilityJobTypes?: RouterJobType[];
   capabilityLatencyMs?: number;
   exposeErrors?: boolean;
+  adminKey?: string;
+  adminNpub?: string;
 };
 
 export type WorkerThreadsConfig = {
