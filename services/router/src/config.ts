@@ -41,6 +41,7 @@ export type RouterConfig = {
   allowPrivateEndpoints?: boolean;
   adminKey?: string;
   adminNpub?: string;
+  setupMode?: boolean;
 };
 
 export type WorkerThreadsConfig = {

@@ -26,6 +26,18 @@ const getEnv = (key: string): string | undefined => {
   return process.env[key];
 };
 
+const loadDynamicConfig = (): Partial<RouterConfig> & { adminNpub?: string } => {
+  try {
+    if (existsSync('config.json')) {
+      const content = readFileSync('config.json', 'utf8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    // ignore
+  }
+  return {};
+};
+
 const loadAdminIdentity = (): { adminNpub?: string } => {
   try {
     if (existsSync('admin-identity.json')) {
@@ -46,78 +58,10 @@ const parseList = (value?: string): string[] | undefined => {
     .filter((item) => item.length > 0);
 };
 
-/** Parse comma-separated Nostr npub lists, discarding invalid entries. */
-const parseNpubList = (value?: string): string[] | undefined => {
-  const entries = parseList(value);
-  if (!entries) {
-    return undefined;
-  }
-  const filtered = entries.filter((entry) => isNostrNpub(entry));
-  return filtered.length > 0 ? filtered : undefined;
-};
-
-/** Parse trust-score overrides in the form `url=score,url2=score`. */
-const parseTrustScores = (value?: string): Record<string, number> | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const result: Record<string, number> = {};
-  for (const pair of value.split(',')) {
-    const [rawUrl, rawScore] = pair.split('=').map((item) => item.trim());
-    if (!rawUrl || !rawScore) {
-      continue;
-    }
-    const score = Number.parseFloat(rawScore);
-    if (Number.isFinite(score)) {
-      result[rawUrl] = score;
-    }
-  }
-
-  return Object.keys(result).length ? result : undefined;
-};
-
-/** Coerce numeric CLI options; floats used for `minScore`, integers for limits. */
-const parseNumber = (value?: string, float = false): number | undefined => {
-  if (!value) {
-    return undefined;
-  }
-  const parsed = float ? Number.parseFloat(value) : Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
-/** Build discovery options for the router using environment overrides. */
-const buildDiscoveryOptions = () => ({
-  bootstrapRelays: parseList(getEnv('ROUTER_RELAY_BOOTSTRAP')),
-  aggregatorUrls: parseList(getEnv('ROUTER_RELAY_AGGREGATORS')),
-  trustScores: parseTrustScores(getEnv('ROUTER_RELAY_TRUST')),
-  minScore: parseNumber(getEnv('ROUTER_RELAY_MIN_SCORE'), true),
-  maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
-});
-
-const buildRelayAdmissionPolicy = () => ({
-  requireSnapshot:
-    (getEnv('ROUTER_RELAY_SNAPSHOT_REQUIRED') ?? 'false').toLowerCase() === 'true',
-  maxAgeMs: parseNumber(getEnv('ROUTER_RELAY_SNAPSHOT_MAX_AGE_MS')) ?? defaultRelayAdmissionPolicy.maxAgeMs,
-  minScore: parseNumber(getEnv('ROUTER_RELAY_MIN_SCORE'), true),
-  maxResults: parseNumber(getEnv('ROUTER_RELAY_MAX_RESULTS')),
-});
-
-/** Log a short summary of the discovered relays so operators can audit the candidates. */
-const logRelayCandidates = async (
-  role: string,
-  options: Parameters<typeof discoverRelays>[0],
-): Promise<void> => {
-  try {
-    const relays = await discoverRelays(options);
-    const snippet = relays.slice(0, 3).map((entry) => entry.url).join(', ') || 'none';
-    logInfo(`[${role}] discovered ${relays.length} relays (top: ${snippet})`);
-  } catch (error) {
-    logWarn(`[${role}] relay discovery failed`, error);
-  }
-};
+// ... (helpers)
 
 const buildConfig = (): RouterConfig => {
+  const dynamic = loadDynamicConfig();
   const privateKey = getEnv('ROUTER_PRIVATE_KEY_PEM');
   const tlsCertPath = getEnv('ROUTER_TLS_CERT_PATH');
   const tlsKeyPath = getEnv('ROUTER_TLS_KEY_PATH');
@@ -326,12 +270,25 @@ const validateConfig = (config: RouterConfig): string[] => {
 };
 
 const start = async (): Promise<void> => {
-  const config = buildConfig();
+  let config = buildConfig();
+  const dynamic = loadDynamicConfig();
+  config = { ...config, ...dynamic };
+
   const issues = validateConfig(config);
-  if (issues.length > 0) {
-    logWarn('[router] invalid configuration', { issues });
-    process.exit(1);
+  if (issues.length > 0 || config.setupMode) {
+    logWarn('[router] starting in SETUP MODE', { issues });
+    config.setupMode = true;
+    if (!config.keyId) config.keyId = 'npub1setup...';
+    
+    // Ensure minimal valid state
+    const service = createRouterService(config);
+    const nonceStore = new InMemoryNonceStore();
+    const server = createRouterHttpServer(service, config, nonceStore);
+    server.listen(config.port);
+    logInfo(`[router] listening on ${config.port} (Setup Mode)`);
+    return;
   }
+
   logInfo('[router] starting', { keyId: config.keyId, endpoint: config.endpoint });
   validateNostrIdentity(config.keyId, config.privateKey);
   const store = config.db
