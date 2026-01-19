@@ -31,9 +31,24 @@ export const runSetupInteractive = async () => {
     
     let lnConfig = '';
     if (requirePayment === 'true') {
-        const lnInvoice = await ask('Lightning Invoice URL', 'http://localhost:4000/invoice');
-        const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
-        lnConfig = `ROUTER_LN_INVOICE_URL=${lnInvoice}\nROUTER_LN_VERIFY_URL=${lnVerify}`;
+        const lnMode = await choose('Lightning Setup', ['Use existing ln-adapter', 'Nostr Wallet Connect (NWC)']);
+        if (lnMode === 'Nostr Wallet Connect (NWC)') {
+            const nwcUrl = await askSecret('NWC Connection String (nostr+walletconnect://...)');
+            const adapterPort = await ask('ln-adapter Port', '4000');
+            const adapterEnv = [
+                `LN_ADAPTER_PORT=${adapterPort}`,
+                `LN_ADAPTER_BACKEND=nwc`,
+                `NWC_URL=${nwcUrl}`
+            ].join('\n');
+            await writeFile('.env.ln-adapter', adapterEnv);
+            console.log('Wrote .env.ln-adapter (Run with: npx @fed-ai/ln-adapter)');
+            
+            lnConfig = `ROUTER_LN_INVOICE_URL=http://localhost:${adapterPort}/invoice\nROUTER_LN_VERIFY_URL=http://localhost:${adapterPort}/verify`;
+        } else {
+            const lnInvoice = await ask('Lightning Invoice URL', 'http://localhost:4000/invoice');
+            const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
+            lnConfig = `ROUTER_LN_INVOICE_URL=${lnInvoice}\nROUTER_LN_VERIFY_URL=${lnVerify}`;
+        }
     }
 
     const nonceType = await choose('Nonce Store (Replay Protection)', ['File (Simple)', 'Postgres (Scalable)', 'Memory (Dev only - risky)']);
@@ -73,8 +88,23 @@ export const runSetupInteractive = async () => {
     const requirePayment = await choose('Require Payment?', ['true', 'false']);
     let lnConfig = '';
     if (requirePayment === 'true') {
-        const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
-        lnConfig = `NODE_LN_VERIFY_URL=${lnVerify}`;
+        const lnMode = await choose('Lightning Setup', ['Use existing ln-adapter', 'Nostr Wallet Connect (NWC)']);
+        if (lnMode === 'Nostr Wallet Connect (NWC)') {
+            const nwcUrl = await askSecret('NWC Connection String (nostr+walletconnect://...)');
+            const adapterPort = await ask('ln-adapter Port', '4000');
+            const adapterEnv = [
+                `LN_ADAPTER_PORT=${adapterPort}`,
+                `LN_ADAPTER_BACKEND=nwc`,
+                `NWC_URL=${nwcUrl}`
+            ].join('\n');
+            await writeFile('.env.ln-adapter', adapterEnv);
+            console.log('Wrote .env.ln-adapter (Run with: npx @fed-ai/ln-adapter)');
+            
+            lnConfig = `NODE_LN_VERIFY_URL=http://localhost:${adapterPort}/verify`;
+        } else {
+            const lnVerify = await ask('Lightning Verify URL', 'http://localhost:4000/verify');
+            lnConfig = `NODE_LN_VERIFY_URL=${lnVerify}`;
+        }
     }
 
     const nonceType = await choose('Nonce Store (Replay Protection)', ['File (Simple)', 'Postgres (Scalable)', 'Memory (Dev only - risky)']);
