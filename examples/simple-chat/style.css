@@ -137,6 +137,25 @@ header .wallet {
   background: #fff;
 }
 
+.advanced-settings {
+  font-size: 14px;
+  color: #5a6074;
+  cursor: pointer;
+}
+
+.advanced-settings summary {
+  padding: 4px 0;
+  font-weight: 600;
+  outline: none;
+}
+
+.advanced-settings .model-row {
+  margin-top: 10px;
+  padding: 12px;
+  background: #f1f4ff;
+  border-radius: 10px;
+}
+
 .status-pill {
   font-size: 12px;
   padding: 6px 10px;
@@ -148,6 +167,14 @@ header .wallet {
 .status-pill.ok {
   background: #e6f7ed;
   color: #0f5132;
+}
+
+.token-stat {
+  margin-left: auto;
+  font-family: monospace;
+  background: #eee;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .modal {

@@ -95,6 +95,7 @@ const refreshWallet = async () => {
 let selectedModel = 'auto';
 let grokApiKey = '';
 let previousModel = 'auto';
+let isMaxTokensManual = false;
 
 const updateGrokStatus = () => {
   if (!grokKeyStatus) return;
@@ -135,6 +136,7 @@ const closeGrokModal = () => {
 if (maxTokensInput && maxTokensVal) {
   maxTokensInput.addEventListener('input', () => {
     maxTokensVal.textContent = maxTokensInput.value;
+    isMaxTokensManual = true;
   });
 }
 
@@ -448,7 +450,7 @@ form.addEventListener('submit', async (event) => {
       return;
     }
 
-    let requestedMaxTokens = maxTokensInput ? Number(maxTokensInput.value) : 128;
+    let requestedMaxTokens = maxTokensInput ? Number(maxTokensInput.value) : 1024;
     const promptEstimate = Math.ceil(prompt.length / 4);
 
     // If we have model info, we can warn or adjust before sending
@@ -457,6 +459,12 @@ form.addEventListener('submit', async (event) => {
         const match = label.match(/\((\d+)\)/);
         if (match) {
             const contextWindow = parseInt(match[1], 10);
+            
+            // Auto-adjust if not manual or if context is small
+            if (!isMaxTokensManual) {
+                requestedMaxTokens = Math.min(1024, Math.max(128, contextWindow - promptEstimate - 10));
+            }
+
             if (promptEstimate + requestedMaxTokens > contextWindow) {
                 const adjusted = contextWindow - promptEstimate - 10; // 10 token buffer
                 if (adjusted < 16) {
@@ -464,7 +472,7 @@ form.addEventListener('submit', async (event) => {
                     if (statusEl) statusEl.textContent = 'Error';
                     return;
                 }
-                appendMessage('system', `Note: Adjusting maxTokens from ${requestedMaxTokens} to ${adjusted} to fit context window.`);
+                appendMessage('system', `Note: Clamping response to ${adjusted} tokens to fit model context.`);
                 requestedMaxTokens = adjusted;
             }
         }

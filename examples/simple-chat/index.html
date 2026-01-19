@@ -31,12 +31,16 @@
           </select>
           <span id="grok-key-status" class="status-pill">Groq key: not set</span>
         </div>
-        <div class="model-row">
-          <label for="max-tokens">Max Tokens:</label>
-          <input type="range" id="max-tokens" min="16" max="4096" value="1024" step="16">
-          <span id="max-tokens-val">1024</span>
-          <small style="margin-left: 10px; color: #888;">(Prompt + Max Tokens must fit context window)</small>
-        </div>
+
+        <details class="advanced-settings">
+          <summary>Advanced Settings</summary>
+          <div class="model-row">
+            <label for="max-tokens">Max Response Tokens:</label>
+            <input type="range" id="max-tokens" min="16" max="4096" value="1024" step="16">
+            <span id="max-tokens-val">1024</span>
+          </div>
+        </details>
+
         <section id="chat" class="chat"></section>
         <form id="chat-form" class="composer">
           <input id="prompt" type="text" placeholder="Ask something..." autocomplete="off" />
