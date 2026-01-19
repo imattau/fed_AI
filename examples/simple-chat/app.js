@@ -128,10 +128,12 @@ const closeGrokModal = () => {
   grokModal.classList.add('hidden');
 };
 
+const GROQ_MODEL_ID = 'llama-3.1-8b-instant';
+
 if (modelSelect) {
   modelSelect.addEventListener('change', () => {
     const value = modelSelect.value;
-    if (value === 'llama3-8b-8192') {
+    if (value === GROQ_MODEL_ID) {
       previousModel = selectedModel;
       selectedModel = value;
       if (!grokApiKey) {
@@ -376,20 +378,21 @@ form.addEventListener('submit', async (event) => {
   }
 
   try {
-    if (selectedModel === 'llama3-8b-8192' && !grokApiKey) {
+    if (selectedModel === GROQ_MODEL_ID && !grokApiKey) {
       openGrokModal();
       if (statusEl) {
         statusEl.textContent = 'Groq key required';
       }
       return;
     }
+    const shouldIncludeKey = Boolean(grokApiKey) && (selectedModel === 'auto' || selectedModel === GROQ_MODEL_ID);
     const response = await fetch('/api/infer', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         prompt,
         modelId: selectedModel,
-        apiKey: selectedModel === 'llama3-8b-8192' ? grokApiKey : undefined,
+        apiKey: shouldIncludeKey ? grokApiKey : undefined,
       }),
     });
     if (!response.ok) {
