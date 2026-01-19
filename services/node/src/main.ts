@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   buildEnvelope,
   decodeNpubToHex,
@@ -30,6 +31,18 @@ import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
+};
+
+const loadAdminIdentity = (): { adminNpub?: string } => {
+  try {
+    if (existsSync('admin-identity.json')) {
+      const content = readFileSync('admin-identity.json', 'utf8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    logWarn('[node] failed to load admin identity file', e);
+  }
+  return {};
 };
 
 /** Parse comma-separated inputs so operators can override discovery sources. */
@@ -153,7 +166,8 @@ const buildConfig = (): NodeConfig => {
   const workerThreadsQueueMax = parseNumber(getEnv('NODE_WORKER_THREADS_QUEUE_MAX'));
   const workerThreadsTimeoutMs = parseNumber(getEnv('NODE_WORKER_THREADS_TIMEOUT_MS'));
   const adminKey = getEnv('NODE_ADMIN_KEY');
-  const adminNpub = getEnv('NODE_ADMIN_NPUB');
+  const adminIdentity = loadAdminIdentity();
+  const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub;
 
   return {
     ...defaultNodeConfig,

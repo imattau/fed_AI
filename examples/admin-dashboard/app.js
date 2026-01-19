@@ -23,6 +23,9 @@ const keyFields = document.getElementById('key-fields');
 const qrcodeDiv = document.getElementById('qrcode');
 const nip46BunkerUrl = document.getElementById('nip46-bunker-url');
 const nip46GenBtn = document.getElementById('nip46-gen-btn');
+const setupSection = document.getElementById('setup-section');
+const claimBtn = document.getElementById('claim-btn');
+const serviceUrlInput = document.getElementById('service-url');
 
 // Logger
 const log = (msg) => {
@@ -30,6 +33,69 @@ const log = (msg) => {
   line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   logBox.prepend(line);
 };
+
+// Check Setup Status
+const checkSetupStatus = async () => {
+    try {
+        const res = await apiCall('/admin/setup/status');
+        if (res.claimed === false) {
+            setupSection.classList.remove('hidden');
+            authSection.querySelector('h3').textContent = 'Authentication Method';
+            connectBtn.classList.add('hidden'); // Hide login button, show claim button context
+            log('Service is UNCLAIMED. Please claim ownership.');
+        } else {
+            setupSection.classList.add('hidden');
+            authSection.querySelector('h3').textContent = 'Connect';
+            connectBtn.classList.remove('hidden');
+        }
+    } catch (e) {
+        // Ignore errors (might be offline or old version)
+        console.log('Setup check failed:', e);
+    }
+};
+
+serviceUrlInput.addEventListener('blur', checkSetupStatus);
+// Initial check
+setTimeout(checkSetupStatus, 500);
+
+// Claim Logic
+claimBtn.addEventListener('click', async () => {
+    try {
+        serviceUrl = serviceUrlInput.value.replace(/\/$/, '');
+        const fullUrl = `${serviceUrl}/admin/setup/claim`;
+        const method = 'POST';
+        
+        // Sign event
+        const evt = await createNip98Event(fullUrl, method);
+        const token = btoa(JSON.stringify(evt));
+        
+        const proxyUrl = `/api/proxy?target=${encodeURIComponent(serviceUrl)}&path=${encodeURIComponent('/admin/setup/claim')}`;
+        
+        const res = await fetch(proxyUrl, {
+            method,
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Nostr ${token}`
+            }
+        });
+        
+        if (!res.ok) throw new Error(await res.text());
+        const body = await res.json();
+        
+        log(`Successfully claimed! Admin NPUB: ${body.adminNpub}`);
+        document.getElementById('admin-npub').value = body.adminNpub;
+        
+        // Reset UI
+        setupSection.classList.add('hidden');
+        connectBtn.classList.remove('hidden');
+        authSection.querySelector('h3').textContent = 'Connect';
+        
+        alert('Service claimed! You can now login.');
+        
+    } catch (e) {
+        log(`Claim Failed: ${e.message}`);
+    }
+});
 
 // Tabs
 document.querySelectorAll('.tab-button').forEach(btn => {

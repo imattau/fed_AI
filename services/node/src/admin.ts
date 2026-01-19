@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { verifyEvent, type Event as NostrEvent } from 'nostr-tools';
+import { writeFileSync } from 'node:fs';
+import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
 import { NodeConfig } from './config';
 import { downloadModelFile, searchGGUF } from './utils/huggingface';
@@ -20,57 +21,78 @@ const readJson = async (req: IncomingMessage) => {
   return data ? JSON.parse(data) : {};
 };
 
-const validateNip98 = async (req: IncomingMessage, adminNpub?: string): Promise<boolean> => {
-  if (!adminNpub) return false;
+const parseNip98Token = (req: IncomingMessage): NostrEvent | null => {
   const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Nostr ')) return false;
-
+  if (!authHeader || !authHeader.startsWith('Nostr ')) return null;
   const token = authHeader.slice(6).trim();
-  if (!token) return false;
-
+  if (!token) return null;
   try {
     const raw = Buffer.from(token, 'base64').toString('utf8');
-    const event = JSON.parse(raw) as NostrEvent;
+    return JSON.parse(raw) as NostrEvent;
+  } catch {
+    return null;
+  }
+};
 
-    // 1. Verify signature
+const validateNip98Event = (event: NostrEvent, req: IncomingMessage): boolean => {
     if (!verifyEvent(event)) return false;
-
-    // 2. Verify pubkey matches admin
-    const adminHex = decodeNpubToHex(adminNpub);
-    if (event.pubkey !== adminHex) return false;
-
-    // 3. Verify Kind 27235 (Http Auth)
     if (event.kind !== 27235) return false;
-
-    // 4. Verify Timestamp (within 60s)
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - event.created_at) > 60) return false;
-
-    // 5. Verify URL tag
+    
     const uTag = event.tags.find(t => t[0] === 'u');
-    // Basic check: just path, or full URL if possible. 
-    // req.url is just path. Construct full URL assuming standard headers?
-    // For MVP, we'll check that the tag *ends* with req.url or matches exactly.
-    // If behind proxy, Host header is needed.
-    const host = req.headers['host'];
-    const protocol = (req as any).protocol || 'http'; // Express-like, but this is raw http.
-    // NIP-98 requires full URL. We'll be lenient and check if uTag contains req.url
     if (!uTag || !uTag[1].includes(req.url || '')) return false;
 
-    // 6. Verify Method tag
     const mTag = event.tags.find(t => t[0] === 'm');
     if (!mTag || mTag[1].toUpperCase() !== req.method) return false;
-
     return true;
-  } catch (e) {
-    return false;
-  }
+};
+
+const validateNip98 = async (req: IncomingMessage, adminNpub?: string): Promise<boolean> => {
+  if (!adminNpub) return false;
+  const event = parseNip98Token(req);
+  if (!event) return false;
+
+  if (!validateNip98Event(event, req)) return false;
+
+  const adminHex = decodeNpubToHex(adminNpub);
+  if (event.pubkey !== adminHex) return false;
+
+  return true;
 };
 
 const downloads = new Map<string, { status: 'pending' | 'downloading' | 'completed' | 'failed'; progress: number; error?: string }>();
 
 export const createAdminHandler = (service: NodeService, config: NodeConfig) => {
   return async (req: IncomingMessage, res: ServerResponse) => {
+    // Setup Endpoints (Public if unclaimed)
+    if (req.url === '/admin/setup/status' && req.method === 'GET') {
+        const claimed = Boolean(config.adminKey || config.adminNpub);
+        return sendJson(res, 200, { claimed });
+    }
+
+    if (req.url === '/admin/setup/claim' && req.method === 'POST') {
+        if (config.adminKey || config.adminNpub) {
+            return sendJson(res, 403, { error: 'already-claimed' });
+        }
+        
+        const event = parseNip98Token(req);
+        if (!event || !validateNip98Event(event, req)) {
+            return sendJson(res, 401, { error: 'invalid-auth-event' });
+        }
+
+        const npub = nip19.npubEncode(event.pubkey);
+        try {
+            writeFileSync('admin-identity.json', JSON.stringify({ adminNpub: npub }));
+            config.adminNpub = npub; // Update in-memory config
+            logInfo(`[admin] claimed by ${npub}`);
+            return sendJson(res, 200, { status: 'claimed', adminNpub: npub });
+        } catch (e) {
+            logWarn(`[admin] failed to persist claim`, e);
+            return sendJson(res, 500, { error: 'persistence-failed' });
+        }
+    }
+
     // 1. Check legacy Key
     const adminKey = req.headers['x-admin-key'];
     let authorized = false;

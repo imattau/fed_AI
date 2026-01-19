@@ -4,6 +4,7 @@ import {
   isNostrNpub,
   parsePrivateKey,
 } from '@fed-ai/protocol';
+import { existsSync, readFileSync } from 'node:fs';
 import { discoverRelays } from '@fed-ai/nostr-relay-discovery';
 import { createRouterService, hydrateRouterService } from './server';
 import { defaultRelayAdmissionPolicy, defaultRouterConfig, RouterConfig } from './config';
@@ -23,6 +24,18 @@ import { reconcilePayments } from './payments/reconcile';
 
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
+};
+
+const loadAdminIdentity = (): { adminNpub?: string } => {
+  try {
+    if (existsSync('admin-identity.json')) {
+      const content = readFileSync('admin-identity.json', 'utf8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    logWarn('[router] failed to load admin identity file', e);
+  }
+  return {};
 };
 
 /** Parse comma-separated configurations such as relay URLs. */
@@ -158,7 +171,8 @@ const buildConfig = (): RouterConfig => {
   const workerThreadsTimeoutMs = parseNumber(getEnv('ROUTER_WORKER_THREADS_TIMEOUT_MS'));
   const allowPrivateEndpoints = (getEnv('ROUTER_ALLOW_PRIVATE_ENDPOINTS') ?? 'false').toLowerCase() === 'true';
   const adminKey = getEnv('ROUTER_ADMIN_KEY');
-  const adminNpub = getEnv('ROUTER_ADMIN_NPUB');
+  const adminIdentity = loadAdminIdentity();
+  const adminNpub = getEnv('ROUTER_ADMIN_NPUB') ?? adminIdentity.adminNpub;
 
   return {
     ...defaultRouterConfig,
