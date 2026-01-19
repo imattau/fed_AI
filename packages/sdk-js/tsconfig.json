@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@fed-ai/nostr-relay-discovery": ["../nostr-relay-discovery/dist"]
+    }
   },
   "include": ["src"]
 }

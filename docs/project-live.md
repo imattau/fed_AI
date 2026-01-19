@@ -94,6 +94,8 @@ Phase 7 - Optional extensions
 - [x] Performance audit remediation: reduce scheduler sort work with top-k selection or cached scores per job type.
 - [x] SDK ergonomics: key derivation helper, payment retry helper, diagnostics endpoints, richer errors.
 - [x] SDK discovery helpers (router + relay) and configurable HTTP retry.
+- [x] SDK core client helpers: node filters, batch quotes, config validation, error parsing utilities.
+- [x] SDK payments ops helpers: split accounting, receipt matching, reconciliation utilities, per-request retries.
 
 ## Upcoming tasks
 

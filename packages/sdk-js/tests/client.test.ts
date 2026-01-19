@@ -19,6 +19,18 @@ import {
   deriveKeyId,
   generateKeyPair,
   discoverRouter,
+  estimatePrice,
+  filterNodes,
+  filterNodesByPrice,
+  isPaymentExpired,
+  listModels,
+  nodeAmountFromSplits,
+  parseErrorDetail,
+  paymentReceiptMatchesRequest,
+  reconcilePaymentReceipts,
+  routerFeeFromSplits,
+  sumSplits,
+  validateClientConfig,
 } from '../src';
 
 const startRouterStub = async () => {
@@ -418,4 +430,143 @@ test('FedAiClient retries GET requests when configured', async () => {
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test('validateClientConfig reports missing fields', async () => {
+  const result = validateClientConfig({} as never);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.ok(result.errors.includes('router-url-missing'));
+    assert.ok(result.errors.includes('key-id-missing'));
+    assert.ok(result.errors.includes('private-key-missing'));
+  }
+});
+
+test('parseErrorDetail extracts error fields', async () => {
+  const detail = JSON.stringify({ error: 'invalid-signature', details: { foo: 'bar' } });
+  const parsed = parseErrorDetail(detail);
+  assert.equal(parsed.error, 'invalid-signature');
+  assert.deepEqual(parsed.details, { foo: 'bar' });
+});
+
+test('filter helpers and model listing work on node descriptors', async () => {
+  const nodes = [
+    {
+      nodeId: 'node-a',
+      keyId: 'key-a',
+      endpoint: 'http://node-a',
+      region: 'us-east',
+      capacity: { maxConcurrent: 10, currentLoad: 1 },
+      trustScore: 0.9,
+      capabilities: [
+        {
+          modelId: 'model-a',
+          contextWindow: 4096,
+          maxTokens: 2048,
+          pricing: { unit: 'token', inputRate: 1, outputRate: 2, currency: 'SAT' },
+        },
+      ],
+    },
+    {
+      nodeId: 'node-b',
+      keyId: 'key-b',
+      endpoint: 'http://node-b',
+      region: 'eu-west',
+      capacity: { maxConcurrent: 10, currentLoad: 1 },
+      trustScore: 0.1,
+      capabilities: [
+        {
+          modelId: 'model-b',
+          contextWindow: 2048,
+          maxTokens: 1024,
+          pricing: { unit: 'token', inputRate: 5, outputRate: 5, currency: 'SAT' },
+        },
+      ],
+    },
+  ];
+
+  const filtered = filterNodes(nodes, { modelId: 'model-a', regions: ['us-east'], minTrustScore: 0.5 });
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].nodeId, 'node-a');
+
+  const models = listModels(nodes);
+  assert.equal(models.length, 2);
+
+  const priced = filterNodesByPrice(
+    nodes,
+    { modelId: 'model-a', inputTokensEstimate: 2, outputTokensEstimate: 2 },
+    10,
+  );
+  assert.equal(priced.length, 1);
+  assert.equal(priced[0].nodeId, 'node-a');
+
+  const price = estimatePrice(nodes[0].capabilities[0], { inputTokensEstimate: 2, outputTokensEstimate: 2 });
+  assert.equal(price, 6);
+});
+
+test('payment helpers validate splits and receipts', async () => {
+  const request: PaymentRequest = {
+    requestId: 'req-1',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    invoice: 'lnbc1',
+    expiresAtMs: Date.now() + 1000,
+    splits: [
+      { payeeType: 'node', payeeId: 'node-1', amountSats: 9, role: 'node-inference' },
+      { payeeType: 'router', payeeId: 'router-1', amountSats: 1, role: 'router-fee' },
+    ],
+  };
+  const receipt: PaymentReceipt = {
+    requestId: 'req-1',
+    payeeType: 'node',
+    payeeId: 'node-1',
+    amountSats: 10,
+    paidAtMs: Date.now(),
+    invoice: 'lnbc1',
+    splits: request.splits,
+  };
+
+  assert.equal(sumSplits(request.splits), 10);
+  assert.equal(routerFeeFromSplits(request.splits), 1);
+  assert.equal(nodeAmountFromSplits(request.splits), 9);
+  assert.equal(paymentReceiptMatchesRequest(receipt, request).ok, true);
+  assert.equal(isPaymentExpired(request, Date.now() - 1), false);
+});
+
+test('reconcilePaymentReceipts reports missing and expired', async () => {
+  const now = Date.now();
+  const requests: PaymentRequest[] = [
+    {
+      requestId: 'req-1',
+      payeeType: 'node',
+      payeeId: 'node-1',
+      amountSats: 10,
+      invoice: 'lnbc1',
+      expiresAtMs: now - 10,
+    },
+    {
+      requestId: 'req-2',
+      payeeType: 'node',
+      payeeId: 'node-2',
+      amountSats: 12,
+      invoice: 'lnbc2',
+      expiresAtMs: now + 10_000,
+    },
+  ];
+  const receipts: PaymentReceipt[] = [
+    {
+      requestId: 'req-2',
+      payeeType: 'node',
+      payeeId: 'node-2',
+      amountSats: 12,
+      paidAtMs: now,
+      invoice: 'lnbc2',
+    },
+  ];
+
+  const result = reconcilePaymentReceipts(requests, receipts, now);
+  assert.equal(result.missing.length, 1);
+  assert.equal(result.expired.length, 1);
+  assert.equal(result.missing[0].requestId, 'req-1');
 });
