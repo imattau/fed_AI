@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fed_AI Admin Dashboard</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        .hidden { display: none !important; }
+        .auth-box { max-width: 400px; margin: 40px auto; padding: 20px; border: 1px solid #333; border-radius: 8px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        .status-ok { background: #1a472a; color: #8fdf82; }
+        .status-warn { background: #4d3800; color: #ffd966; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 8px; box-sizing: border-box; }
+        .log-box { background: #111; color: #eee; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <h1>fed_AI Admin</h1>
+        <div class="wallet">
+           <span id="connection-status">Disconnected</span>
+        </div>
+      </header>
+
+      <!-- Auth Section -->
+      <section id="auth-section" class="auth-box">
+        <h3>Connect</h3>
+        <div class="form-group">
+            <label>Service Endpoint</label>
+            <input id="service-url" type="text" placeholder="http://localhost:8081" value="http://localhost:8081">
+        </div>
+        <div class="form-group">
+            <label>Authentication Mode</label>
+            <select id="auth-mode">
+                <option value="nip07">Browser Extension (NIP-07)</option>
+                <option value="nip46">Remote Signer (NIP-46 / QR)</option>
+                <option value="key">Legacy Admin Key</option>
+            </select>
+        </div>
+        <div id="nip07-fields" class="form-group">
+            <label>Admin NPUB (Verification)</label>
+            <input id="admin-npub" type="text" placeholder="npub1..." value="">
+            <small>Must match NODE_ADMIN_NPUB on server</small>
+        </div>
+        <div id="nip46-fields" class="form-group hidden">
+            <label>Remote Signer</label>
+            <p style="font-size: 0.9em; color: #aaa;">Scan this QR with a NIP-46 compatible app (e.g. Amethyst, Amber, NostrConnect)</p>
+            <div id="qrcode" style="margin: 10px 0; background: white; padding: 10px; width: fit-content;"></div>
+            <input id="nip46-bunker-url" type="text" readonly placeholder="bunker://..." style="font-size: 0.8em; color: #666;">
+            <button id="nip46-gen-btn" style="margin-top: 5px;">Generate New QR</button>
+        </div>
+        <div id="key-fields" class="form-group hidden">
+            <label>Admin Key</label>
+            <input id="admin-key" type="password" placeholder="Secret Key">
+        </div>
+        <button id="connect-btn">Connect & Login</button>
+      </section>
+
+      <!-- Dashboard Section (Hidden until auth) -->
+      <section id="dashboard-section" class="hidden">
+        <nav class="tabs">
+          <button class="tab-button active" data-tab="status">Status</button>
+          <button class="tab-button" data-tab="models" id="tab-models-btn">Models</button>
+          <button class="tab-button" data-tab="nodes" id="tab-nodes-btn">Nodes</button>
+          <button class="tab-button" data-tab="config">Config</button>
+        </nav>
+
+        <section id="tab-status" class="tab-panel active">
+            <div class="card">
+                <h3>Service Info</h3>
+                <pre id="status-raw">Loading...</pre>
+            </div>
+            <div class="card">
+                <h3>Active Downloads</h3>
+                <button id="refresh-downloads">Refresh</button>
+                <div id="downloads-list">None</div>
+            </div>
+        </section>
+
+        <section id="tab-models" class="tab-panel">
+            <div class="card">
+                <h3>Download Model (GGUF)</h3>
+                <div class="grid">
+                    <div>
+                        <input id="hf-model-id" type="text" placeholder="Repo ID (e.g. Bartowski/Llama-3)">
+                        <button id="search-model-btn">Search Files</button>
+                    </div>
+                </div>
+                <div id="model-files-list" style="margin-top: 10px;"></div>
+            </div>
+        </section>
+
+        <section id="tab-nodes" class="tab-panel">
+            <div class="card">
+                <h3>Registered Nodes</h3>
+                <button id="refresh-nodes">Refresh</button>
+                <div id="nodes-list"></div>
+            </div>
+            <div class="card">
+                <h3>Policy</h3>
+                <div class="form-group">
+                    <label>Block Pubkey</label>
+                    <input id="block-pubkey" type="text" placeholder="npub or hex">
+                    <button id="block-btn">Block</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-config" class="tab-panel">
+            <div class="card">
+                <h3>Configuration</h3>
+                <pre id="config-raw">Loading...</pre>
+            </div>
+        </section>
+      </section>
+
+      <section id="log-section">
+        <h4>Logs</h4>
+        <div id="app-log" class="log-box"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

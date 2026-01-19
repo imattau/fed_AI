@@ -1,0 +1,11 @@
+{
+  "name": "fed-ai-admin-dashboard",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.10.4"
+  }
+}
