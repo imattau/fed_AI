@@ -469,10 +469,10 @@ export class FedAiClient {
     return signEnvelope(envelope, this.privateKey);
   }
 
-  private async post(path: string, envelope: Envelope<unknown>, options?: RequestOptions): Promise<Response> {
+  private async post(path: string, body: unknown, options?: RequestOptions): Promise<Response> {
     return this.requestWithRetry('POST', path, {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(envelope),
+      body: JSON.stringify(body),
     }, options);
   }
 

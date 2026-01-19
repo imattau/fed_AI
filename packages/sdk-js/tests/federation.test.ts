@@ -28,7 +28,7 @@ import { FedAiClient } from '../src';
 const buildCapsPayload = (routerId: string): RouterCapabilityProfile => ({
   routerId,
   transportEndpoints: ['http://router'],
-  supportedJobTypes: ['inference'],
+  supportedJobTypes: ['GEN_CHUNK'],
   resourceLimits: {
     maxPayloadBytes: 1024,
     maxTokens: 256,
