@@ -195,8 +195,8 @@ const parseNumber = (value?: string, float = false): number | undefined => {
 };
 
 /** Build discovery configuration for the node using `NODE_*` env overrides. */
-const buildDiscoveryOptions = () => ({
-  bootstrapRelays: parseList(getEnv('NODE_RELAY_BOOTSTRAP')),
+const buildDiscoveryOptions = (config?: NodeConfig) => ({
+  bootstrapRelays: config?.relayBootstrap ?? parseList(getEnv('NODE_RELAY_BOOTSTRAP')),
   aggregatorUrls: parseList(getEnv('NODE_RELAY_AGGREGATORS')),
   trustScores: parseTrustScores(getEnv('NODE_RELAY_TRUST')),
   minScore: parseNumber(getEnv('NODE_RELAY_MIN_SCORE'), true),
@@ -250,11 +250,13 @@ const buildConfig = (): NodeConfig => {
   const adminKey = getEnv('NODE_ADMIN_KEY');
   const adminIdentity = loadAdminIdentity();
   const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub;
+  const relayBootstrap = dynamic.relayBootstrap ?? parseList(getEnv('NODE_RELAY_BOOTSTRAP'));
 
   return {
     ...defaultNodeConfig,
     adminKey,
     adminNpub,
+    relayBootstrap,
     nodeId: getEnv('NODE_ID') ?? defaultNodeConfig.nodeId,
     keyId: getEnv('NODE_KEY_ID') ?? defaultNodeConfig.keyId,
     endpoint: getEnv('NODE_ENDPOINT') ?? defaultNodeConfig.endpoint,
@@ -518,7 +520,7 @@ const start = async (): Promise<void> => {
   const server = createNodeHttpServer(service, config, nonceStore);
 
   server.listen(config.port);
-  void logRelayCandidates('node', buildDiscoveryOptions());
+  void logRelayCandidates('node', buildDiscoveryOptions(config));
 
   if (config.privateKey) {
     void startHeartbeat(service, config).catch((error) => {

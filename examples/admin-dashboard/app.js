@@ -118,22 +118,12 @@ if (saveConfigBtn) {
         try {
             const routerEndpoint = document.getElementById('setup-router-url').value;
             const nwcUrl = document.getElementById('setup-nwc-url').value;
+            const relaysRaw = document.getElementById('setup-relays').value;
             
             const payload = {
                 _restart: true,
                 routerEndpoint: routerEndpoint || undefined,
-                // Note: Node usually uses NODE_LN_VERIFY_URL. 
-                // NWC URL is usually for ln-adapter.
-                // If we are configuring Node directly to support NWC (via my recent update to ln-adapter), 
-                // we assume Node is running alongside ln-adapter or has native NWC support (not yet).
-                // But wait, the previous step added NWC to ln-adapter only.
-                // The Node needs `NODE_LN_VERIFY_URL`.
-                // We'll simplisticly set verify url to localhost:4000 if NWC is provided?
-                // Or maybe we just save `nwcUrl` if we add support for it in Node config?
-                // The user asked for "easy setup". 
-                // I'll send `nwcUrl` and update Node to write it to `.env.ln-adapter`? No, Node Service can't write outside its dir easily.
-                // Setup Mode is best effort.
-                // For MVP: Just send routerEndpoint.
+                relayBootstrap: relaysRaw ? relaysRaw.split(',').map(r => r.trim()).filter(Boolean) : undefined,
             };
             
             await apiCall('/admin/config', 'POST', payload);

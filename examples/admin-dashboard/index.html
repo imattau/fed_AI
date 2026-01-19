@@ -47,6 +47,11 @@
                 <input id="setup-router-url" type="text" placeholder="http://router:8080" value="http://localhost:8080">
             </div>
             <div class="form-group">
+                <label>Nostr Relays (Optional)</label>
+                <input id="setup-relays" type="text" placeholder="wss://relay.damus.io, wss://relay.snort.social" style="font-size: 0.9em;">
+                <small>Comma-separated list for discovery.</small>
+            </div>
+            <div class="form-group">
                 <label>Lightning (NWC URL)</label>
                 <input id="setup-nwc-url" type="password" placeholder="nostr+walletconnect://...">
                 <small>Required if payments are enabled.</small>
