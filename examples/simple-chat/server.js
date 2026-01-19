@@ -254,12 +254,12 @@ const server = http.createServer(async (req, res) => {
         const models = listModels(active);
         const targetModel = models.find((m) => m.id === request.modelId);
         if (targetModel && targetModel.contextWindow) {
-          if (!fitsContextWindow(prompt, maxTokens, targetModel.contextWindow)) {
+          if (!fitsContextWindow(prompt, request.maxTokens, targetModel.contextWindow)) {
             res.writeHead(400, { 'content-type': 'application/json' });
             res.end(
               JSON.stringify({
                 error: 'context-window-exceeded',
-                details: `Prompt + max output (${maxTokens}) exceeds model context (${targetModel.contextWindow})`,
+                details: `Prompt + max output (${request.maxTokens}) exceeds model context (${targetModel.contextWindow})`,
               }),
             );
             return;

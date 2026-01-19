@@ -447,6 +447,29 @@ form.addEventListener('submit', async (event) => {
       }
       return;
     }
+
+    let requestedMaxTokens = maxTokensInput ? Number(maxTokensInput.value) : 128;
+    const promptEstimate = Math.ceil(prompt.length / 4);
+
+    // If we have model info, we can warn or adjust before sending
+    if (modelSelect && modelSelect.selectedOptions[0]) {
+        const label = modelSelect.selectedOptions[0].textContent;
+        const match = label.match(/\((\d+)\)/);
+        if (match) {
+            const contextWindow = parseInt(match[1], 10);
+            if (promptEstimate + requestedMaxTokens > contextWindow) {
+                const adjusted = contextWindow - promptEstimate - 10; // 10 token buffer
+                if (adjusted < 16) {
+                    appendMessage('system', `Error: Prompt is too long for the selected model context (${contextWindow}).`);
+                    if (statusEl) statusEl.textContent = 'Error';
+                    return;
+                }
+                appendMessage('system', `Note: Adjusting maxTokens from ${requestedMaxTokens} to ${adjusted} to fit context window.`);
+                requestedMaxTokens = adjusted;
+            }
+        }
+    }
+
     const shouldIncludeKey = Boolean(grokApiKey) && (selectedModel === 'auto' || selectedModel === GROQ_MODEL_ID);
     const response = await fetch('/api/infer', {
       method: 'POST',
@@ -455,12 +478,19 @@ form.addEventListener('submit', async (event) => {
         prompt,
         modelId: selectedModel,
         apiKey: shouldIncludeKey ? grokApiKey : undefined,
-        maxTokens: maxTokensInput ? Number(maxTokensInput.value) : undefined,
+        maxTokens: requestedMaxTokens,
       }),
     });
     if (!response.ok) {
-      const detail = await response.text();
-      appendMessage('system', `Error: ${detail}`);
+      const payload = await response.json().catch(() => ({}));
+      const detail = payload.details || payload.error || response.statusText;
+      
+      let msg = detail;
+      if (detail.includes('no-capable-nodes')) {
+          msg = 'No nodes found that support this model and context size. Try reducing Max Tokens.';
+      }
+      
+      appendMessage('system', `Error: ${msg}`);
       if (statusEl) {
         statusEl.textContent = 'Error';
       }
