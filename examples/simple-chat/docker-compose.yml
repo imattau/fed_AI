@@ -59,6 +59,7 @@ services:
     build:
       context: ../..
       dockerfile: services/router/Dockerfile
+    restart: unless-stopped
     depends_on:
       keys:
         condition: service_completed_successfully
@@ -109,6 +110,9 @@ services:
     build:
       context: ../..
       dockerfile: services/node/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
     depends_on:
       keys:
         condition: service_completed_successfully
