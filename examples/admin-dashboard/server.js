@@ -65,6 +65,7 @@ const server = http.createServer(async (req, res) => {
             // Pass minimal headers
         },
         body: req.method !== 'GET' ? req : undefined,
+        duplex: 'half',
       });
 
       res.writeHead(upstreamReq.status, { 'content-type': 'application/json' });
