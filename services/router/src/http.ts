@@ -71,6 +71,51 @@ import { defaultRelayAdmissionPolicy, RelayAdmissionPolicy, RouterConfig } from 
 import type { RouterService } from './server';
 import { scoreNode, selectNode } from './scheduler';
 import { estimatePrice } from './scheduler/score';
+import {
+  getNodeHealth,
+  assessRelayDiscoverySnapshot,
+  markNodeFailure,
+  recordNodeSuccess,
+  failurePenalty,
+  performanceBonus,
+  manifestDecayFactor,
+  filterActiveNodes,
+  manifestScore,
+  stakeScore,
+  NODE_HEARTBEAT_WINDOW_MS,
+  NODE_FAILURE_THRESHOLD,
+  NODE_FAILURE_BASE_COOLDOWN_MS,
+  NODE_FAILURE_BACKOFF_CAP,
+  NODE_RELIABILITY_SAMPLE_MIN,
+  NODE_RELIABILITY_MAX_PENALTY,
+  NODE_PERFORMANCE_SAMPLE_MIN,
+  NODE_PERFORMANCE_BASELINE,
+  NODE_PERFORMANCE_MAX_BONUS,
+  MANIFEST_DECAY_SAMPLES,
+  RELAY_DISCOVERY_CLOCK_SKEW_MS,
+} from './scheduler/health';
+import {
+  applyManifestWeights,
+  getWeightedNodes,
+  rankCandidateNodes,
+  pickCapabilityForRequest,
+} from './scheduler/ranking';
+import {
+  computeRouterFeeSats,
+  normalizeSplits,
+  splitsMatch,
+} from './payments/utils';
+import {
+  readJsonBody,
+  sendJson,
+  startSse,
+  sendSseEvent,
+  bodyErrorStatus,
+  isEnvelopeLike,
+  hashString,
+  parseSignedEnvelope,
+  validateSignedEnvelope,
+} from './utils/http';
 import { logWarn } from './logging';
 import { checkClientAccess } from './authz';
 import { verifyPaymentReceipt } from './payments/verify';
@@ -105,539 +150,20 @@ import {
 import { validateEndpoint } from './security';
 import { createAdminHandler } from './admin';
 
-const NODE_HEARTBEAT_WINDOW_MS = 30_000;
 const PAYMENT_WINDOW_MS = 5 * 60 * 1000;
-const NODE_FAILURE_THRESHOLD = 3;
-const NODE_FAILURE_BASE_COOLDOWN_MS = 30_000;
-const NODE_FAILURE_BACKOFF_CAP = 4;
-const NODE_RELIABILITY_SAMPLE_MIN = 5;
-const NODE_RELIABILITY_MAX_PENALTY = 20;
-const NODE_PERFORMANCE_SAMPLE_MIN = 10;
-const NODE_PERFORMANCE_BASELINE = 0.9;
-const NODE_PERFORMANCE_MAX_BONUS = 10;
-const MANIFEST_DECAY_SAMPLES = 20;
-const RELAY_DISCOVERY_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const FEDERATION_AUCTION_EXPIRY_MS = 1500;
 const FEDERATION_JOB_RUNTIME_MS = 10_000;
 const FEDERATION_JOB_RETURN_PATH = '/federation/job-result';
 
-const computeRouterFeeSats = (amountSats: number, config: RouterConfig): number => {
-  if (!config.routerFeeEnabled || !config.routerFeeSplitEnabled) {
-    return 0;
-  }
-  const bps = Math.max(0, config.routerFeeBps ?? 0);
-  const flat = Math.max(0, config.routerFeeFlatSats ?? 0);
-  let fee = Math.round((amountSats * bps) / 10_000 + flat);
-  if (config.routerFeeMinSats !== undefined) {
-    fee = Math.max(config.routerFeeMinSats, fee);
-  }
-  if (config.routerFeeMaxSats !== undefined) {
-    fee = Math.min(config.routerFeeMaxSats, fee);
-  }
-  return Math.max(0, fee);
-};
 
-const normalizeSplits = (splits?: PaymentSplit[]): PaymentSplit[] => {
-  return (splits ?? []).slice().sort((a, b) => {
-    const keyA = `${a.payeeType}:${a.payeeId}:${a.amountSats}:${a.role ?? ''}`;
-    const keyB = `${b.payeeType}:${b.payeeId}:${b.amountSats}:${b.role ?? ''}`;
-    return keyA.localeCompare(keyB);
-  });
-};
 
-const splitsMatch = (expected?: PaymentSplit[], actual?: PaymentSplit[]): boolean => {
-  if (!expected || expected.length === 0) {
-    return !actual || actual.length === 0;
-  }
-  if (!actual || actual.length !== expected.length) {
-    return false;
-  }
-  const sortedExpected = normalizeSplits(expected);
-  const sortedActual = normalizeSplits(actual);
-  return sortedExpected.every((split, index) => {
-    const candidate = sortedActual[index];
-    return (
-      split.payeeType === candidate.payeeType &&
-      split.payeeId === candidate.payeeId &&
-      split.amountSats === candidate.amountSats &&
-      split.role === candidate.role
-    );
-  });
-};
-
-const getNodeHealth = (service: RouterService, nodeId: string) => {
-  const existing = service.nodeHealth.get(nodeId);
-  if (existing) {
-    return existing;
-  }
-  const entry = {
-    successes: 0,
-    failures: 0,
-    consecutiveFailures: 0,
-    lastFailureMs: 0,
-    lastSuccessMs: 0,
-  };
-  service.nodeHealth.set(nodeId, entry);
-  return entry;
-};
-
-const assessRelayDiscoverySnapshot = (
-  snapshot: RelayDiscoverySnapshot | null | undefined,
-  policy: RelayAdmissionPolicy,
-): { eligible: boolean; reason?: string } => {
-  if (!snapshot) {
-    return policy.requireSnapshot ? { eligible: false, reason: 'missing-relay-discovery' } : { eligible: true };
-  }
-
-  if (!snapshot.discoveredAtMs || Number.isNaN(snapshot.discoveredAtMs)) {
-    return { eligible: false, reason: 'relay-discovery-missing-timestamp' };
-  }
-
-  const now = Date.now();
-  if (snapshot.discoveredAtMs > now + RELAY_DISCOVERY_CLOCK_SKEW_MS) {
-    return { eligible: false, reason: 'relay-discovery-future-timestamp' };
-  }
-  if (now - snapshot.discoveredAtMs > policy.maxAgeMs) {
-    return { eligible: false, reason: 'relay-discovery-expired' };
-  }
-
-  if (!snapshot.relays || snapshot.relays.length === 0) {
-    return { eligible: false, reason: 'relay-discovery-empty' };
-  }
-
-  if (policy.minScore !== undefined) {
-    if (snapshot.options.minScore === undefined || snapshot.options.minScore < policy.minScore) {
-      return { eligible: false, reason: 'relay-discovery-min-score-too-low' };
-    }
-  }
-
-  if (policy.maxResults !== undefined) {
-    if (
-      snapshot.options.maxResults === undefined ||
-      snapshot.options.maxResults > policy.maxResults
-    ) {
-      return { eligible: false, reason: 'relay-discovery-max-results-too-high' };
-    }
-  }
-
-  if (snapshot.options.minScore !== undefined) {
-    const hasLowScore = snapshot.relays.some((relay) => relay.score < snapshot.options.minScore!);
-    if (hasLowScore) {
-      return { eligible: false, reason: 'relay-discovery-score-mismatch' };
-    }
-  }
-
-  if (
-    snapshot.options.maxResults !== undefined &&
-    snapshot.relays.length > snapshot.options.maxResults
-  ) {
-    return { eligible: false, reason: 'relay-discovery-exceeds-max-results' };
-  }
-
-  return { eligible: true };
-};
-
-const markNodeFailure = (service: RouterService, nodeId: string): void => {
-  const entry = getNodeHealth(service, nodeId);
-  entry.failures += 1;
-  entry.consecutiveFailures += 1;
-  entry.lastFailureMs = Date.now();
-  nodeFailureEvents.inc({ nodeId });
-  if (entry.consecutiveFailures >= NODE_FAILURE_THRESHOLD) {
-    const multiplier = Math.min(
-      NODE_FAILURE_BACKOFF_CAP,
-      entry.consecutiveFailures - NODE_FAILURE_THRESHOLD + 1,
-    );
-    service.nodeCooldown.set(nodeId, Date.now() + NODE_FAILURE_BASE_COOLDOWN_MS * multiplier);
-  }
-};
-
-const recordNodeSuccess = (service: RouterService, nodeId: string): void => {
-  const entry = getNodeHealth(service, nodeId);
-  entry.successes += 1;
-  entry.consecutiveFailures = 0;
-  entry.lastSuccessMs = Date.now();
-  service.nodeCooldown.delete(nodeId);
-};
-
-const failurePenalty = (service: RouterService, nodeId: string): number => {
-  const entry = service.nodeHealth.get(nodeId);
-  if (!entry) {
-    return 0;
-  }
-  const total = entry.successes + entry.failures;
-  const reliabilityPenalty =
-    total >= NODE_RELIABILITY_SAMPLE_MIN
-      ? Math.min(
-          NODE_RELIABILITY_MAX_PENALTY,
-          Math.round((entry.failures / total) * NODE_RELIABILITY_MAX_PENALTY),
-        )
-      : 0;
-  const streakPenalty = Math.min(20, entry.consecutiveFailures * 5);
-  return Math.min(30, reliabilityPenalty + streakPenalty);
-};
-
-const performanceBonus = (service: RouterService, nodeId: string): number => {
-  const entry = service.nodeHealth.get(nodeId);
-  if (!entry) {
-    return 0;
-  }
-  const total = entry.successes + entry.failures;
-  if (total < NODE_PERFORMANCE_SAMPLE_MIN) {
-    return 0;
-  }
-  const successRate = entry.successes / total;
-  const rawBonus = Math.round((successRate - NODE_PERFORMANCE_BASELINE) * 100);
-  return Math.max(-NODE_PERFORMANCE_MAX_BONUS, Math.min(NODE_PERFORMANCE_MAX_BONUS, rawBonus));
-};
-
-const manifestDecayFactor = (service: RouterService, nodeId: string): number => {
-  const entry = service.nodeHealth.get(nodeId);
-  if (!entry) {
-    return 1;
-  }
-  const total = entry.successes + entry.failures;
-  if (total <= 0) {
-    return 1;
-  }
-  const factor = 1 - Math.min(1, total / MANIFEST_DECAY_SAMPLES);
-  return Math.max(0, factor);
-};
-
-const filterActiveNodes = (service: RouterService, nodes: NodeDescriptor[]): NodeDescriptor[] => {
-  const cutoff = Date.now() - NODE_HEARTBEAT_WINDOW_MS;
-  return nodes.filter((node) => {
-    if (node.lastHeartbeatMs && node.lastHeartbeatMs < cutoff) {
-      return false;
-    }
-    const cooldown = service.nodeCooldown.get(node.nodeId);
-    return !cooldown || cooldown <= Date.now();
-  });
-};
 
 const paymentKey = (requestId: string, payeeType: PayeeType, payeeId: string): string =>
   `${requestId}:${payeeType}:${payeeId}`;
 
-const manifestScore = (manifest?: NodeManifest): number => {
-  if (!manifest) {
-    return 0;
-  }
-
-  let score = 0;
-  switch (manifest.capability_bands.cpu) {
-    case 'cpu_high':
-      score += 30;
-      break;
-    case 'cpu_mid':
-      score += 15;
-      break;
-    default:
-      break;
-  }
-  switch (manifest.capability_bands.ram) {
-    case 'ram_64_plus':
-      score += 25;
-      break;
-    case 'ram_32':
-      score += 15;
-      break;
-    case 'ram_16':
-      score += 5;
-      break;
-    default:
-      break;
-  }
-  if (manifest.capability_bands.disk === 'disk_ssd') {
-    score += 10;
-  }
-  if (manifest.capability_bands.net === 'net_good') {
-    score += 10;
-  }
-  switch (manifest.capability_bands.gpu) {
-    case 'gpu_24gb_plus':
-      score += 20;
-      break;
-    case 'gpu_16gb':
-      score += 10;
-      break;
-    case 'gpu_8gb':
-      score += 5;
-      break;
-    default:
-      break;
-  }
-
-  return Math.min(score, 100);
-};
-
-const stakeScore = (service: RouterService, nodeId: string): number => {
-  const units = effectiveStakeUnits(service.stakeStore, nodeId);
-  const score = units / 100;
-  return Math.min(20, score);
-};
-
-const applyManifestWeights = (service: RouterService): NodeDescriptor[] => {
-  return service.nodes.map((node) => {
-    const manifest = service.manifests.get(node.nodeId);
-    const admission = service.manifestAdmissions.get(node.nodeId);
-    const baseTrust = node.trustScore ?? 0;
-    const manifestTrust =
-      manifest && (!admission || admission.eligible)
-        ? Math.round(manifestScore(manifest) * manifestDecayFactor(service, node.nodeId))
-        : 0;
-    const stakeTrust = stakeScore(service, node.nodeId);
-    const penalty = failurePenalty(service, node.nodeId);
-    const performance = performanceBonus(service, node.nodeId);
-    return {
-      ...node,
-      trustScore: Math.max(
-        0,
-        Math.min(100, baseTrust + manifestTrust + stakeTrust + performance - penalty),
-      ),
-    };
-  });
-};
-
-const getWeightedNodes = (service: RouterService): NodeDescriptor[] => {
-  const nowMs = Date.now();
-  const cache = service.weightedNodesCache;
-  if (cache && nowMs - cache.computedAtMs < 1000) {
-    return cache.nodes;
-  }
-  const weighted = applyManifestWeights(service);
-  service.weightedNodesCache = { computedAtMs: nowMs, nodes: weighted };
-  return weighted;
-};
-
-const rankCandidateNodes = (
-  nodes: NodeDescriptor[],
-  request: QuoteRequest,
-  topK: number | undefined,
-): NodeDescriptor[] => {
-  const limit = topK && topK > 0 ? topK : nodes.length;
-  const ranked: Array<{ node: NodeDescriptor; score: number }> = [];
-  for (const node of nodes) {
-    const score = scoreNode(node, request);
-    if (score === null) {
-      continue;
-    }
-    let inserted = false;
-    for (let i = 0; i < ranked.length; i += 1) {
-      if (score > ranked[i].score) {
-        ranked.splice(i, 0, { node, score });
-        inserted = true;
-        break;
-      }
-    }
-    if (!inserted) {
-      ranked.push({ node, score });
-    }
-    if (ranked.length > limit) {
-      ranked.length = limit;
-    }
-  }
-  return ranked.map((entry) => entry.node);
-};
-
-const pickCapabilityForRequest = (
-  node: NodeDescriptor,
-  request: QuoteRequest,
-): Capability | null => {
-  if (!node.capabilities || node.capabilities.length === 0) {
-    return null;
-  }
-  const requiredTokens = request.inputTokensEstimate + request.outputTokensEstimate;
-  const matchesJobType = (capability: Capability): boolean => {
-    if (!request.jobType) {
-      return true;
-    }
-    if (!capability.jobTypes || capability.jobTypes.length === 0) {
-      return false;
-    }
-    return capability.jobTypes.includes(request.jobType);
-  };
-  const fitsContextWindow = (capability: Capability): boolean => {
-    if (!capability.contextWindow) {
-      return true;
-    }
-    return requiredTokens <= capability.contextWindow;
-  };
-  if (request.modelId !== 'auto') {
-    return (
-      node.capabilities.find(
-        (capability) =>
-          capability.modelId === request.modelId &&
-          matchesJobType(capability) &&
-          fitsContextWindow(capability),
-      ) ?? null
-    );
-  }
-  let best: { cap: Capability; price: number } | null = null;
-  for (const capability of node.capabilities) {
-    if (!matchesJobType(capability) || !fitsContextWindow(capability)) {
-      continue;
-    }
-    const price = estimatePrice(capability, request);
-    if (!best || price < best.price) {
-      best = { cap: capability, price };
-    }
-  }
-  return best?.cap ?? null;
-};
-
-const readJsonBody = async (
-  req: IncomingMessage,
-  maxBytes?: number,
-): Promise<{ ok: true; value: unknown } | { ok: false; error: string }> => {
-  const chunks: Buffer[] = [];
-  let totalBytes = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    totalBytes += buffer.length;
-    if (maxBytes !== undefined && totalBytes > maxBytes) {
-      return { ok: false, error: 'payload-too-large' };
-    }
-    chunks.push(buffer);
-  }
-  const body = Buffer.concat(chunks).toString('utf8');
-  if (!body) {
-    return { ok: false, error: 'empty-body' };
-  }
-  try {
-    return { ok: true, value: JSON.parse(body) };
-  } catch (error) {
-    return { ok: false, error: 'invalid-json' };
-  }
-};
-
-const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    'content-type': 'application/json',
-    'content-length': Buffer.byteLength(payload),
-  });
-  res.end(payload);
-};
-
-const startSse = (res: ServerResponse): void => {
-  res.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
-    'x-accel-buffering': 'no',
-  });
-};
-
-const sendSseEvent = (res: ServerResponse, event: string, data: unknown): void => {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(data)}\n\n`);
-};
-
-const bodyErrorStatus = (error: string): number => {
-  return error === 'payload-too-large' ? 413 : 400;
-};
-
-const isEnvelopeLike = (value: unknown): value is Envelope<unknown> => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  return ['payload', 'nonce', 'ts', 'keyId', 'sig'].every((key) => key in value);
-};
-
-const hashString = (value: string): string => {
-  return createHash('sha256').update(value, 'utf8').digest('hex');
-};
-
 const buildFederationJobHash = (request: InferenceRequest, inputHash: string): string => {
   const descriptor = `${request.requestId}:${request.modelId}:${inputHash}:${request.maxTokens}`;
   return hashString(descriptor);
-};
-
-const parseSignedEnvelope = <T>(
-  raw: unknown,
-  validator: (value: unknown) => { ok: true } | { ok: false; errors: string[] },
-  nonceStore: NonceStore,
-): { ok: true; envelope: Envelope<T> } | { ok: false; error: string; details?: string[] } => {
-  if (!isEnvelopeLike(raw)) {
-    return { ok: false, error: 'missing-envelope' };
-  }
-  const validation = validateEnvelope(raw, validator);
-  if (!validation.ok) {
-    return { ok: false, error: 'invalid-envelope', details: validation.errors };
-  }
-  const envelope = raw as Envelope<T>;
-  if (!isNostrNpub(envelope.keyId)) {
-    return { ok: false, error: 'invalid-key-id' };
-  }
-  const replay = checkReplay(envelope, nonceStore);
-  if (!replay.ok) {
-    return { ok: false, error: replay.error ?? 'replay-error' };
-  }
-  const publicKey = parsePublicKey(envelope.keyId);
-  if (!verifyEnvelope(envelope, publicKey)) {
-    return { ok: false, error: 'invalid-signature' };
-  }
-  return { ok: true, envelope };
-};
-
-type EnvelopeValidator = (value: unknown) => { ok: true } | { ok: false; errors: string[] };
-
-const validateSignedEnvelope = async <T>(
-  raw: unknown,
-  validatorName: EnvelopeValidatorName,
-  validator: EnvelopeValidator,
-  workerPool: EnvelopeWorkerPool | null,
-  publicKeyHex?: string,
-): Promise<
-  | { ok: true; envelope: Envelope<T> }
-  | { ok: false; status: number; error: string; details?: string[] }
-> => {
-  if (workerPool) {
-    try {
-      const workerResult = await workerPool.validateAndVerify({
-        envelope: raw,
-        validator: validatorName,
-        publicKeyHex,
-      });
-      if (workerResult.ok) {
-        const envelope = raw as Envelope<T>;
-        if (!isNostrNpub(envelope.keyId)) {
-          return { ok: false, status: 400, error: 'invalid-key-id' };
-        }
-        return { ok: true, envelope };
-      }
-      if (workerResult.error === 'invalid-envelope') {
-        return {
-          ok: false,
-          status: 400,
-          error: 'invalid-envelope',
-          details: workerResult.errors,
-        };
-      }
-      if (workerResult.error === 'invalid-key-id') {
-        return { ok: false, status: 400, error: 'invalid-key-id' };
-      }
-      if (workerResult.error === 'invalid-signature') {
-        return { ok: false, status: 401, error: 'invalid-signature' };
-      }
-    } catch {
-      // Fall through to synchronous validation on worker failure.
-    }
-  }
-
-  const validation = validateEnvelope(raw, validator);
-  if (!validation.ok) {
-    return { ok: false, status: 400, error: 'invalid-envelope', details: validation.errors };
-  }
-  const envelope = raw as Envelope<T>;
-  if (!isNostrNpub(envelope.keyId)) {
-    return { ok: false, status: 400, error: 'invalid-key-id' };
-  }
-  const publicKey = publicKeyHex ? Buffer.from(publicKeyHex, 'hex') : parsePublicKey(envelope.keyId);
-  if (!verifyEnvelope(envelope, publicKey)) {
-    return { ok: false, status: 401, error: 'invalid-signature' };
-  }
-  return { ok: true, envelope };
 };
 
 const parseInferencePayload = (

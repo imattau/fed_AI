@@ -367,20 +367,25 @@ const loadStatus = async () => {
         // Try /admin/config to guess? Or just try endpoints.
         
         // Refresh downloads list (Node specific)
-        try {
             const dl = await apiCall('/admin/downloads');
             const list = document.getElementById('downloads-list');
             if (dl.downloads && dl.downloads.length) {
                 list.innerHTML = dl.downloads.map(d => `
-                    <div>
-                        <strong>${d.id.split('-')[0]}</strong>: ${d.status} (${d.progress.toFixed(1)}%)
-                        ${d.error ? `<br><span style="color:red">${d.error}</span>` : ''}
+                    <div class="node-item">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <strong>${d.id.split('-')[0]}</strong>
+                            <span class="status-badge ${d.status === 'completed' ? 'status-ok' : 'status-warn'}">${d.status}</span>
+                        </div>
+                        <div style="font-size: 11px; background: #000; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0;">
+                            <div style="background: var(--accent-primary); width: ${d.progress}%; height: 100%;"></div>
+                        </div>
+                        <span style="font-size: 11px;">Progress: ${d.progress.toFixed(1)}%</span>
+                        ${d.error ? `<br><span style="color:var(--status-error); font-size: 11px;">${d.error}</span>` : ''}
                     </div>
                 `).join('');
             } else {
                 list.textContent = 'No active downloads';
             }
-        } catch { /* Ignore, likely router */ }
         
         // Refresh Service Info
         try {
@@ -475,8 +480,8 @@ const pathBasename = (p) => p.split(/[\/]/).pop();
 connectBtn.addEventListener('click', async () => {
     authSection.classList.add('hidden');
     dashboardSection.classList.remove('hidden');
-    connectionStatus.textContent = 'Connected (Session)';
-    connectionStatus.classList.add('status-ok');
+    connectionStatus.textContent = '● Connected';
+    connectionStatus.style.color = 'var(--status-ok)';
     
     loadStatus();
 });

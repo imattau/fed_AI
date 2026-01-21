@@ -639,10 +639,14 @@ export class FedAiClient {
         if (controller && options?.timeoutMs) {
           timeout = setTimeout(() => controller.abort(), options.timeoutMs);
         }
-        const response = await this.fetchImpl(`${this.routerUrl}${path}`, {
+        const fullUrl = `${this.routerUrl}${path}`;
+        const response = await this.fetchImpl(fullUrl, {
           method,
           ...(init ?? {}),
           signal: controller?.signal,
+        }).catch(err => {
+            console.error(`[FedAiClient] Fetch failed to ${fullUrl}: ${err.message}`);
+            throw err;
         }).finally(() => {
           if (timeout) {
             clearTimeout(timeout);

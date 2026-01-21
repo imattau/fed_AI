@@ -503,19 +503,20 @@ export const createNodeHttpServer = (
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
-    const url = req.url || '';
-    if (url.startsWith('/admin/')) {
-      return adminHandler(req, res);
-    }
+    try {
+      const url = req.url || '';
+      if (url.startsWith('/admin/')) {
+        return adminHandler(req, res);
+      }
 
-    if (config.setupMode && url !== '/health' && url !== '/status') {
-      return sendJson(res, 503, {
-        error: 'service-unconfigured',
-        details: 'The service is in Setup Mode. Please use the Admin Dashboard to configure it.',
-      });
-    }
+      if (config.setupMode && url !== '/health' && url !== '/status') {
+        return sendJson(res, 503, {
+          error: 'service-unconfigured',
+          details: 'The service is in Setup Mode. Please use the Admin Dashboard to configure it.',
+        });
+      }
 
-    const requestId = randomUUID();
+      const requestId = randomUUID();
     if (req.method === 'GET' && req.url === '/health') {
       return sendJson(res, 200, { ok: true });
     }
@@ -660,8 +661,14 @@ export const createNodeHttpServer = (
       const markClosed = () => {
         requestClosed = true;
       };
+      const cleanup = () => {
+        req.off('aborted', markClosed);
+        res.off('close', markClosed);
+      };
       req.on('aborted', markClosed);
       res.on('close', markClosed);
+      res.on('finish', cleanup);
+      res.on('close', cleanup);
       const respond = (status: number, body: unknown): void => {
         statusLabel = status.toString();
         span.setAttribute('http.status_code', status);
@@ -1165,6 +1172,10 @@ export const createNodeHttpServer = (
     }
 
     return sendJson(res, 404, { error: 'not-found' });
+    } catch (error) {
+      logWarn('[node] uncaught error in handler', error);
+      return sendJson(res, 500, { error: 'internal-error' });
+    }
   };
 
   if (config.tls) {
