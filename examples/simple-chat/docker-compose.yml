@@ -45,6 +45,7 @@ services:
     working_dir: /app
     volumes:
       - ../../tools/ln-adapter:/app
+      - /app/node_modules
     environment:
       LN_ADAPTER_PORT: 4000
       LN_ADAPTER_BACKEND: ${LN_ADAPTER_BACKEND:-mock}
@@ -52,7 +53,7 @@ services:
       LNBITS_API_KEY: ${LNBITS_API_KEY}
       LND_REST_URL: ${LND_REST_URL}
       LND_MACAROON_HEX: ${LND_MACAROON_HEX}
-    command: ["node", "server.js"]
+    command: ["sh", "-c", "npm install && node server.js"]
 
   router:
     build:
