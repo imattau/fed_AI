@@ -37,6 +37,123 @@ const log = (msg) => {
     console.log(msg);
 };
 
+// --- NIP-46 Logic ---
+const RELAY_URL = 'wss://relay.damus.io';
+
+const rpcNip46 = async (method, params) => {
+    return new Promise(async (resolve, reject) => {
+        if (!remoteSignerPubkey) return reject('Not connected');
+        
+        const reqId = Math.random().toString(36).slice(2);
+        const req = { id: reqId, method, params };
+        
+        const encrypted = await window.NostrTools.nip04.encrypt(appKeyPair.secret, remoteSignerPubkey, JSON.stringify(req));
+        
+        const event = finalizeEvent({
+            kind: 24133,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [['p', remoteSignerPubkey]],
+            content: encrypted,
+        }, appKeyPair.secret);
+        
+        // Subscribe for response first
+        const sub = pool.subscribeMany(
+            [RELAY_URL],
+            [{ kinds: [24133], '#p': [appKeyPair.pubkey], authors: [remoteSignerPubkey], since: Math.floor(Date.now() / 1000) }],
+            {
+                onevent: async (evt) => {
+                    try {
+                        const dec = await window.NostrTools.nip04.decrypt(appKeyPair.secret, evt.pubkey, evt.content);
+                        const resp = JSON.parse(dec);
+                        if (resp.id === reqId) {
+                            sub.close();
+                            if (resp.error) reject(resp.error);
+                            else resolve(resp.result); // For sign_event, result is the signed event object
+                        }
+                    } catch (e) {
+                         // ignore irrelevant messages
+                    }
+                }
+            }
+        );
+
+        await Promise.any(pool.publish([RELAY_URL], event));
+        
+        // Timeout
+        setTimeout(() => {
+            sub.close();
+            reject('NIP-46 Timeout');
+        }, 30000);
+    });
+};
+
+// NIP-98 Helper
+const createNip98Event = async (url, method) => {
+  const uTag = ['u', url];
+  const mTag = ['m', method.toUpperCase()];
+  
+  const unsigned = {
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [uTag, mTag],
+    content: '',
+  };
+
+  if (authMode === 'nip07') {
+    if (!window.nostr) throw new Error('No NIP-07 extension found');
+    return await window.nostr.signEvent(unsigned);
+  } 
+  
+  if (authMode === 'nip46') {
+      if (!remoteSignerPubkey) throw new Error('NIP-46 not connected');
+      // Send sign_event RPC
+      return await rpcNip46('sign_event', [JSON.stringify(unsigned)]);
+  }
+
+  throw new Error('Unsupported auth mode for NIP-98');
+};
+
+// API Helper
+const apiCall = async (path, method = 'GET', body = null) => {
+  serviceUrl = document.getElementById('service-url').value.replace(/\/$/, '');
+  const fullUrl = `${serviceUrl}${path}`;
+  
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (authMode === 'key') {
+    headers['X-Admin-Key'] = document.getElementById('admin-key').value;
+  } else {
+    // Generate fresh NIP-98 token for each request (or reuse valid one)
+    // For simplicity, we generate one per request (timestamp dependent).
+    // Note: In strict mode, URL must match exactly.
+    // Since we proxy, the URL seen by the backend is `serviceUrl + path`.
+    // The U tag must match that.
+    try {
+        const evt = await createNip98Event(fullUrl, method);
+        const token = btoa(JSON.stringify(evt));
+        headers['Authorization'] = `Nostr ${token}`;
+    } catch (e) {
+        log(`Auth Error: ${e.message}`);
+        throw e;
+    }
+  }
+
+  // Use local proxy
+  const proxyUrl = `/api/proxy?target=${encodeURIComponent(serviceUrl)}&path=${encodeURIComponent(path)}`;
+  
+  const res = await fetch(proxyUrl, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  
+  if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API ${res.status}: ${text}`);
+  }
+  return await res.json();
+};
+
 // Check Setup Status
 const checkSetupStatus = async () => {
     try {
@@ -175,75 +292,7 @@ authModeSelect.addEventListener('change', () => {
       nip46Fields.classList.remove('hidden');
       if (!appKeyPair.secret) generateNip46Session();
   }
-  if (authMode === 'key') keyFields.classList.remove('hidden');
-});
 
-// NIP-98 Helper
-const createNip98Event = async (url, method) => {
-  const uTag = ['u', url];
-  const mTag = ['m', method.toUpperCase()];
-  
-  const unsigned = {
-    kind: 27235,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [uTag, mTag],
-    content: '',
-  };
-
-  if (authMode === 'nip07') {
-    if (!window.nostr) throw new Error('No NIP-07 extension found');
-    return await window.nostr.signEvent(unsigned);
-  } 
-  
-  if (authMode === 'nip46') {
-      if (!remoteSignerPubkey) throw new Error('NIP-46 not connected');
-      // Send sign_event RPC
-      return await rpcNip46('sign_event', [JSON.stringify(unsigned)]);
-  }
-
-  throw new Error('Unsupported auth mode for NIP-98');
-};
-
-// API Helper
-const apiCall = async (path, method = 'GET', body = null) => {
-  serviceUrl = document.getElementById('service-url').value.replace(/\/$/, '');
-  const fullUrl = `${serviceUrl}${path}`;
-  
-  const headers = { 'Content-Type': 'application/json' };
-
-  if (authMode === 'key') {
-    headers['X-Admin-Key'] = document.getElementById('admin-key').value;
-  } else {
-    // Generate fresh NIP-98 token for each request (or reuse valid one)
-    // For simplicity, we generate one per request (timestamp dependent).
-    // Note: In strict mode, URL must match exactly.
-    // Since we proxy, the URL seen by the backend is `serviceUrl + path`.
-    // The U tag must match that.
-    try {
-        const evt = await createNip98Event(fullUrl, method);
-        const token = btoa(JSON.stringify(evt));
-        headers['Authorization'] = `Nostr ${token}`;
-    } catch (e) {
-        log(`Auth Error: ${e.message}`);
-        throw e;
-    }
-  }
-
-  // Use local proxy
-  const proxyUrl = `/api/proxy?target=${encodeURIComponent(serviceUrl)}&path=${encodeURIComponent(path)}`;
-  
-  const res = await fetch(proxyUrl, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
-  
-  if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`API ${res.status}: ${text}`);
-  }
-  return await res.json();
-};
 
 // --- NIP-46 Logic ---
 const RELAY_URL = 'wss://relay.damus.io';
@@ -307,54 +356,7 @@ const sendNip46Response = async (targetPubkey, response) => {
     await Promise.any(pool.publish([RELAY_URL], event));
 };
 
-const rpcNip46 = async (method, params) => {
-    return new Promise(async (resolve, reject) => {
-        if (!remoteSignerPubkey) return reject('Not connected');
-        
-        const reqId = Math.random().toString(36).slice(2);
-        const req = { id: reqId, method, params };
-        
-        const encrypted = await window.NostrTools.nip04.encrypt(appKeyPair.secret, remoteSignerPubkey, JSON.stringify(req));
-        
-        const event = finalizeEvent({
-            kind: 24133,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [['p', remoteSignerPubkey]],
-            content: encrypted,
-        }, appKeyPair.secret);
-        
-        // Subscribe for response first
-        const sub = pool.subscribeMany(
-            [RELAY_URL],
-            [{ kinds: [24133], '#p': [appKeyPair.pubkey], authors: [remoteSignerPubkey], since: Math.floor(Date.now() / 1000) }],
-            {
-                onevent: async (evt) => {
-                    try {
-                        const dec = await window.NostrTools.nip04.decrypt(appKeyPair.secret, evt.pubkey, evt.content);
-                        const resp = JSON.parse(dec);
-                        if (resp.id === reqId) {
-                            sub.close();
-                            if (resp.error) reject(resp.error);
-                            else resolve(resp.result); // For sign_event, result is the signed event object
-                        }
-                    } catch (e) {
-                         // ignore irrelevant messages
-                    }
-                }
-            }
-        );
 
-        await Promise.any(pool.publish([RELAY_URL], event));
-        
-        // Timeout
-        setTimeout(() => {
-            sub.close();
-            reject('NIP-46 Timeout');
-        }, 30000);
-    });
-};
-
-nip46GenBtn.addEventListener('click', generateNip46Session);
 
 // --- Dashboard Logic ---
 
