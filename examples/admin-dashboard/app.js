@@ -292,6 +292,8 @@ authModeSelect.addEventListener('change', () => {
       nip46Fields.classList.remove('hidden');
       if (!appKeyPair.secret) generateNip46Session();
   }
+  if (authMode === 'key') keyFields.classList.remove('hidden');
+});
 
 
 // --- NIP-46 Logic ---
