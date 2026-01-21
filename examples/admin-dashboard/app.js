@@ -74,11 +74,13 @@ const checkSetupStatus = async () => {
         }
     } catch (e) {
         console.log('Setup check failed:', e);
+        // Retry if service is starting up
+        setTimeout(checkSetupStatus, 3000);
     }
 };
 
 serviceUrlInput.addEventListener('blur', checkSetupStatus);
-setTimeout(checkSetupStatus, 500);
+checkSetupStatus();
 
 // Claim Logic
 claimBtn.addEventListener('click', async () => {
