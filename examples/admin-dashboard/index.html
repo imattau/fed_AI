@@ -35,19 +35,21 @@
 
         <div id="step-config" class="step hidden">
             <h4>Step 2: Configure Service</h4>
-            <div class="form-group">
-                <label>Router Endpoint</label>
-                <input id="setup-router-url" type="text" placeholder="http://router:8080" value="http://localhost:8080">
-            </div>
-            <div class="form-group">
-                <label>Nostr Relays</label>
-                <input id="setup-relays" type="text" placeholder="wss://relay.damus.io, wss://relay.snort.social">
-            </div>
-            <div class="form-group">
-                <label>Lightning (NWC URL)</label>
-                <input id="setup-nwc-url" type="password" placeholder="nostr+walletconnect://...">
-            </div>
-            <button id="save-config-btn">Save & Initialize</button>
+            <form onsubmit="event.preventDefault();">
+                <div class="form-group">
+                    <label>Router Endpoint</label>
+                    <input id="setup-router-url" type="text" placeholder="http://router:8080" value="http://localhost:8080">
+                </div>
+                <div class="form-group">
+                    <label>Nostr Relays</label>
+                    <input id="setup-relays" type="text" placeholder="wss://relay.damus.io, wss://relay.snort.social">
+                </div>
+                <div class="form-group">
+                    <label>Lightning (NWC URL)</label>
+                    <input id="setup-nwc-url" type="password" placeholder="nostr+walletconnect://..." autocomplete="off">
+                </div>
+                <button id="save-config-btn" type="submit">Save & Initialize</button>
+            </form>
         </div>
       </section>
 
@@ -56,38 +58,40 @@
         <h3>Connect</h3>
         <p>Login to manage your Node or Router.</p>
         
-        <div class="form-group">
-            <label>Service Endpoint</label>
-            <input id="service-url" type="text" placeholder="http://localhost:8081" value="http://localhost:8081">
-        </div>
-        
-        <div class="form-group">
-            <label>Auth Mode</label>
-            <select id="auth-mode">
-                <option value="nip07">Browser Extension (NIP-07)</option>
-                <option value="nip46">Remote Signer (NIP-46 / QR)</option>
-                <option value="key">Legacy Admin Key</option>
-            </select>
-        </div>
+        <form id="auth-form" onsubmit="event.preventDefault();">
+            <div class="form-group">
+                <label>Service Endpoint</label>
+                <input id="service-url" type="text" placeholder="http://localhost:8081" value="http://localhost:8081">
+            </div>
+            
+            <div class="form-group">
+                <label>Auth Mode</label>
+                <select id="auth-mode">
+                    <option value="nip07">Browser Extension (NIP-07)</option>
+                    <option value="nip46">Remote Signer (NIP-46 / QR)</option>
+                    <option value="key">Legacy Admin Key</option>
+                </select>
+            </div>
 
-        <div id="nip07-fields" class="form-group">
-            <label>Admin NPUB</label>
-            <input id="admin-npub" type="text" placeholder="npub1...">
-        </div>
+            <div id="nip07-fields" class="form-group">
+                <label>Admin NPUB</label>
+                <input id="admin-npub" type="text" placeholder="npub1...">
+            </div>
 
-        <div id="nip46-fields" class="form-group hidden">
-            <label>Remote Pairing</label>
-            <div id="qrcode"></div>
-            <input id="nip46-bunker-url" type="text" readonly style="font-size: 11px; opacity: 0.6; cursor: pointer;">
-            <button id="nip46-gen-btn" style="margin-top: 10px; background: var(--card-bg); font-size: 12px; padding: 8px;">Regenerate QR</button>
-        </div>
+            <div id="nip46-fields" class="form-group hidden">
+                <label>Remote Pairing</label>
+                <div id="qrcode"></div>
+                <input id="nip46-bunker-url" type="text" readonly style="font-size: 11px; opacity: 0.6; cursor: pointer;">
+                <button id="nip46-gen-btn" type="button" style="margin-top: 10px; background: var(--card-bg); font-size: 12px; padding: 8px;">Regenerate QR</button>
+            </div>
 
-        <div id="key-fields" class="form-group hidden">
-            <label>Admin Key</label>
-            <input id="admin-key" type="password" placeholder="••••••••">
-        </div>
+            <div id="key-fields" class="form-group hidden">
+                <label>Admin Key</label>
+                <input id="admin-key" type="password" placeholder="••••••••" autocomplete="current-password">
+            </div>
 
-        <button id="connect-btn">Secure Login</button>
+            <button id="connect-btn" type="submit">Secure Login</button>
+        </form>
       </section>
 
       <!-- Dashboard Section -->

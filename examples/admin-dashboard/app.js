@@ -30,7 +30,12 @@ const claimBtn = document.getElementById('claim-btn');
 const saveConfigBtn = document.getElementById('save-config-btn');
 const serviceUrlInput = document.getElementById('service-url');
 
-// ... (logger)
+const log = (msg) => {
+    const el = document.createElement('div');
+    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logBox.prepend(el);
+    console.log(msg);
+};
 
 // Check Setup Status
 const checkSetupStatus = async () => {
