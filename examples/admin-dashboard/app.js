@@ -1,7 +1,7 @@
 const { generateSecretKey, getPublicKey, finalizeEvent, nip19, SimplePool } = window.NostrTools;
 
 // State
-let serviceUrl = 'http://localhost:8081';
+let serviceUrl = 'http://node:8081';
 let authMode = 'nip07';
 let adminKey = '';
 let adminNpub = '';

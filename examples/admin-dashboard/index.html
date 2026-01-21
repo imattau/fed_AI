@@ -61,7 +61,7 @@
         <form id="auth-form" onsubmit="event.preventDefault();">
             <div class="form-group">
                 <label>Service Endpoint</label>
-                <input id="service-url" type="text" placeholder="http://localhost:8081" value="http://localhost:8081">
+                <input id="service-url" type="text" placeholder="http://node:8081" value="http://node:8081">
             </div>
             
             <div class="form-group">
@@ -81,7 +81,7 @@
             <div id="nip46-fields" class="form-group hidden">
                 <label>Remote Pairing</label>
                 <div id="qrcode"></div>
-                <input id="nip46-bunker-url" type="text" readonly style="font-size: 11px; opacity: 0.6; cursor: pointer;">
+                <input id="nip46-bunker-url" type="text" readonly style="font-size: 11px; opacity: 0.6; cursor: pointer;" autocomplete="off">
                 <button id="nip46-gen-btn" type="button" style="margin-top: 10px; background: var(--card-bg); font-size: 12px; padding: 8px;">Regenerate QR</button>
             </div>
 
