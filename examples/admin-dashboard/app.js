@@ -511,12 +511,15 @@ const loadStatus = async () => {
              document.getElementById('status-raw').textContent = JSON.stringify(status, null, 2);
              
              // Detect type and toggle tabs
+             const identitySpan = document.getElementById('service-identity');
              if (status.nodeId) {
                  // It's a Node
+                 identitySpan.textContent = `(Node: ${status.nodeId})`;
                  document.getElementById('tab-nodes-btn').style.display = 'none';
                  document.getElementById('tab-models-btn').style.display = 'inline-block';
              } else if (status.routerId) {
                  // It's a Router
+                 identitySpan.textContent = `(Router: ${status.routerId})`;
                  document.getElementById('tab-nodes-btn').style.display = 'inline-block';
                  document.getElementById('tab-models-btn').style.display = 'none';
              }
