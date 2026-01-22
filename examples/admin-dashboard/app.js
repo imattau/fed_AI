@@ -233,7 +233,7 @@ claimBtn.addEventListener('click', async () => {
         if (!res.ok) throw new Error(await res.text());
         const body = await res.json();
         
-        log(`Claimed! Admin NPUB: ${body.adminNpub}`);
+        log(`Successfully claimed ownership with your NPUB: ${body.adminNpub}`);
         document.getElementById('admin-npub').value = body.adminNpub;
         
         // Move to Step 2
