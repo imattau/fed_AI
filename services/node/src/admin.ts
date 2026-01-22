@@ -232,7 +232,7 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
         downloads.set(downloadId, { status: 'pending', progress: 0 });
 
         // Start background download
-        downloadModelFile(url, './models', filename, (p) => {
+        downloadModelFile(url, '/models', filename, (p) => {
           const entry = downloads.get(downloadId);
           if (entry) {
             entry.status = 'downloading';
