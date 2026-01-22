@@ -1,10 +1,16 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
 import { RouterConfig } from './config';
 import { RouterService } from './server';
 import { logInfo, logWarn } from './logging';
+
+const getConfigPath = (filename: string): string => {
+  const dir = process.env.ROUTER_CONFIG_DIR || '.';
+  return path.resolve(dir, filename);
+};
 
 const sendJson = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -80,7 +86,7 @@ export const createAdminHandler = (service: RouterService, config: RouterConfig)
 
         const npub = nip19.npubEncode(event.pubkey);
         try {
-            writeFileSync('admin-identity.json', JSON.stringify({ adminNpub: npub }));
+            writeFileSync(getConfigPath('admin-identity.json'), JSON.stringify({ adminNpub: npub }));
             config.adminNpub = npub;
             logInfo(`[router] claimed by ${npub}`);
             return sendJson(res, 200, { status: 'claimed', adminNpub: npub });
@@ -112,13 +118,13 @@ export const createAdminHandler = (service: RouterService, config: RouterConfig)
       try {
         const body = await readJson(req);
         let current = {};
-        try { current = JSON.parse(readFileSync('config.json', 'utf8')); } catch {}
+        try { current = JSON.parse(readFileSync(getConfigPath('config.json'), 'utf8')); } catch {}
         
         const restart = body._restart;
         delete body._restart;
         
         const newConfig = { ...current, ...body };
-        writeFileSync('config.json', JSON.stringify(newConfig, null, 2));
+        writeFileSync(getConfigPath('config.json'), JSON.stringify(newConfig, null, 2));
         
         if (restart) {
              setTimeout(() => process.exit(0), 1000);

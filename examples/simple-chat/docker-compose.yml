@@ -68,6 +68,7 @@ services:
       ln-adapter:
         condition: service_started
     environment:
+      ROUTER_CONFIG_DIR: /config
       ROUTER_ENDPOINT: http://router:8080
       ROUTER_PORT: 8080
       ROUTER_REQUIRE_PAYMENT: "true"
@@ -103,6 +104,7 @@ services:
       ]
     volumes:
       - keys:/keys:ro
+      - router-config:/config
     ports:
       - "18080:8080"
 
@@ -127,6 +129,7 @@ services:
       llama:
         condition: service_started
     environment:
+      NODE_CONFIG_DIR: /config
       NODE_ID: node-llm
       NODE_ENDPOINT: http://node:8081
       NODE_PORT: 8081
@@ -152,6 +155,7 @@ services:
       ]
     volumes:
       - keys:/keys:ro
+      - node-config:/config
 
   node_cpu:
     build:
@@ -167,6 +171,7 @@ services:
       router:
         condition: service_started
     environment:
+      NODE_CONFIG_DIR: /config
       NODE_ID: node-cpu
       NODE_ENDPOINT: http://node_cpu:8082
       NODE_PORT: 8082
@@ -192,6 +197,7 @@ services:
       ]
     volumes:
       - keys:/keys:ro
+      - node-cpu-config:/config
 
   node_grok:
     build:
@@ -207,6 +213,7 @@ services:
       router:
         condition: service_started
     environment:
+      NODE_CONFIG_DIR: /config
       NODE_ID: node-grok
       NODE_ENDPOINT: http://node_grok:8083
       NODE_PORT: 8083
@@ -234,6 +241,7 @@ services:
       ]
     volumes:
       - keys:/keys:ro
+      - node-grok-config:/config
 
   llama:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
@@ -316,3 +324,7 @@ services:
 volumes:
   keys:
   pgdata:
+  router-config:
+  node-config:
+  node-cpu-config:
+  node-grok-config:

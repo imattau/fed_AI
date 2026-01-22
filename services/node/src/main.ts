@@ -29,14 +29,22 @@ import { logInfo, logWarn } from './logging';
 import { createPostgresNonceStore } from './storage/postgres-nonce';
 import { FileNonceStore, InMemoryNonceStore, NonceStore } from '@fed-ai/protocol';
 
+import path from 'node:path';
+
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
 };
 
+const getConfigPath = (filename: string): string => {
+  const dir = process.env.NODE_CONFIG_DIR || '.';
+  return path.resolve(dir, filename);
+};
+
 const loadDynamicConfig = (): Partial<NodeConfig> & { adminNpub?: string } => {
   try {
-    if (existsSync('config.json')) {
-      const content = readFileSync('config.json', 'utf8');
+    const filePath = getConfigPath('config.json');
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf8');
       return JSON.parse(content);
     }
   } catch (e) {
@@ -47,8 +55,9 @@ const loadDynamicConfig = (): Partial<NodeConfig> & { adminNpub?: string } => {
 
 const loadAdminIdentity = (): { adminNpub?: string } => {
   try {
-    if (existsSync('admin-identity.json')) {
-      const content = readFileSync('admin-identity.json', 'utf8');
+    const filePath = getConfigPath('admin-identity.json');
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf8');
       return JSON.parse(content);
     }
   } catch (e) {

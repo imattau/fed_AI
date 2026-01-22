@@ -22,14 +22,22 @@ import { createFederationRateLimiter } from './federation/rate-limit';
 import { createRateLimiter } from './rate-limit';
 import { reconcilePayments } from './payments/reconcile';
 
+import path from 'node:path';
+
 const getEnv = (key: string): string | undefined => {
   return process.env[key];
 };
 
+const getConfigPath = (filename: string): string => {
+  const dir = process.env.ROUTER_CONFIG_DIR || '.';
+  return path.resolve(dir, filename);
+};
+
 const loadDynamicConfig = (): Partial<RouterConfig> & { adminNpub?: string } => {
   try {
-    if (existsSync('config.json')) {
-      const content = readFileSync('config.json', 'utf8');
+    const filePath = getConfigPath('config.json');
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf8');
       return JSON.parse(content);
     }
   } catch (e) {
@@ -40,8 +48,9 @@ const loadDynamicConfig = (): Partial<RouterConfig> & { adminNpub?: string } => 
 
 const loadAdminIdentity = (): { adminNpub?: string } => {
   try {
-    if (existsSync('admin-identity.json')) {
-      const content = readFileSync('admin-identity.json', 'utf8');
+    const filePath = getConfigPath('admin-identity.json');
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf8');
       return JSON.parse(content);
     }
   } catch (e) {
