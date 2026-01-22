@@ -196,7 +196,9 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
     if (req.method === 'GET' && req.url === '/admin/models/available') {
       try {
         const files = await readdir('/models');
-        const models = files.filter(f => f.endsWith('.gguf')).map(f => ({ filename: f }));
+        const models = files
+            .filter(f => f.endsWith('.gguf') && f !== 'current.gguf')
+            .map(f => ({ filename: f }));
         return sendJson(res, 200, { models });
       } catch (error) {
         return sendJson(res, 500, { error: String(error) });

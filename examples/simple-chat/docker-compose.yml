@@ -23,7 +23,7 @@ services:
       [
         "sh",
         "-c",
-        "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi; if [ ! -f /models/current.gguf ]; then cp /models/tinyllama.gguf /models/current.gguf; fi",
+        "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi; ln -sf /models/tinyllama.gguf /models/current.gguf",
       ]
 
   postgres:
