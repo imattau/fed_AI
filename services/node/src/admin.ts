@@ -129,6 +129,7 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
         delete body._restart;
         
         const newConfig = { ...current, ...body };
+        Object.assign(config, newConfig); // Update in-memory config
         writeFileSync(getConfigPath('config.json'), JSON.stringify(newConfig, null, 2));
         
         if (restart) {
@@ -151,6 +152,7 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
         let current = {};
         try { current = JSON.parse(readFileSync(getConfigPath('config.json'), 'utf8')); } catch {}
         const newConfig = { ...current, defaultModelId: modelId };
+        config.defaultModelId = modelId; // Update in-memory config
         writeFileSync(getConfigPath('config.json'), JSON.stringify(newConfig, null, 2));
 
         // Update symlink/copy
