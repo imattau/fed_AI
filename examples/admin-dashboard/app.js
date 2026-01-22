@@ -374,7 +374,7 @@ const sendNip46Response = async (targetPubkey, response) => {
 
 // --- Dashboard Logic ---
 
-const loadAvailableModels = async () => {
+const loadAvailableModels = async (activeId) => {
     try {
         const res = await apiCall('/admin/models/available');
         const list = document.getElementById('available-models-list');
@@ -382,22 +382,28 @@ const loadAvailableModels = async () => {
         
         if (res.models && res.models.length > 0) {
             res.models.forEach(m => {
+                const isActive = activeId && (m.filename === activeId || activeId.endsWith(m.filename)); // loose match
                 const row = document.createElement('div');
                 row.className = 'node-item';
                 row.style.marginBottom = '5px';
                 row.style.display = 'flex';
                 row.style.alignItems = 'center';
+                row.style.background = isActive ? '#1a472a' : '';
                 
                 const activeBtn = document.createElement('button');
-                activeBtn.textContent = 'Set Active';
+                activeBtn.textContent = isActive ? 'Active' : 'Set Active';
+                activeBtn.disabled = isActive;
                 activeBtn.style.marginRight = '10px';
-                activeBtn.style.background = 'var(--status-warn)';
-                activeBtn.style.fontSize = '12px';
-                activeBtn.style.padding = '4px 8px';
+                activeBtn.style.background = isActive ? 'transparent' : 'var(--status-warn)';
+                activeBtn.style.border = isActive ? '1px solid #8fdf82' : '';
+                activeBtn.style.color = isActive ? '#8fdf82' : '';
+                
                 activeBtn.onclick = async () => {
+                    if (isActive) return;
                     try {
                         await apiCall('/admin/models/set-active', 'POST', { filename: m.filename, modelId: m.filename });
-                        log(`Set ${m.filename} as active model. Please restart the Llama runner.`);
+                        log(`Set ${m.filename} as active. RESTART THE LLAMA CONTAINER to apply changes.`);
+                        loadModelsTab(); // refresh list
                     } catch (e) {
                         log(`Set Active Failed: ${e.message}`);
                     }
@@ -405,6 +411,14 @@ const loadAvailableModels = async () => {
                 
                 row.appendChild(activeBtn);
                 row.append(m.filename);
+                if (isActive) {
+                    const badge = document.createElement('span');
+                    badge.textContent = ' (Current)';
+                    badge.style.color = '#8fdf82';
+                    badge.style.fontSize = '0.8em';
+                    badge.style.marginLeft = '5px';
+                    row.appendChild(badge);
+                }
                 list.appendChild(row);
             });
         } else {
@@ -416,14 +430,14 @@ const loadAvailableModels = async () => {
 };
 
 const loadModelsTab = async () => {
-    loadAvailableModels();
     try {
         const config = await apiCall('/admin/config');
         if (config.hfToken) {
             document.getElementById('hf-token').value = config.hfToken;
         }
+        loadAvailableModels(config.defaultModelId);
     } catch (e) {
-        // ignore
+        loadAvailableModels();
     }
 };
 

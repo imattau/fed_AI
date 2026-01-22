@@ -172,16 +172,19 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
         const targetPath = path.resolve('/models', filename);
         const linkPath = path.resolve('/models', 'current.gguf');
         
-        if (existsSync('/models')) {
-             try {
-                 if (existsSync(linkPath)) await unlink(linkPath);
-                 await symlink(targetPath, linkPath);
-             } catch (e) {
-                 // If symlink fails (e.g. cross-device), try copy?
-                 // Or log warning.
-                 logWarn('[admin] failed to update symlink', e);
-                 // Fallback: copy? Too slow.
+        if (!existsSync('/models')) {
+             return sendJson(res, 500, { error: '/models directory not found' });
+        }
+
+        try {
+             if (existsSync(linkPath)) {
+                 try { await unlink(linkPath); } catch {}
              }
+             await symlink(targetPath, linkPath);
+             logInfo(`[admin] set active model symlink to ${filename}`);
+        } catch (e) {
+             logWarn('[admin] failed to update symlink', e);
+             return sendJson(res, 500, { error: `symlink-failed: ${e}` });
         }
 
         return sendJson(res, 200, { status: 'updated', modelId });
