@@ -4,7 +4,7 @@ import path from 'node:path';
 import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
 import { NodeConfig } from './config';
-import { downloadModelFile, searchGGUF } from './utils/huggingface';
+import { downloadModelFile, searchGGUF, searchModels } from './utils/huggingface';
 import { logInfo, logWarn } from './logging';
 import { NodeService } from './server';
 
@@ -144,8 +144,14 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
       try {
         const body = await readJson(req);
         if (!body.modelId) return sendJson(res, 400, { error: 'modelId required' });
-        const files = await searchGGUF(body.modelId, config.hfToken);
-        return sendJson(res, 200, { files });
+        
+        if (body.modelId.includes('/')) {
+            const files = await searchGGUF(body.modelId, config.hfToken);
+            return sendJson(res, 200, { files });
+        } else {
+            const models = await searchModels(body.modelId, config.hfToken);
+            return sendJson(res, 200, { models });
+        }
       } catch (error) {
         return sendJson(res, 500, { error: String(error) });
       }

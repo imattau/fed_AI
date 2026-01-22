@@ -34,6 +34,28 @@ export const searchGGUF = async (modelId: string, token?: string): Promise<HFMod
     .sort((a: any, b: any) => a.sizeBytes - b.sizeBytes);
 };
 
+export type HFModel = {
+  id: string;
+  likes: number;
+  downloads: number;
+};
+
+export const searchModels = async (query: string, token?: string): Promise<HFModel[]> => {
+  const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=likes&direction=-1&limit=10`;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`Failed to search models: ${res.statusText}`);
+  
+  const models = (await res.json()) as any[];
+  return models.map((m: any) => ({
+    id: m.modelId || m.id,
+    likes: m.likes,
+    downloads: m.downloads,
+  }));
+};
+
 export type DownloadProgress = {
   total: number;
   current: number;

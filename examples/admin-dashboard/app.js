@@ -455,7 +455,21 @@ const searchModels = async () => {
         const list = document.getElementById('model-files-list');
         list.innerHTML = '';
         
-        if (res.files) {
+        if (res.models) {
+            res.models.forEach(m => {
+                const row = document.createElement('div');
+                row.style.marginBottom = '8px';
+                row.className = 'card';
+                row.style.cursor = 'pointer';
+                row.innerHTML = `<strong>${m.id}</strong> <small>(${m.likes} likes)</small>`;
+                row.onclick = () => {
+                    document.getElementById('hf-model-id').value = m.id;
+                    searchModels();
+                };
+                list.appendChild(row);
+            });
+            if (res.models.length === 0) list.textContent = 'No GGUF models found.';
+        } else if (res.files) {
             res.files.forEach(f => {
                 const row = document.createElement('div');
                 row.style.marginBottom = '5px';
@@ -468,6 +482,7 @@ const searchModels = async () => {
                 row.append(` ${f.path}`);
                 list.appendChild(row);
             });
+            if (res.files.length === 0) list.textContent = 'No GGUF files found in this repo.';
         }
     } catch (e) {
         log(`Search Failed: ${e.message}`);
