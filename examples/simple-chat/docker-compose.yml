@@ -105,8 +105,7 @@ services:
     volumes:
       - keys:/keys:ro
       - router-config:/config
-      - ../../services/router:/app/services/router
-      - ../../packages:/app/packages
+      - ../../services/router/src:/app/services/router/src
     ports:
       - "18080:8080"
 
@@ -158,8 +157,7 @@ services:
     volumes:
       - keys:/keys:ro
       - node-config:/config
-      - ../../services/node:/app/services/node
-      - ../../packages:/app/packages
+      - ../../services/node/src:/app/services/node/src
 
   node_cpu:
     build:
@@ -202,8 +200,7 @@ services:
     volumes:
       - keys:/keys:ro
       - node-cpu-config:/config
-      - ../../services/node:/app/services/node
-      - ../../packages:/app/packages
+      - ../../services/node/src:/app/services/node/src
 
   node_grok:
     build:
@@ -248,8 +245,7 @@ services:
     volumes:
       - keys:/keys:ro
       - node-grok-config:/config
-      - ../../services/node:/app/services/node
-      - ../../packages:/app/packages
+      - ../../services/node/src:/app/services/node/src
 
   llama:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
