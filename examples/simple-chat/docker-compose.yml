@@ -23,7 +23,7 @@ services:
       [
         "sh",
         "-c",
-        "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi",
+        "if [ ! -f /models/tinyllama.gguf ]; then echo 'downloading model'; curl -L \"$$MODEL_URL\" -o /models/tinyllama.gguf; else echo 'model already present'; fi; if [ ! -f /models/current.gguf ]; then cp /models/tinyllama.gguf /models/current.gguf; fi",
       ]
 
   postgres:
@@ -158,6 +158,7 @@ services:
       - keys:/keys:ro
       - node-config:/config
       - ../../services/node/src:/app/services/node/src
+      - ./models:/models
 
   node_cpu:
     build:
@@ -254,7 +255,7 @@ services:
     command:
       [
         "-m",
-        "/models/tinyllama.gguf",
+        "/models/current.gguf",
         "-c",
         "2048",
         "--host",

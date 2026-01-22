@@ -236,12 +236,12 @@ const buildRunner = (config: NodeConfig): Runner => {
   if (config.runnerName === 'llama_cpp') {
     const runnerUrl = getEnv('NODE_LLAMA_CPP_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
     ensureEndpointAllowed(runnerUrl);
-    return new LlamaCppRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_MODEL_ID') ?? 'llama-model', apiKey: getEnv('NODE_LLAMA_CPP_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
+    return new LlamaCppRunner({ baseUrl: runnerUrl, defaultModelId: config.defaultModelId ?? getEnv('NODE_MODEL_ID') ?? 'llama-model', apiKey: getEnv('NODE_LLAMA_CPP_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
   if (config.runnerName === 'vllm') {
     const runnerUrl = getEnv('NODE_VLLM_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'http://localhost:8085';
     ensureEndpointAllowed(runnerUrl);
-    return new VllmRunner({ baseUrl: runnerUrl, defaultModelId: getEnv('NODE_MODEL_ID') ?? 'vllm-model', apiKey: getEnv('NODE_VLLM_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
+    return new VllmRunner({ baseUrl: runnerUrl, defaultModelId: config.defaultModelId ?? getEnv('NODE_MODEL_ID') ?? 'vllm-model', apiKey: getEnv('NODE_VLLM_API_KEY') ?? getEnv('NODE_RUNNER_API_KEY'), timeoutMs: config.runnerTimeoutMs });
   }
   if (config.runnerName === 'openai') {
     const runnerUrl = getEnv('NODE_OPENAI_URL') ?? getEnv('NODE_RUNNER_URL') ?? 'https://api.openai.com';
@@ -348,7 +348,7 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
   const pricingUnit = config.pricingUnit ?? 'token';
   const pricingInput = config.pricingInputSats ?? 0;
   const pricingOutput = config.pricingOutputSats ?? 0;
-  const fallbackModelId = getEnv('NODE_MODEL_ID') ?? 'default-model';
+  const fallbackModelId = config.defaultModelId ?? getEnv('NODE_MODEL_ID') ?? 'default-model';
   const fallbackContextWindow = config.maxTokens ?? 4096;
   let models: ModelInfo[] = [];
   try { models = await runner.listModels(); } catch { models = []; }

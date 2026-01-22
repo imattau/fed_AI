@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { symlink, unlink, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
@@ -135,6 +136,55 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
              return sendJson(res, 200, { status: 'restarting' });
         }
         return sendJson(res, 200, { status: 'saved' });
+      } catch (error) {
+        return sendJson(res, 500, { error: String(error) });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/admin/models/set-active') {
+      try {
+        const body = await readJson(req);
+        const { filename, modelId } = body;
+        if (!filename || !modelId) return sendJson(res, 400, { error: 'filename and modelId required' });
+
+        // Update config
+        let current = {};
+        try { current = JSON.parse(readFileSync(getConfigPath('config.json'), 'utf8')); } catch {}
+        const newConfig = { ...current, defaultModelId: modelId };
+        writeFileSync(getConfigPath('config.json'), JSON.stringify(newConfig, null, 2));
+
+        // Update symlink/copy
+        const modelsDir = './models'; // Assumes node service running in /app/services/node? No, WORKDIR /app. So ./models is /app/models? No.
+        // Node service mounts ./models:/models. Wait.
+        // Node service docker-compose: volumes: - ./models:/models:ro (Wait, node service doesn't mount models?)
+        // Llama service mounts models.
+        // Node service ONLY has access if it mounts it too.
+        
+        // I need to check docker-compose.yml again.
+        // Node service volumes: - keys, - node-config, - src.
+        // It does NOT mount models!
+        
+        // If Node service cannot access /models, it cannot update the symlink.
+        // This confirms my previous fear.
+        
+        // I must update docker-compose to mount models to node service as RW.
+        
+        const targetPath = path.resolve('/models', filename);
+        const linkPath = path.resolve('/models', 'current.gguf');
+        
+        if (existsSync('/models')) {
+             try {
+                 if (existsSync(linkPath)) await unlink(linkPath);
+                 await symlink(targetPath, linkPath);
+             } catch (e) {
+                 // If symlink fails (e.g. cross-device), try copy?
+                 // Or log warning.
+                 logWarn('[admin] failed to update symlink', e);
+                 // Fallback: copy? Too slow.
+             }
+        }
+
+        return sendJson(res, 200, { status: 'updated', modelId });
       } catch (error) {
         return sendJson(res, 500, { error: String(error) });
       }

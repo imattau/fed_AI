@@ -52,6 +52,7 @@ export type NodeConfig = {
   setupMode?: boolean;
   relayBootstrap?: string[];
   hfToken?: string;
+  defaultModelId?: string;
 };
 
 export type WorkerThreadsConfig = {
@@ -125,4 +126,5 @@ export const defaultNodeConfig: NodeConfig = {
   capabilityJobTypes: undefined,
   capabilityLatencyMs: undefined,
   exposeErrors: false,
+  defaultModelId: 'tinyllama',
 };

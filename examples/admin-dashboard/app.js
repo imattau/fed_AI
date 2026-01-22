@@ -520,7 +520,21 @@ const searchModels = async () => {
                 btn.textContent = `Download ${(f.sizeBytes / 1e9).toFixed(2)} GB`;
                 btn.onclick = () => downloadModel(f.downloadUrl, pathBasename(f.path));
                 
+                const activeBtn = document.createElement('button');
+                activeBtn.textContent = 'Set Active';
+                activeBtn.style.marginLeft = '5px';
+                activeBtn.style.background = 'var(--status-warn)'; // Orange/Yellow to indicate action
+                activeBtn.onclick = async () => {
+                    try {
+                        await apiCall('/admin/models/set-active', 'POST', { filename: pathBasename(f.path), modelId: document.getElementById('hf-model-id').value });
+                        log(`Set ${pathBasename(f.path)} as active model. Please restart the Llama runner.`);
+                    } catch (e) {
+                        log(`Set Active Failed: ${e.message}`);
+                    }
+                };
+                
                 row.appendChild(btn);
+                row.appendChild(activeBtn);
                 row.append(` ${f.path}`);
                 list.appendChild(row);
             });
