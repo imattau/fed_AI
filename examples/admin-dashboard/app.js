@@ -406,29 +406,38 @@ const loadConfig = async () => {
 
 const loadStatus = async () => {
     try {
-        // Try router status first, then router nodes (if router) or downloads (if node)
-        // We don't know if we are connected to Node or Router yet.
-        // Try /admin/config to guess? Or just try endpoints.
-        
         // Refresh downloads list (Node specific)
             const dl = await apiCall('/admin/downloads');
-            const list = document.getElementById('downloads-list');
-            if (dl.downloads && dl.downloads.length) {
-                list.innerHTML = dl.downloads.map(d => `
-                    <div class="node-item">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                            <strong>${d.id.split('-')[0]}</strong>
-                            <span class="status-badge ${d.status === 'completed' ? 'status-ok' : 'status-warn'}">${d.status}</span>
+            const activeTasks = dl.downloads && dl.downloads.some(d => d.status === 'downloading' || d.status === 'pending');
+
+            const renderList = (containerId) => {
+                const list = document.getElementById(containerId);
+                if (!list) return;
+                
+                if (dl.downloads && dl.downloads.length) {
+                    list.innerHTML = dl.downloads.map(d => `
+                        <div class="node-item">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <strong>${d.id.split('-')[0]}</strong>
+                                <span class="status-badge ${d.status === 'completed' ? 'status-ok' : 'status-warn'}">${d.status}</span>
+                            </div>
+                            <div style="font-size: 11px; background: #000; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0;">
+                                <div style="background: var(--accent-primary); width: ${d.progress}%; height: 100%;"></div>
+                            </div>
+                            <span style="font-size: 11px;">Progress: ${d.progress.toFixed(1)}%</span>
+                            ${d.error ? `<br><span style="color:var(--status-error); font-size: 11px;">${d.error}</span>` : ''}
                         </div>
-                        <div style="font-size: 11px; background: #000; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0;">
-                            <div style="background: var(--accent-primary); width: ${d.progress}%; height: 100%;"></div>
-                        </div>
-                        <span style="font-size: 11px;">Progress: ${d.progress.toFixed(1)}%</span>
-                        ${d.error ? `<br><span style="color:var(--status-error); font-size: 11px;">${d.error}</span>` : ''}
-                    </div>
-                `).join('');
-            } else {
-                list.textContent = 'No active downloads';
+                    `).join('');
+                } else {
+                    list.textContent = 'No active downloads';
+                }
+            };
+
+            renderList('downloads-list');
+            renderList('models-downloads-list');
+
+            if (activeTasks) {
+                setTimeout(loadStatus, 2000);
             }
         
         // Refresh Service Info
