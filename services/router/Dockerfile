@@ -2,7 +2,7 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-RUN corepack enable
+RUN npm install -g pnpm@9.0.0
 
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages ./packages
