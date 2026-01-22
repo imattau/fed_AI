@@ -414,6 +414,17 @@ const loadStatus = async () => {
              // For router/node generic status
              const status = await apiCall('/status'); // Public endpoint usually
              document.getElementById('status-raw').textContent = JSON.stringify(status, null, 2);
+             
+             // Detect type and toggle tabs
+             if (status.nodeId) {
+                 // It's a Node
+                 document.getElementById('tab-nodes-btn').style.display = 'none';
+                 document.getElementById('tab-models-btn').style.display = 'inline-block';
+             } else if (status.routerId) {
+                 // It's a Router
+                 document.getElementById('tab-nodes-btn').style.display = 'inline-block';
+                 document.getElementById('tab-models-btn').style.display = 'none';
+             }
         } catch (e) {
              document.getElementById('status-raw').textContent = `Error: ${e.message}`;
         }
