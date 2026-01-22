@@ -124,6 +124,13 @@
             <section id="tab-models" class="tab-panel">
                 <div class="card" style="grid-column: 1 / -1;">
                     <h3>Provision GGUF Model</h3>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>HuggingFace Token (optional, for gated models)</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input id="hf-token" type="password" placeholder="hf_..." autocomplete="off">
+                            <button id="save-hf-token-btn" style="background: var(--card-bg); white-space: nowrap;">Save Token</button>
+                        </div>
+                    </div>
                     <div style="display: flex; gap: 10px;">
                         <input id="hf-model-id" type="text" placeholder="HuggingFace Repo (e.g. Bartowski/Llama-3)">
                         <button id="search-model-btn" style="background: var(--accent-secondary); white-space: nowrap;">Search Repository</button>

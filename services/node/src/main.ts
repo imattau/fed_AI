@@ -168,7 +168,7 @@ const buildConfig = (): NodeConfig => {
   const adminIdentity = loadAdminIdentity();
   const adminNpub = getEnv('NODE_ADMIN_NPUB') ?? adminIdentity.adminNpub ?? dynamic.adminNpub;
   const relayBootstrap = dynamic.relayBootstrap ?? parseList(getEnv('NODE_RELAY_BOOTSTRAP'));
-  const hfToken = getEnv('NODE_HF_TOKEN');
+  const hfToken = getEnv('NODE_HF_TOKEN') ?? dynamic.hfToken;
 
   return {
     ...defaultNodeConfig,

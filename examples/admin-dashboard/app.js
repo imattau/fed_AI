@@ -285,6 +285,7 @@ document.querySelectorAll('.tab-button').forEach(btn => {
     
     // Refresh data on tab switch
     if (btn.dataset.tab === 'status') loadStatus();
+    if (btn.dataset.tab === 'models') loadModelsTab();
     if (btn.dataset.tab === 'nodes') loadNodes();
     if (btn.dataset.tab === 'config') loadConfig();
   });
@@ -372,6 +373,27 @@ const sendNip46Response = async (targetPubkey, response) => {
 
 
 // --- Dashboard Logic ---
+
+const loadModelsTab = async () => {
+    try {
+        const config = await apiCall('/admin/config');
+        if (config.hfToken) {
+            document.getElementById('hf-token').value = config.hfToken;
+        }
+    } catch (e) {
+        // ignore
+    }
+};
+
+const saveHfToken = async () => {
+    const hfToken = document.getElementById('hf-token').value;
+    try {
+        await apiCall('/admin/config', 'POST', { hfToken });
+        log('HuggingFace token updated successfully.');
+    } catch (e) {
+        log(`Save HF Token Failed: ${e.message}`);
+    }
+};
 
 const loadConfig = async () => {
     try {
@@ -537,6 +559,7 @@ connectBtn.addEventListener('click', async () => {
 document.getElementById('refresh-downloads').onclick = loadStatus;
 document.getElementById('refresh-nodes').onclick = loadNodes;
 document.getElementById('search-model-btn').onclick = searchModels;
+document.getElementById('save-hf-token-btn').onclick = saveHfToken;
 document.getElementById('block-btn').onclick = blockPubkey;
 
 // Init
