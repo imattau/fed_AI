@@ -297,7 +297,6 @@ authModeSelect.addEventListener('change', () => {
 
 
 // --- NIP-46 Logic ---
-const RELAY_URL = 'wss://relay.damus.io';
 
 const generateNip46Session = () => {
     appKeyPair.secret = generateSecretKey();
