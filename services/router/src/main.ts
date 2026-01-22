@@ -25,7 +25,8 @@ import { reconcilePayments } from './payments/reconcile';
 import path from 'node:path';
 
 const getEnv = (key: string): string | undefined => {
-  return process.env[key];
+  const val = process.env[key];
+  return val === '' ? undefined : val;
 };
 
 const getConfigPath = (filename: string): string => {
