@@ -375,8 +375,8 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
 }
 
 async function startHeartbeat(service: any, config: NodeConfig) {
-  const capabilities = await buildCapabilities(service.runner, config);
   const sendHeartbeat = async (): Promise<void> => {
+    const capabilities = await buildCapabilities(service.runner, config);
     const descriptor: NodeDescriptor = {
       nodeId: config.nodeId,
       keyId: config.keyId,
