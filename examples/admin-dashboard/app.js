@@ -18,6 +18,7 @@ const dashboardSection = document.getElementById('dashboard-section');
 const connectionStatus = document.getElementById('connection-status');
 const authModeSelect = document.getElementById('auth-mode');
 const nip07Fields = document.getElementById('nip07-fields');
+const nsecFields = document.getElementById('nsec-fields');
 const nip46Fields = document.getElementById('nip46-fields');
 const keyFields = document.getElementById('key-fields');
 const qrcodeDiv = document.getElementById('qrcode');
@@ -102,7 +103,19 @@ const createNip98Event = async (url, method) => {
   if (authMode === 'nip07') {
     if (!window.nostr) throw new Error('No NIP-07 extension found');
     return await window.nostr.signEvent(unsigned);
-  } 
+  }
+
+  if (authMode === 'nsec') {
+      const nsec = document.getElementById('admin-nsec').value;
+      if (!nsec) throw new Error('NSEC required');
+      try {
+          const { type, data } = nip19.decode(nsec);
+          if (type !== 'nsec') throw new Error('Invalid NSEC');
+          return finalizeEvent(unsigned, data);
+      } catch (e) {
+          throw new Error('Invalid NSEC format');
+      }
+  }
   
   if (authMode === 'nip46') {
       if (!remoteSignerPubkey) throw new Error('NIP-46 not connected');
@@ -281,10 +294,12 @@ document.querySelectorAll('.tab-button').forEach(btn => {
 authModeSelect.addEventListener('change', () => {
   authMode = authModeSelect.value;
   nip07Fields.classList.add('hidden');
+  nsecFields.classList.add('hidden');
   nip46Fields.classList.add('hidden');
   keyFields.classList.add('hidden');
 
   if (authMode === 'nip07') nip07Fields.classList.remove('hidden');
+  if (authMode === 'nsec') nsecFields.classList.remove('hidden');
   if (authMode === 'nip46') {
       nip46Fields.classList.remove('hidden');
       if (!appKeyPair.secret) generateNip46Session();

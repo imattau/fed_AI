@@ -67,17 +67,22 @@
             <div class="form-group">
                 <label>Auth Mode</label>
                 <select id="auth-mode">
-                    <option value="nip07">Browser Extension (NIP-07)</option>
-                    <option value="nip46">Remote Signer (NIP-46 / QR)</option>
-                    <option value="key">Legacy Admin Key</option>
-                </select>
-            </div>
-
-            <div id="nip07-fields" class="form-group">
-                <label>Admin NPUB</label>
-                <input id="admin-npub" type="text" placeholder="npub1...">
-            </div>
-
+                                    <option value="nip07">Browser Extension (NIP-07)</option>
+                                    <option value="nsec">Paste Private Key (NSEC)</option>
+                                    <option value="nip46">Remote Signer (NIP-46 / QR)</option>
+                                    <option value="key">Legacy Admin Key</option>
+                                </select>
+                            </div>
+                    
+                            <div id="nip07-fields" class="form-group">
+                                <label>Admin NPUB</label>
+                                <input id="admin-npub" type="text" placeholder="npub1...">
+                            </div>
+                    
+                            <div id="nsec-fields" class="form-group hidden">
+                                <label>Admin NSEC</label>
+                                <input id="admin-nsec" type="password" placeholder="nsec1..." autocomplete="off">
+                            </div>
             <div id="nip46-fields" class="form-group hidden">
                 <label>Remote Pairing</label>
                 <div id="qrcode"></div>
