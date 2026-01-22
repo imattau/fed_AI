@@ -374,7 +374,49 @@ const sendNip46Response = async (targetPubkey, response) => {
 
 // --- Dashboard Logic ---
 
+const loadAvailableModels = async () => {
+    try {
+        const res = await apiCall('/admin/models/available');
+        const list = document.getElementById('available-models-list');
+        list.innerHTML = '';
+        
+        if (res.models && res.models.length > 0) {
+            res.models.forEach(m => {
+                const row = document.createElement('div');
+                row.className = 'node-item';
+                row.style.marginBottom = '5px';
+                row.style.display = 'flex';
+                row.style.alignItems = 'center';
+                
+                const activeBtn = document.createElement('button');
+                activeBtn.textContent = 'Set Active';
+                activeBtn.style.marginRight = '10px';
+                activeBtn.style.background = 'var(--status-warn)';
+                activeBtn.style.fontSize = '12px';
+                activeBtn.style.padding = '4px 8px';
+                activeBtn.onclick = async () => {
+                    try {
+                        await apiCall('/admin/models/set-active', 'POST', { filename: m.filename, modelId: m.filename });
+                        log(`Set ${m.filename} as active model. Please restart the Llama runner.`);
+                    } catch (e) {
+                        log(`Set Active Failed: ${e.message}`);
+                    }
+                };
+                
+                row.appendChild(activeBtn);
+                row.append(m.filename);
+                list.appendChild(row);
+            });
+        } else {
+            list.textContent = 'No models found in /models.';
+        }
+    } catch (e) {
+        log(`Load Available Models Failed: ${e.message}`);
+    }
+};
+
 const loadModelsTab = async () => {
+    loadAvailableModels();
     try {
         const config = await apiCall('/admin/config');
         if (config.hfToken) {
@@ -520,21 +562,7 @@ const searchModels = async () => {
                 btn.textContent = `Download ${(f.sizeBytes / 1e9).toFixed(2)} GB`;
                 btn.onclick = () => downloadModel(f.downloadUrl, pathBasename(f.path));
                 
-                const activeBtn = document.createElement('button');
-                activeBtn.textContent = 'Set Active';
-                activeBtn.style.marginLeft = '5px';
-                activeBtn.style.background = 'var(--status-warn)'; // Orange/Yellow to indicate action
-                activeBtn.onclick = async () => {
-                    try {
-                        await apiCall('/admin/models/set-active', 'POST', { filename: pathBasename(f.path), modelId: document.getElementById('hf-model-id').value });
-                        log(`Set ${pathBasename(f.path)} as active model. Please restart the Llama runner.`);
-                    } catch (e) {
-                        log(`Set Active Failed: ${e.message}`);
-                    }
-                };
-                
                 row.appendChild(btn);
-                row.appendChild(activeBtn);
                 row.append(` ${f.path}`);
                 list.appendChild(row);
             });

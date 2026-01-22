@@ -1,6 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { symlink, unlink, copyFile } from 'node:fs/promises';
+import { symlink, unlink, copyFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { verifyEvent, type Event as NostrEvent, nip19 } from 'nostr-tools';
 import { decodeNpubToHex } from '@fed-ai/protocol';
@@ -185,6 +185,16 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
         }
 
         return sendJson(res, 200, { status: 'updated', modelId });
+      } catch (error) {
+        return sendJson(res, 500, { error: String(error) });
+      }
+    }
+
+    if (req.method === 'GET' && req.url === '/admin/models/available') {
+      try {
+        const files = await readdir('/models');
+        const models = files.filter(f => f.endsWith('.gguf')).map(f => ({ filename: f }));
+        return sendJson(res, 200, { models });
       } catch (error) {
         return sendJson(res, 500, { error: String(error) });
       }
