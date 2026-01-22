@@ -56,7 +56,9 @@ const loadDynamicConfig = (): Partial<NodeConfig> & { adminNpub?: string } => {
 const loadAdminIdentity = (): { adminNpub?: string } => {
   try {
     const filePath = getConfigPath('admin-identity.json');
-    if (existsSync(filePath)) {
+    const exists = existsSync(filePath);
+    logInfo(`[node] loading admin identity`, { dir: process.env.NODE_CONFIG_DIR, filePath, exists });
+    if (exists) {
       const content = readFileSync(filePath, 'utf8');
       return JSON.parse(content);
     }
