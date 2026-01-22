@@ -356,7 +356,7 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
   const normalized: Capability[] = models
     .filter((model) => Boolean(model?.id))
     .map((model): Capability => ({
-      modelId: model.id ?? fallbackModelId,
+      modelId: config.defaultModelId ?? model.id ?? fallbackModelId,
       contextWindow: model.contextWindow ?? fallbackContextWindow,
       maxTokens: model.contextWindow ?? fallbackContextWindow,
       pricing: { unit: pricingUnit, inputRate: pricingInput, outputRate: pricingOutput, currency: 'SAT' },
