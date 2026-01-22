@@ -11,9 +11,12 @@ export type HFModelFile = {
   tags?: string[];
 };
 
-export const searchGGUF = async (modelId: string): Promise<HFModelFile[]> => {
+export const searchGGUF = async (modelId: string, token?: string): Promise<HFModelFile[]> => {
   const url = `https://huggingface.co/api/models/${modelId}/tree/main?recursive=true`;
-  const res = await fetch(url);
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     if (res.status === 404) return [];
     throw new Error(`Failed to fetch model tree: ${res.statusText}`);

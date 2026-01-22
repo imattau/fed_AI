@@ -51,6 +51,7 @@ export type NodeConfig = {
   adminNpub?: string;
   setupMode?: boolean;
   relayBootstrap?: string[];
+  hfToken?: string;
 };
 
 export type WorkerThreadsConfig = {

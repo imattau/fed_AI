@@ -144,7 +144,7 @@ export const createAdminHandler = (service: NodeService, config: NodeConfig) => 
       try {
         const body = await readJson(req);
         if (!body.modelId) return sendJson(res, 400, { error: 'modelId required' });
-        const files = await searchGGUF(body.modelId);
+        const files = await searchGGUF(body.modelId, config.hfToken);
         return sendJson(res, 200, { files });
       } catch (error) {
         return sendJson(res, 500, { error: String(error) });
