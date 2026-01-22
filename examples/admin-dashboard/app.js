@@ -114,28 +114,25 @@ const createNip98Event = async (url, method) => {
 };
 
 // API Helper
-const apiCall = async (path, method = 'GET', body = null) => {
+const apiCall = async (path, method = 'GET', body = null, options = {}) => {
   serviceUrl = document.getElementById('service-url').value.replace(/\/$/, '');
   const fullUrl = `${serviceUrl}${path}`;
   
   const headers = { 'Content-Type': 'application/json' };
 
-  if (authMode === 'key') {
-    headers['X-Admin-Key'] = document.getElementById('admin-key').value;
-  } else {
-    // Generate fresh NIP-98 token for each request (or reuse valid one)
-    // For simplicity, we generate one per request (timestamp dependent).
-    // Note: In strict mode, URL must match exactly.
-    // Since we proxy, the URL seen by the backend is `serviceUrl + path`.
-    // The U tag must match that.
-    try {
-        const evt = await createNip98Event(fullUrl, method);
-        const token = btoa(JSON.stringify(evt));
-        headers['Authorization'] = `Nostr ${token}`;
-    } catch (e) {
-        log(`Auth Error: ${e.message}`);
-        throw e;
-    }
+  if (!options.skipAuth) {
+      if (authMode === 'key') {
+        headers['X-Admin-Key'] = document.getElementById('admin-key').value;
+      } else {
+        try {
+            const evt = await createNip98Event(fullUrl, method);
+            const token = btoa(JSON.stringify(evt));
+            headers['Authorization'] = `Nostr ${token}`;
+        } catch (e) {
+            log(`Auth Error: ${e.message}`);
+            throw e;
+        }
+      }
   }
 
   // Use local proxy
@@ -157,7 +154,7 @@ const apiCall = async (path, method = 'GET', body = null) => {
 // Check Setup Status
 const checkSetupStatus = async () => {
     try {
-        const res = await apiCall('/admin/setup/status');
+        const res = await apiCall('/admin/setup/status', 'GET', null, { skipAuth: true });
         
         if (!res.claimed) {
             setupSection.classList.remove('hidden');
