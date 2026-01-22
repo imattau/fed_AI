@@ -9,6 +9,7 @@ let nip98Token = ''; // base64 encoded signed event string
 let appKeyPair = { secret: null, pubkey: null }; // For NIP-46 app identity
 let remoteSignerPubkey = null; // The mobile app's pubkey
 let pool = new SimplePool();
+let currentConfig = {};
 
 // UI Elements
 const logBox = document.getElementById('app-log');
@@ -431,11 +432,11 @@ const loadAvailableModels = async (activeId) => {
 
 const loadModelsTab = async () => {
     try {
-        const config = await apiCall('/admin/config');
-        if (config.hfToken) {
-            document.getElementById('hf-token').value = config.hfToken;
+        await loadConfig();
+        if (currentConfig.hfToken && !document.getElementById('hf-token').value) {
+            document.getElementById('hf-token').value = currentConfig.hfToken;
         }
-        loadAvailableModels(config.defaultModelId);
+        loadAvailableModels(currentConfig.defaultModelId);
     } catch (e) {
         loadAvailableModels();
     }
@@ -454,6 +455,7 @@ const saveHfToken = async () => {
 const loadConfig = async () => {
     try {
         const config = await apiCall('/admin/config');
+        currentConfig = config;
         document.getElementById('config-raw').textContent = JSON.stringify(config, null, 2);
     } catch (e) {
         log(`Load Config Failed: ${e.message}`);
@@ -494,6 +496,12 @@ const loadStatus = async () => {
 
             if (activeTasks) {
                 setTimeout(loadStatus, 2000);
+            }
+            
+            // Refresh Available Models if on Models tab
+            const activeTab = document.querySelector('.tab-button.active');
+            if (activeTab && activeTab.dataset.tab === 'models') {
+                loadAvailableModels(currentConfig.defaultModelId);
             }
         
         // Refresh Service Info
