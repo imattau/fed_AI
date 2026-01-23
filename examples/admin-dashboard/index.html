@@ -125,6 +125,10 @@
                 <div class="card node-only" style="grid-column: 1 / -1;">
                     <h3>Available Models</h3>
                     <div id="available-models-list" style="margin-bottom: 15px;">No models downloaded</div>
+                    <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--accent-primary); padding: 12px; border-radius: 8px; font-size: 13px; color: var(--text-main); margin-top: 15px;">
+                        <strong>Note:</strong> Setting a model as active updates the configuration and symlinks. To load the new model into memory, you must restart the runner service manually:
+                        <code style="display: block; background: var(--input-bg); padding: 8px; margin-top: 5px; border-radius: 4px;">docker compose restart runner</code>
+                    </div>
                 </div>
                 <div class="card node-only" style="grid-column: 1 / -1;">
                     <h3>Active Downloads</h3>
