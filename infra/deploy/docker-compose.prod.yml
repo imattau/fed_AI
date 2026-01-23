@@ -1,7 +1,9 @@
 services:
   router:
     image: ${ROUTER_IMAGE:-fed-ai/router:latest}
+    restart: unless-stopped
     environment:
+      ROUTER_CONFIG_DIR: /config
       ROUTER_PORT: 8080
       ROUTER_ENDPOINT: ${ROUTER_ENDPOINT}
       ROUTER_KEY_ID: ${ROUTER_KEY_ID}
@@ -12,6 +14,8 @@ services:
       ROUTER_REQUIRE_PAYMENT: ${ROUTER_REQUIRE_PAYMENT:-false}
       ROUTER_LN_INVOICE_URL: ${ROUTER_LN_INVOICE_URL}
       ROUTER_LN_VERIFY_URL: ${ROUTER_LN_VERIFY_URL}
+    volumes:
+      - router-config:/config
     ports:
       - "${ROUTER_PUBLIC_PORT:-8080}:8080"
     depends_on:
@@ -20,7 +24,9 @@ services:
 
   node:
     image: ${NODE_IMAGE:-fed-ai/node:latest}
+    restart: unless-stopped
     environment:
+      NODE_CONFIG_DIR: /config
       NODE_PORT: 8081
       NODE_ENDPOINT: ${NODE_ENDPOINT}
       NODE_KEY_ID: ${NODE_KEY_ID}
@@ -30,6 +36,9 @@ services:
       NODE_NONCE_STORE_URL: ${NODE_NONCE_STORE_URL}
       NODE_REQUIRE_PAYMENT: ${NODE_REQUIRE_PAYMENT:-false}
       NODE_LN_VERIFY_URL: ${NODE_LN_VERIFY_URL}
+    volumes:
+      - node-config:/config
+      - models:/models
     ports:
       - "${NODE_PUBLIC_PORT:-8081}:8081"
 
@@ -61,3 +70,8 @@ services:
     ports:
       - "${OTEL_GRPC_PORT:-4317}:4317"
       - "${OTEL_HTTP_PORT:-4318}:4318"
+
+volumes:
+  node-config:
+  router-config:
+  models:
