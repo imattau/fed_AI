@@ -558,11 +558,40 @@ const loadNodes = async () => {
                  const div = document.createElement('div');
                  div.className = 'card';
                  div.style.border = '1px solid #444';
-                 div.innerHTML = `
-                    <strong>${node.nodeId}</strong> <br>
+                 div.style.marginBottom = '10px';
+                 
+                 const header = document.createElement('div');
+                 header.style.display = 'flex';
+                 header.style.justifyContent = 'space-between';
+                 header.style.marginBottom = '8px';
+                 
+                 header.innerHTML = `<strong>${node.nodeId}</strong>`;
+                 
+                 const removeBtn = document.createElement('button');
+                 removeBtn.textContent = 'Remove';
+                 removeBtn.style.padding = '4px 8px';
+                 removeBtn.style.fontSize = '12px';
+                 removeBtn.style.background = 'var(--status-error)';
+                 removeBtn.onclick = async () => {
+                     if (!confirm(`Remove node ${node.nodeId}?`)) return;
+                     try {
+                         await apiCall('/admin/nodes', 'DELETE', { nodeId: node.nodeId });
+                         loadNodes();
+                     } catch (e) {
+                         log(`Remove Failed: ${e.message}`);
+                     }
+                 };
+                 
+                 header.appendChild(removeBtn);
+                 div.appendChild(header);
+                 
+                 const body = document.createElement('div');
+                 body.innerHTML = `
                     URL: ${node.endpoint} <br>
                     Models: ${node.capabilities?.map(c => c.modelId).join(', ') || 'none'}
                  `;
+                 div.appendChild(body);
+                 
                  list.appendChild(div);
              });
         }

@@ -143,6 +143,24 @@ export const createAdminHandler = (service: RouterService, config: RouterConfig)
       });
     }
 
+    if (req.method === 'DELETE' && req.url === '/admin/nodes') {
+      try {
+        const body = await readJson(req);
+        if (!body.nodeId) return sendJson(res, 400, { error: 'nodeId required' });
+        
+        const initialCount = service.nodes.length;
+        service.nodes = service.nodes.filter(n => n.nodeId !== body.nodeId);
+        
+        if (service.nodes.length === initialCount) {
+            return sendJson(res, 404, { error: 'node-not-found' });
+        }
+        
+        return sendJson(res, 200, { status: 'removed', nodeId: body.nodeId });
+      } catch (error) {
+        return sendJson(res, 500, { error: String(error) });
+      }
+    }
+
     if (req.method === 'POST' && req.url === '/admin/policy/block') {
       try {
         const body = await readJson(req);
