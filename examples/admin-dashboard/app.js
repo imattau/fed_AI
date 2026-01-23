@@ -463,81 +463,87 @@ const loadConfig = async () => {
 };
 
 const loadStatus = async () => {
+    // 1. Refresh Service Info (Router/Node)
     try {
-        // Refresh downloads list (Node specific)
-            const dl = await apiCall('/admin/downloads');
-            const activeTasks = dl.downloads && dl.downloads.some(d => d.status === 'downloading' || d.status === 'pending');
-
-            const renderList = (containerId) => {
-                const list = document.getElementById(containerId);
-                if (!list) return;
-                
-                if (dl.downloads && dl.downloads.length) {
-                    list.innerHTML = dl.downloads.map(d => `
-                        <div class="node-item">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <strong>${d.id.split('-')[0]}</strong>
-                                <span class="status-badge ${d.status === 'completed' ? 'status-ok' : 'status-warn'}">${d.status}</span>
-                            </div>
-                            <div style="font-size: 11px; background: #000; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0;">
-                                <div style="background: var(--accent-primary); width: ${d.progress}%; height: 100%;"></div>
-                            </div>
-                            <span style="font-size: 11px;">Progress: ${d.progress.toFixed(1)}%</span>
-                            ${d.error ? `<br><span style="color:var(--status-error); font-size: 11px;">${d.error}</span>` : ''}
-                        </div>
-                    `).join('');
-                } else {
-                    list.textContent = 'No active downloads';
-                }
-            };
-
-            renderList('downloads-list');
-            renderList('models-downloads-list');
-
-            if (activeTasks) {
-                setTimeout(loadStatus, 2000);
-            }
-            
-            // Refresh Available Models if on Models tab
-            const activeTab = document.querySelector('.tab-button.active');
-            if (activeTab && activeTab.dataset.tab === 'models') {
-                loadAvailableModels(currentConfig.defaultModelId);
-            }
-        
-        // Refresh Service Info
-        try {
-             // For router/node generic status
-             const status = await apiCall('/status'); // Public endpoint usually
-             document.getElementById('status-raw').textContent = JSON.stringify(status, null, 2);
+         const status = await apiCall('/status');
+         document.getElementById('status-raw').textContent = JSON.stringify(status, null, 2);
+         
+         // Detect type and toggle tabs
+         const identitySpan = document.getElementById('service-identity');
+         const activeTab = document.querySelector('.tab-button.active');
+         
+         if (status.nodeId) {
+             // It's a Node
+             identitySpan.textContent = `(Node: ${status.nodeId})`;
+             document.getElementById('tab-nodes-btn').style.display = 'none';
+             document.getElementById('tab-models-btn').style.display = 'inline-block';
+             document.getElementById('card-downloads').style.display = 'block';
              
-             // Detect type and toggle tabs
-             const identitySpan = document.getElementById('service-identity');
-             const activeTab = document.querySelector('.tab-button.active');
-             
-             if (status.nodeId) {
-                 // It's a Node
-                 identitySpan.textContent = `(Node: ${status.nodeId})`;
-                 document.getElementById('tab-nodes-btn').style.display = 'none';
-                 document.getElementById('tab-models-btn').style.display = 'inline-block';
-                 
-                 if (activeTab && activeTab.dataset.tab === 'nodes') {
-                     document.querySelector('[data-tab="status"]').click();
-                 }
-             } else if (status.routerId) {
-                 // It's a Router
-                 identitySpan.textContent = `(Router: ${status.routerId})`;
-                 document.getElementById('tab-nodes-btn').style.display = 'inline-block';
-                 document.getElementById('tab-models-btn').style.display = 'none';
-                 
-                 if (activeTab && activeTab.dataset.tab === 'models') {
-                     document.querySelector('[data-tab="status"]').click();
-                 }
+             if (activeTab && activeTab.dataset.tab === 'nodes') {
+                 document.querySelector('[data-tab="status"]').click();
              }
-        } catch (e) {
-             document.getElementById('status-raw').textContent = `Error: ${e.message}`;
+         } else if (status.routerId) {
+             // It's a Router
+             identitySpan.textContent = `(Router: ${status.routerId})`;
+             document.getElementById('tab-nodes-btn').style.display = 'inline-block';
+             document.getElementById('tab-models-btn').style.display = 'none';
+             document.getElementById('card-downloads').style.display = 'none';
+             
+             if (activeTab && activeTab.dataset.tab === 'models') {
+                 document.querySelector('[data-tab="status"]').click();
+             }
+         }
+    } catch (e) {
+         document.getElementById('status-raw').textContent = `Error: ${e.message}`;
+         log(`Load Status Failed: ${e.message}`);
+         return;
+    }
+
+    // 2. Refresh downloads list (Node specific)
+    try {
+        const dl = await apiCall('/admin/downloads');
+        const activeTasks = dl.downloads && dl.downloads.some(d => d.status === 'downloading' || d.status === 'pending');
+
+        const renderList = (containerId) => {
+            const list = document.getElementById(containerId);
+            if (!list) return;
+            
+            if (dl.downloads && dl.downloads.length) {
+                list.innerHTML = dl.downloads.map(d => `
+                    <div class="node-item">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <strong>${d.id.split('-')[0]}</strong>
+                            <span class="status-badge ${d.status === 'completed' ? 'status-ok' : 'status-warn'}">${d.status}</span>
+                        </div>
+                        <div style="font-size: 11px; background: #000; height: 4px; border-radius: 2px; overflow: hidden; margin: 8px 0;">
+                            <div style="background: var(--accent-primary); width: ${d.progress}%; height: 100%;"></div>
+                        </div>
+                        <span style="font-size: 11px;">Progress: ${d.progress.toFixed(1)}%</span>
+                        ${d.error ? `<br><span style="color:var(--status-error); font-size: 11px;">${d.error}</span>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                list.textContent = 'No active downloads';
+            }
+        };
+
+        renderList('downloads-list');
+        renderList('models-downloads-list');
+
+        if (activeTasks) {
+            setTimeout(loadStatus, 2000);
+        }
+        
+        // Refresh Available Models if on Models tab
+        const activeTab = document.querySelector('.tab-button.active');
+        if (activeTab && activeTab.dataset.tab === 'models') {
+            loadAvailableModels(currentConfig.defaultModelId);
         }
     } catch (e) {
-        log(`Load Status Failed: ${e.message}`);
+        // Ignore 404 (Router doesn't support downloads)
+        if (!e.message.includes('404')) {
+             console.error('Download list failed:', e);
+        }
     }
 };
 
