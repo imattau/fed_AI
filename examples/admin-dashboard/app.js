@@ -426,7 +426,9 @@ const loadAvailableModels = async (activeId) => {
             list.textContent = 'No models found in /models.';
         }
     } catch (e) {
-        log(`Load Available Models Failed: ${e.message}`);
+        if (!e.message.includes('404')) {
+            log(`Load Available Models Failed: ${e.message}`);
+        }
     }
 };
 
