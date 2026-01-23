@@ -8,7 +8,12 @@ const PORT = process.env.PORT || 3001;
 const serveFile = async (res, filePath, contentType) => {
   try {
     const body = await readFile(filePath);
-    res.writeHead(200, { 'content-type': contentType });
+    res.writeHead(200, {
+      'content-type': contentType,
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
     res.end(body);
   } catch {
     res.writeHead(404);
