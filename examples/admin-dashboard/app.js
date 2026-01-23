@@ -512,16 +512,26 @@ const loadStatus = async () => {
              
              // Detect type and toggle tabs
              const identitySpan = document.getElementById('service-identity');
+             const activeTab = document.querySelector('.tab-button.active');
+             
              if (status.nodeId) {
                  // It's a Node
                  identitySpan.textContent = `(Node: ${status.nodeId})`;
                  document.getElementById('tab-nodes-btn').style.display = 'none';
                  document.getElementById('tab-models-btn').style.display = 'inline-block';
+                 
+                 if (activeTab && activeTab.dataset.tab === 'nodes') {
+                     document.querySelector('[data-tab="status"]').click();
+                 }
              } else if (status.routerId) {
                  // It's a Router
                  identitySpan.textContent = `(Router: ${status.routerId})`;
                  document.getElementById('tab-nodes-btn').style.display = 'inline-block';
                  document.getElementById('tab-models-btn').style.display = 'none';
+                 
+                 if (activeTab && activeTab.dataset.tab === 'models') {
+                     document.querySelector('[data-tab="status"]').click();
+                 }
              }
         } catch (e) {
              document.getElementById('status-raw').textContent = `Error: ${e.message}`;
