@@ -348,7 +348,12 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
   const pricingUnit = config.pricingUnit ?? 'token';
   const pricingInput = config.pricingInputSats ?? 0;
   const pricingOutput = config.pricingOutputSats ?? 0;
-  const fallbackModelId = config.defaultModelId ?? getEnv('NODE_MODEL_ID') ?? 'default-model';
+  
+  // We only want to use the config-level defaultModelId if it was explicitly set 
+  // (not just inherited from defaults, though we removed that default now).
+  const overrideModelId = config.defaultModelId;
+  const fallbackModelId = overrideModelId ?? getEnv('NODE_MODEL_ID') ?? 'default-model';
+  
   const fallbackContextWindow = config.maxTokens ?? 4096;
   let models: ModelInfo[] = [];
   try { models = await runner.listModels(); } catch { models = []; }
@@ -356,7 +361,7 @@ async function buildCapabilities(runner: Runner, config: NodeConfig): Promise<Ca
   const normalized: Capability[] = models
     .filter((model) => Boolean(model?.id))
     .map((model): Capability => ({
-      modelId: config.defaultModelId ?? model.id ?? fallbackModelId,
+      modelId: overrideModelId ?? model.id ?? fallbackModelId,
       contextWindow: model.contextWindow ?? fallbackContextWindow,
       maxTokens: model.contextWindow ?? fallbackContextWindow,
       pricing: { unit: pricingUnit, inputRate: pricingInput, outputRate: pricingOutput, currency: 'SAT' },

@@ -122,9 +122,7 @@ export const defaultNodeConfig: NodeConfig = {
   routerFeeMaxSats: 1000,
   pricingInputSats: 0,
   pricingOutputSats: 0,
-  pricingUnit: 'token',
   capabilityJobTypes: undefined,
   capabilityLatencyMs: undefined,
   exposeErrors: false,
-  defaultModelId: 'tinyllama',
 };
