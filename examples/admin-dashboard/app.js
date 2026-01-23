@@ -476,20 +476,18 @@ const loadStatus = async () => {
          
          if (status.nodeId) {
              // It's a Node
+             document.body.classList.add('service-node');
+             document.body.classList.remove('service-router');
              identitySpan.textContent = `(Node: ${status.nodeId})`;
-             document.getElementById('tab-nodes-btn').style.display = 'none';
-             document.getElementById('tab-models-btn').style.display = 'inline-block';
-             document.getElementById('card-downloads').style.display = 'block';
              
              if (activeTab && activeTab.dataset.tab === 'nodes') {
                  document.querySelector('[data-tab="status"]').click();
              }
          } else if (status.routerId) {
              // It's a Router
+             document.body.classList.add('service-router');
+             document.body.classList.remove('service-node');
              identitySpan.textContent = `(Router: ${status.routerId})`;
-             document.getElementById('tab-nodes-btn').style.display = 'inline-block';
-             document.getElementById('tab-models-btn').style.display = 'none';
-             document.getElementById('card-downloads').style.display = 'none';
              
              if (activeTab && activeTab.dataset.tab === 'models') {
                  document.querySelector('[data-tab="status"]').click();

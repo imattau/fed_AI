@@ -219,6 +219,9 @@ pre {
 
 .hidden { display: none !important; }
 
+body.service-node .router-only { display: none !important; }
+body.service-router .node-only { display: none !important; }
+
 #qrcode {
   padding: 16px;
   background: white;

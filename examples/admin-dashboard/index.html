@@ -103,8 +103,8 @@
       <section id="dashboard-section" class="hidden">
         <nav class="tabs">
           <button class="tab-button active" data-tab="status">Overview</button>
-          <button class="tab-button" data-tab="models" id="tab-models-btn">Model Management</button>
-          <button class="tab-button" data-tab="nodes" id="tab-nodes-btn">Network Nodes</button>
+          <button class="tab-button node-only" data-tab="models" id="tab-models-btn">Model Management</button>
+          <button class="tab-button router-only" data-tab="nodes" id="tab-nodes-btn">Network Nodes</button>
           <button class="tab-button" data-tab="config">Config</button>
         </nav>
 
@@ -114,7 +114,7 @@
                     <h3>Service Status</h3>
                     <pre id="status-raw">Fetching data...</pre>
                 </div>
-                <div class="card" id="card-downloads">
+                <div class="card node-only" id="card-downloads">
                     <h3>Active Downloads</h3>
                     <div id="downloads-list" style="margin-bottom: 15px; color: var(--text-muted);">No active tasks</div>
                     <button id="refresh-downloads" style="background: var(--card-bg); width: 100%;">Sync Status</button>
@@ -122,15 +122,15 @@
             </section>
 
             <section id="tab-models" class="tab-panel">
-                <div class="card" style="grid-column: 1 / -1;">
+                <div class="card node-only" style="grid-column: 1 / -1;">
                     <h3>Available Models</h3>
                     <div id="available-models-list" style="margin-bottom: 15px;">No models downloaded</div>
                 </div>
-                <div class="card" style="grid-column: 1 / -1;">
+                <div class="card node-only" style="grid-column: 1 / -1;">
                     <h3>Active Downloads</h3>
                     <div id="models-downloads-list" style="margin-bottom: 15px; color: var(--text-muted);">No active tasks</div>
                 </div>
-                <div class="card" style="grid-column: 1 / -1;">
+                <div class="card node-only" style="grid-column: 1 / -1;">
                     <h3>Provision GGUF Model</h3>
                     <div class="form-group" style="margin-bottom: 20px;">
                         <label>HuggingFace Token (optional, for gated models)</label>
