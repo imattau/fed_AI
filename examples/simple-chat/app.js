@@ -354,6 +354,7 @@ void updateModelList();
 setInterval(() => {
   void updateRouterDashboard();
   void updateModelList();
+  void updateConfigPanel();
 }, 5000);
 
 const updateConfigPanel = async () => {
