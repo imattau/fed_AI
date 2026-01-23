@@ -127,7 +127,7 @@ services:
         condition: service_completed_successfully
       router:
         condition: service_started
-      llama:
+      runner:
         condition: service_started
     environment:
       NODE_CONFIG_DIR: /config
@@ -141,7 +141,7 @@ services:
       NODE_WORKER_THREADS_TIMEOUT_MS: "2000"
       NODE_LN_VERIFY_URL: http://ln-adapter:4000/verify
       NODE_RUNNER: llama_cpp
-      NODE_LLAMA_CPP_URL: http://llama:8080
+      NODE_LLAMA_CPP_URL: http://runner:8080
       NODE_MODEL_ID: tinyllama
       ROUTER_ENDPOINT: http://router:8080
       NODE_NONCE_STORE_URL: postgres://fedai:fedai@postgres:5432/fedai
@@ -248,7 +248,7 @@ services:
       - node-grok-config:/config
       - ../../services/node/src:/app/services/node/src
 
-  llama:
+  runner:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
     working_dir: /app
     entrypoint: ["/app/llama-server"]

@@ -39,7 +39,7 @@ The Router tab also shows federation/Nostr settings and relay backoff configured
 
 Ports:
 - Router: `http://localhost:18080`
-- llama.cpp: `http://localhost:18085`
+- Runner (llama.cpp): `http://localhost:18085`
 - Lightning adapter: `http://localhost:4000`
 - Postgres: internal only (`postgres:5432`)
 
@@ -48,7 +48,7 @@ Ports:
 The example demonstrates a modular architecture where the **Node Service** (business logic, payments, protocol handling) is separated from the **Inference Runner** (heavy compute).
 
 - **Node (`node-llm`)**: TypeScript service that implements the `fed_AI` protocol. It manages job requests, payments (via LN Adapter), and coordinates with the runner.
-- **Runner (`llama`)**: A dedicated container running `llama.cpp` server. This separation allows the Node logic to run on lightweight hardware while the Runner can be deployed on a GPU-optimized environment (or scaled independently).
+- **Runner (`runner`)**: A dedicated container running `llama.cpp` server. This separation allows the Node logic to run on lightweight hardware while the Runner can be deployed on a GPU-optimized environment (or scaled independently).
 - **Admin Dashboard**: A UI for managing the Node and Router, claiming ownership (via NIP-98), and managing models.
 
 Both the Node and Runner share the `/models` volume, allowing the Node to manage model files (download/switch) which the Runner then serves.
